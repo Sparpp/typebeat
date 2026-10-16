@@ -4,8 +4,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 
-namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
+namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
     /// <summary>
     /// One tap slot in a tap-timing queue: which line, which word inside it, and which SYLLABLE of

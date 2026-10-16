@@ -8,6 +8,7 @@ using System.Linq;
 using System.Text.Json;
 using NUnit.Framework;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Edit;
 using typebeat.Game.Rulesets.TypeBeat.Import;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual

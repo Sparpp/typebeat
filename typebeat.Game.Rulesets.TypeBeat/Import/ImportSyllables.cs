@@ -9,9 +9,10 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using osu.Framework.Logging;
+using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 
-namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
+namespace typebeat.Game.Rulesets.TypeBeat.Import
 {
     /// <summary>
     /// THE IMPORT-TIME SYLLABIFICATION PASS (backlog 363). The engine no longer syllabifies at

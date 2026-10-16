@@ -126,7 +126,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
             // No explicit path: prefer the managed install when it exists.
             string? managed = managedInstallDir();
-            return managed != null && LyricMapImporter.IsLyricLabDir(managed) ? managed : null;
+            return managed != null && AlignerEnvironment.IsLyricLabDir(managed) ? managed : null;
         }
 
         /// <summary>
@@ -158,14 +158,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
         /// <summary>The directory an alignment run would actually use, or null.</summary>
         private string? resolvedAlignerDir()
-            => LyricMapImporter.ResolveLyricLabDir(effectiveConfiguredPath(), startDirectories());
+            => AlignerEnvironment.ResolveLyricLabDir(effectiveConfiguredPath(), startDirectories());
 
         public bool IsInstalled
         {
             get
             {
                 string? dir = resolvedAlignerDir();
-                return dir != null && LyricMapImporter.EnvironmentReady(dir);
+                return dir != null && AlignerEnvironment.EnvironmentReady(dir);
             }
         }
 
@@ -174,7 +174,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             get
             {
                 string? dir = resolvedAlignerDir();
-                return dir != null && LyricMapImporter.EnvironmentNeedsRepair(dir);
+                return dir != null && AlignerEnvironment.EnvironmentNeedsRepair(dir);
             }
         }
 
@@ -184,12 +184,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             {
                 string? dir = resolvedAlignerDir();
 
-                if (dir == null || !LyricMapImporter.EnvironmentReady(dir))
+                if (dir == null || !AlignerEnvironment.EnvironmentReady(dir))
                     return null;
 
                 try
                 {
-                    string marker = Path.Combine(dir, LyricMapImporter.DEVICE_MARKER_FILE);
+                    string marker = Path.Combine(dir, AlignerEnvironment.DEVICE_MARKER_FILE);
                     return File.Exists(marker) ? File.ReadAllText(marker).Trim().ToLowerInvariant() : "cpu";
                 }
                 catch
@@ -204,7 +204,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
         public bool GpuDetected => gpuDetected.Value;
 
-        public string? InstalledVersion => IsInstalled ? LyricMapImporter.ReadAlignerVersion(resolvedAlignerDir()) : null;
+        public string? InstalledVersion => IsInstalled ? AlignerEnvironment.ReadAlignerVersion(resolvedAlignerDir()) : null;
 
         /// <summary>
         /// The version both import entry points require of the aligner they would run (backlog 410):
@@ -213,7 +213,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// for. <see cref="ILocalAlignerManager.VersionStatus"/> reads the same pair through the same
         /// rule for the surfaces that say so in advance.
         /// </summary>
-        public string? ShippedVersion => LyricMapImporter.ReadAlignerVersion(LyricMapImporter.ResolveLyricLabDir(null, startDirectories()));
+        public string? ShippedVersion => AlignerEnvironment.ReadAlignerVersion(AlignerEnvironment.ResolveLyricLabDir(null, startDirectories()));
 
         /// <summary>
         /// Best-effort NVIDIA detection: nvidia-smi ships with the driver and is on PATH on any
@@ -288,9 +288,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             // Source of the component scripts: the copy shipped beside the executable (deployed
             // builds) or a dev checkout found by discovery. The managed install itself also counts
             // (repair-after-update with the shipped copy still preferred for freshness).
-            string? source = LyricMapImporter.ResolveLyricLabDir(null, startDirectories());
+            string? source = AlignerEnvironment.ResolveLyricLabDir(null, startDirectories());
 
-            if (source == null && !LyricMapImporter.IsLyricLabDir(target))
+            if (source == null && !AlignerEnvironment.IsLyricLabDir(target))
                 return LyricImportResult.Fail("this build did not ship the aligner component, update the game and try again");
 
             try
@@ -339,9 +339,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             // adopted by the repair probe.
             try
             {
-                string marker = Path.Combine(target, LyricMapImporter.DEVICE_MARKER_FILE);
+                string marker = Path.Combine(target, AlignerEnvironment.DEVICE_MARKER_FILE);
 
-                if (LyricMapImporter.EnvironmentPresent(target) && File.Exists(marker)
+                if (AlignerEnvironment.EnvironmentPresent(target) && File.Exists(marker)
                     && !File.ReadAllText(marker).Trim().Equals(device, StringComparison.OrdinalIgnoreCase))
                 {
                     progress("switching aligner device flavour, rebuilding the environment...");
@@ -360,7 +360,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             // An existing environment is UPDATED rather than trusted as it stands (backlog 411): the
             // scripts just copied may need packages the venv does not have yet (version 10's
             // fused-evidence pair), and only the setup's update mode installs them.
-            var result = await LyricMapImporter.BootstrapEnvironmentAsync(target, progress, token, device, updateExisting: true).ConfigureAwait(false);
+            var result = await AlignerEnvironment.BootstrapEnvironmentAsync(target, progress, token, device, updateExisting: true).ConfigureAwait(false);
 
             if (!result.Success)
                 return result;

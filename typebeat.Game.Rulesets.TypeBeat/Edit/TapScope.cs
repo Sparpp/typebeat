@@ -8,7 +8,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
     /// <summary>
     /// The lyric section a live tap-timing pass is recording over, in HIT OBJECT terms rather than
-    /// the snapshot indices <see cref="Beatmaps.TapTarget"/> uses, so the editor's display surfaces
+    /// the snapshot indices <see cref="TapTarget"/> uses, so the editor's display surfaces
     /// can ask "is this line mine?" without knowing anything about the queue.
     ///
     /// <para>WHY: during a pass the mapper is timing one section by ear, and every other line on
@@ -35,7 +35,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>
         /// The contiguous run from (<paramref name="firstLine"/>, <paramref name="firstUnit"/>) to
         /// (<paramref name="lastLine"/>, <paramref name="lastUnit"/>) of <paramref name="ordered"/>,
-        /// which is the same span <see cref="Beatmaps.TapTimingBuilder.BuildQueue"/> was handed.
+        /// which is the same span <see cref="TapTimingBuilder.BuildQueue"/> was handed.
         /// </summary>
         public TapScope(IReadOnlyList<TypeBeatHitObject> ordered, int firstLine, int firstUnit, int lastLine, int lastUnit)
         {

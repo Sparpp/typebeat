@@ -11,8 +11,9 @@ using System.Linq;
 using System.Text;
 using System.Xml;
 using System.Xml.Linq;
+using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 
-namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
+namespace typebeat.Game.Rulesets.TypeBeat.Import
 {
     /// <summary>
     /// Apple Music TTML -> type!beat lyric timing. Pure and static, like <see cref="LrcParser"/>:

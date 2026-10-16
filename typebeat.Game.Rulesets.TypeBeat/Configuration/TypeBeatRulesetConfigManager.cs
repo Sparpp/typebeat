@@ -227,7 +227,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// did not opt in to <see cref="UseServerAligner"/>, whose runs take the server's own default
         /// tier), and it never touches the install: the tier is a per-run flag of the same script, so both
         /// tiers work off one environment. An installed aligner older than version 6 has no tiers,
-        /// so the flag is then left out (see <c>LyricMapImporter.AlignerArguments</c>).</para>
+        /// so the flag is then left out (see <c>AlignerEnvironment.AlignerArguments</c>).</para>
         ///
         /// <para>Appended last, like every new member: Realm stores these rows by member name, so
         /// order does not matter to it, but appending keeps that true for anything that ever

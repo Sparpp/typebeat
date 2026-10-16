@@ -11,6 +11,7 @@ using typebeat.Game.Beatmaps;
 using typebeat.Game.Beatmaps.Formats;
 using typebeat.Game.IO;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Edit;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Replays;

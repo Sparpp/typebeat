@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using NUnit.Framework;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Edit;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Import;
 

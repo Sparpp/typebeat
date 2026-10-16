@@ -17,6 +17,7 @@ using typebeat.Game.Beatmaps;
 using typebeat.Game.Beatmaps.Formats;
 using typebeat.Game.IO;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Edit;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Import;
@@ -109,7 +110,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 bool off = LyricMapImportService.HighQualityAlignment(config);
                 Assert.That(off, Is.False, "high accuracy is opt-in");
 
-                var fast = LyricMapImporter.AlignerArguments(lab, "a.mp3", "l.txt", "out", stamped, off);
+                var fast = AlignerEnvironment.AlignerArguments(lab, "a.mp3", "l.txt", "out", stamped, off);
 
                 Assert.That(fast, Does.Not.Contain("--quality"));
                 Assert.That(fast, Is.EqualTo(new[] { "align_lyrics.py", "a.mp3", "l.txt", "-o", "out", "--anchors", "ref" }));
@@ -118,7 +119,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 bool on = LyricMapImportService.HighQualityAlignment(config);
                 Assert.That(on, Is.True);
 
-                var full = LyricMapImporter.AlignerArguments(lab, "a.mp3", "l.txt", "out", stamped, on);
+                var full = AlignerEnvironment.AlignerArguments(lab, "a.mp3", "l.txt", "out", stamped, on);
 
                 Assert.That(full, Is.EqualTo(new[] { "align_lyrics.py", "a.mp3", "l.txt", "-o", "out", "--anchors", "ref", "--quality", "full" }));
             }
@@ -128,9 +129,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             // The flag rides alongside the others rather than replacing them: a CUDA install on bare
             // text still gets its device and its auto anchors.
-            File.WriteAllText(Path.Combine(lab, LyricMapImporter.DEVICE_MARKER_FILE), "cuda\n");
+            File.WriteAllText(Path.Combine(lab, AlignerEnvironment.DEVICE_MARKER_FILE), "cuda\n");
 
-            Assert.That(LyricMapImporter.AlignerArguments(lab, "a.mp3", "l.txt", "out", "hello\nworld\n", true), Is.EqualTo(new[]
+            Assert.That(AlignerEnvironment.AlignerArguments(lab, "a.mp3", "l.txt", "out", "hello\nworld\n", true), Is.EqualTo(new[]
             {
                 "align_lyrics.py", "a.mp3", "l.txt", "-o", "out", "--device", "cuda", "--anchors", "auto", "--quality", "full",
             }));
@@ -152,9 +153,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             string lab = makeLab();
             File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), script);
 
-            Assert.That(LyricMapImporter.AlignerHasQualityTiers(lab), Is.EqualTo(expectFlag));
+            Assert.That(AlignerEnvironment.AlignerHasQualityTiers(lab), Is.EqualTo(expectFlag));
 
-            var args = withoutFusedEvidenceFlags(LyricMapImporter.AlignerArguments(lab, "a.mp3", "l.txt", "out", "[00:01.00] hello\n", true));
+            var args = withoutFusedEvidenceFlags(AlignerEnvironment.AlignerArguments(lab, "a.mp3", "l.txt", "out", "[00:01.00] hello\n", true));
 
             if (expectFlag)
                 Assert.That(args.TakeLast(2), Is.EqualTo(new[] { "--quality", "full" }));
@@ -162,7 +163,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(args, Is.EqualTo(new[] { "align_lyrics.py", "a.mp3", "l.txt", "-o", "out", "--anchors", "ref" }));
 
             // The notice for the old-script case must not claim a stage of the import display.
-            Assert.That(ImportProgressParser.Parse(LyricMapImporter.HIGH_QUALITY_NEEDS_UPDATE).Stage, Is.Null);
+            Assert.That(ImportProgressParser.Parse(AlignerEnvironment.HIGH_QUALITY_NEEDS_UPDATE).Stage, Is.Null);
         }
 
         /// <summary>
@@ -183,9 +184,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             string lab = makeLab();
             File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), script);
 
-            Assert.That(LyricMapImporter.EstimatedVocalsApply(lab, lyrics, mode), Is.EqualTo(expectFlag));
+            Assert.That(AlignerEnvironment.EstimatedVocalsApply(lab, lyrics, mode), Is.EqualTo(expectFlag));
 
-            var args = withoutFusedEvidenceFlags(LyricMapImporter.AlignerArguments(lab, "a.mp3", "l.txt", "out", lyrics, false, mode));
+            var args = withoutFusedEvidenceFlags(AlignerEnvironment.AlignerArguments(lab, "a.mp3", "l.txt", "out", lyrics, false, mode));
             string anchors = LyricMapImporter.AlignerAnchorMode(lyrics);
 
             if (expectFlag)
@@ -205,13 +206,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), "ALIGNER_VERSION = \"7\"\n");
             const string stamped = "[00:01.00] hello\n[00:02.00] world\n";
 
-            Assert.That(LyricMapImporter.AlignerArguments(lab, "a.mp3", "l.txt", "out", stamped, true, AlignerVocalMode.Estimated), Is.EqualTo(new[]
+            Assert.That(AlignerEnvironment.AlignerArguments(lab, "a.mp3", "l.txt", "out", stamped, true, AlignerVocalMode.Estimated), Is.EqualTo(new[]
             {
                 "align_lyrics.py", "a.mp3", "l.txt", "-o", "out", "--anchors", "ref", "--quality", "full", "--vocal-mode", "estimated",
             }));
 
-            Assert.That(LyricMapImporter.AlignerArguments(lab, "a.mp3", "l.txt", "out", stamped, true),
-                Is.EqualTo(LyricMapImporter.AlignerArguments(lab, "a.mp3", "l.txt", "out", stamped, true, AlignerVocalMode.Aligned)));
+            Assert.That(AlignerEnvironment.AlignerArguments(lab, "a.mp3", "l.txt", "out", stamped, true),
+                Is.EqualTo(AlignerEnvironment.AlignerArguments(lab, "a.mp3", "l.txt", "out", stamped, true, AlignerVocalMode.Aligned)));
         }
 
         /// <summary>The command line with backlog 411's fused-evidence flags taken out, for tests about the other flags.</summary>
@@ -254,12 +255,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var core = new List<string> { "align_lyrics.py", "a.mp3", "l.txt", "-o", "out", "--anchors", "ref" };
 
             // The unreadable versions predate the tiers too.
-            if (LyricMapImporter.AlignerHasQualityTiers(lab))
+            if (AlignerEnvironment.AlignerHasQualityTiers(lab))
                 core.AddRange(new[] { "--quality", "full" });
 
-            var args = LyricMapImporter.AlignerArguments(lab, "a.mp3", "l.txt", "out", stamped, true, language: language);
+            var args = AlignerEnvironment.AlignerArguments(lab, "a.mp3", "l.txt", "out", stamped, true, language: language);
 
-            Assert.That(LyricMapImporter.AlignerHasFusedEvidence(lab), Is.EqualTo(expectedLanguage != null));
+            Assert.That(AlignerEnvironment.AlignerHasFusedEvidence(lab), Is.EqualTo(expectedLanguage != null));
 
             if (expectedLanguage == null)
                 Assert.That(args, Is.EqualTo(core));
@@ -282,7 +283,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(LyricMapImporter.AlignerHasFusedEvidence(lab), Is.True, $"vendored aligner version {LyricMapImporter.ReadAlignerVersion(lab)}");
+                Assert.That(AlignerEnvironment.AlignerHasFusedEvidence(lab), Is.True, $"vendored aligner version {AlignerEnvironment.ReadAlignerVersion(lab)}");
                 Assert.That(script, Does.Contain("ap.add_argument(\"--evidence\", choices=[\"mms\", \"fused\"]"));
                 Assert.That(script, Does.Contain("ap.add_argument(\"--lyrics-language\""));
 
@@ -305,8 +306,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(int.TryParse(LyricMapImporter.ReadAlignerVersion(lab), out int version) && version >= 11, Is.True,
-                    $"vendored aligner version {LyricMapImporter.ReadAlignerVersion(lab)}");
+                Assert.That(int.TryParse(AlignerEnvironment.ReadAlignerVersion(lab), out int version) && version >= 11, Is.True,
+                    $"vendored aligner version {AlignerEnvironment.ReadAlignerVersion(lab)}");
                 Assert.That(script, Does.Contain("library, data = espeakng_loader.get_library_path(), espeak_data_path()"));
                 Assert.That(script, Does.Contain("espeak_probe(library, data)"));
                 Assert.That(script, Does.Not.Contain("EspeakWrapper.set_data_path(espeakng_loader.get_data_path())"));
@@ -341,23 +342,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             const string bare = "hello\n";
 
             File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), "ALIGNER_VERSION = \"7\"\n");
-            string? aligned = LyricMapImporter.EstimatedVocalsNotice(lab, stamped, AlignerVocalMode.Aligned);
-            string? on = LyricMapImporter.EstimatedVocalsNotice(lab, stamped, AlignerVocalMode.Estimated);
+            string? aligned = AlignerEnvironment.EstimatedVocalsNotice(lab, stamped, AlignerVocalMode.Aligned);
+            string? on = AlignerEnvironment.EstimatedVocalsNotice(lab, stamped, AlignerVocalMode.Estimated);
 
             File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), "ALIGNER_VERSION = \"6\"\n");
-            string? old = LyricMapImporter.EstimatedVocalsNotice(lab, stamped, AlignerVocalMode.Estimated);
-            string? oldBare = LyricMapImporter.EstimatedVocalsNotice(lab, bare, AlignerVocalMode.Estimated);
+            string? old = AlignerEnvironment.EstimatedVocalsNotice(lab, stamped, AlignerVocalMode.Estimated);
+            string? oldBare = AlignerEnvironment.EstimatedVocalsNotice(lab, bare, AlignerVocalMode.Estimated);
 
             Assert.Multiple(() =>
             {
                 Assert.That(aligned, Is.Null);
-                Assert.That(on, Is.EqualTo(LyricMapImporter.ESTIMATED_VOCALS_ON));
-                Assert.That(old, Is.EqualTo(LyricMapImporter.ESTIMATED_VOCALS_NEEDS_UPDATE));
-                Assert.That(oldBare, Is.EqualTo(LyricMapImporter.ESTIMATED_VOCALS_NEED_STAMPS));
+                Assert.That(on, Is.EqualTo(AlignerEnvironment.ESTIMATED_VOCALS_ON));
+                Assert.That(old, Is.EqualTo(AlignerEnvironment.ESTIMATED_VOCALS_NEEDS_UPDATE));
+                Assert.That(oldBare, Is.EqualTo(AlignerEnvironment.ESTIMATED_VOCALS_NEED_STAMPS));
 
                 foreach (string notice in new[]
                          {
-                             LyricMapImporter.ESTIMATED_VOCALS_ON, LyricMapImporter.ESTIMATED_VOCALS_NEEDS_UPDATE, LyricMapImporter.ESTIMATED_VOCALS_NEED_STAMPS,
+                             AlignerEnvironment.ESTIMATED_VOCALS_ON, AlignerEnvironment.ESTIMATED_VOCALS_NEEDS_UPDATE, AlignerEnvironment.ESTIMATED_VOCALS_NEED_STAMPS,
                          })
                     Assert.That(ImportProgressParser.Parse(notice).Stage, Is.Null, notice);
 
@@ -385,7 +386,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             }
 
             Assert.That(vendored, Is.Not.Null, "the vendored lyriclab/ should sit above the test directory");
-            Assert.That(LyricMapImporter.AlignerHasVocalModes(vendored!), Is.True, $"vendored aligner version {LyricMapImporter.ReadAlignerVersion(vendored)}");
+            Assert.That(AlignerEnvironment.AlignerHasVocalModes(vendored!), Is.True, $"vendored aligner version {AlignerEnvironment.ReadAlignerVersion(vendored)}");
         }
 
         /// <summary>
@@ -396,15 +397,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void SetupFailureSentenceIsTheScriptsOwn()
         {
-            Assert.That(LyricMapImporter.SetupFailureSentence(
+            Assert.That(AlignerEnvironment.SetupFailureSentence(
                     "installing torch ($Device) - this is the big download... | error: no solution found | "
                     + "setup failed: installing torch failed; check your internet connection and retry, or install the aligner later from Settings. | "
                     + "  detail: exit code 1; the tool's own output is above"),
                 Is.EqualTo("installing torch failed; check your internet connection and retry, or install the aligner later from Settings"));
 
-            Assert.That(LyricMapImporter.SetupFailureSentence("py.exe : No suitable Python runtime found"), Is.Null);
-            Assert.That(LyricMapImporter.SetupFailureSentence(""), Is.Null);
-            Assert.That(LyricMapImporter.SetupFailureSentence("setup failed: ."), Is.Null);
+            Assert.That(AlignerEnvironment.SetupFailureSentence("py.exe : No suitable Python runtime found"), Is.Null);
+            Assert.That(AlignerEnvironment.SetupFailureSentence(""), Is.Null);
+            Assert.That(AlignerEnvironment.SetupFailureSentence("setup failed: ."), Is.Null);
         }
 
         [Test]
@@ -422,7 +423,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 + "echo '  detail: exit code 1' >&2\n"
                 + "exit 1\n");
 
-            var result = await LyricMapImporter.BootstrapEnvironmentAsync(lab, _ => { }, CancellationToken.None).ConfigureAwait(false);
+            var result = await AlignerEnvironment.BootstrapEnvironmentAsync(lab, _ => { }, CancellationToken.None).ConfigureAwait(false);
 
             Assert.That(result.Success, Is.False);
             Assert.That(result.Error, Is.EqualTo("installing torch failed; check your internet connection and retry, or install the aligner later from Settings"));
@@ -454,22 +455,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             // A version-1 script predates the constant: null, which the manager reads as "update available".
             File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), "#!/usr/bin/env python\nSAMPLE_RATE = 16000\n");
-            Assert.That(LyricMapImporter.ReadAlignerVersion(lab), Is.Null);
+            Assert.That(AlignerEnvironment.ReadAlignerVersion(lab), Is.Null);
 
             File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), "#!/usr/bin/env python\n# Bumped when the output changes.\nALIGNER_VERSION = \"2\"\n\nSAMPLE_RATE = 16000\n");
-            Assert.That(LyricMapImporter.ReadAlignerVersion(lab), Is.EqualTo("2"));
+            Assert.That(AlignerEnvironment.ReadAlignerVersion(lab), Is.EqualTo("2"));
 
             // Only the module-level assignment counts, not a mention inside a string or comment.
             File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), "# ALIGNER_VERSION = \"9\" is documented above\n  ALIGNER_VERSION = \"3\"\n");
-            Assert.That(LyricMapImporter.ReadAlignerVersion(lab), Is.Null);
+            Assert.That(AlignerEnvironment.ReadAlignerVersion(lab), Is.Null);
 
-            Assert.That(LyricMapImporter.ReadAlignerVersion(Path.Combine(tempRoot, "missing")), Is.Null);
-            Assert.That(LyricMapImporter.ReadAlignerVersion(null), Is.Null);
+            Assert.That(AlignerEnvironment.ReadAlignerVersion(Path.Combine(tempRoot, "missing")), Is.Null);
+            Assert.That(AlignerEnvironment.ReadAlignerVersion(null), Is.Null);
 
             // The shipped component itself declares a version, so a build never offers "update to null".
-            string? vendored = LyricMapImporter.ResolveLyricLabDir(null, AppContext.BaseDirectory);
+            string? vendored = AlignerEnvironment.ResolveLyricLabDir(null, AppContext.BaseDirectory);
             Assume.That(vendored, Is.Not.Null, "the vendored lyriclab component was not found beside the test binaries");
-            Assert.That(LyricMapImporter.ReadAlignerVersion(vendored), Is.Not.Null.And.Not.Empty);
+            Assert.That(AlignerEnvironment.ReadAlignerVersion(vendored), Is.Not.Null.And.Not.Empty);
         }
 
         [Test]
@@ -483,21 +484,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             string start = Path.Combine(tempRoot, "repo", "bin");
             Directory.CreateDirectory(start);
 
-            Assert.That(LyricMapImporter.ResolveLyricLabDir(null, start), Is.EqualTo(lab));
+            Assert.That(AlignerEnvironment.ResolveLyricLabDir(null, start), Is.EqualTo(lab));
 
             // An explicitly configured valid path wins.
             string configured = Path.Combine(tempRoot, "elsewhere");
             Directory.CreateDirectory(configured);
             File.WriteAllText(Path.Combine(configured, "align_lyrics.py"), "# stub");
-            Assert.That(LyricMapImporter.ResolveLyricLabDir(configured, start), Is.EqualTo(Path.GetFullPath(configured)));
+            Assert.That(AlignerEnvironment.ResolveLyricLabDir(configured, start), Is.EqualTo(Path.GetFullPath(configured)));
 
             // An invalid configured path falls back to discovery.
-            Assert.That(LyricMapImporter.ResolveLyricLabDir(Path.Combine(tempRoot, "nope"), start), Is.EqualTo(lab));
+            Assert.That(AlignerEnvironment.ResolveLyricLabDir(Path.Combine(tempRoot, "nope"), start), Is.EqualTo(lab));
 
             // Nothing to find within the ascent budget.
             string isolated = Path.Combine(tempRoot, "isolated", "deep", "start");
             Directory.CreateDirectory(isolated);
-            Assert.That(LyricMapImporter.ResolveLyricLabDir(null, isolated, maxAscendLevels: 1), Is.Null);
+            Assert.That(AlignerEnvironment.ResolveLyricLabDir(null, isolated, maxAscendLevels: 1), Is.Null);
         }
 
         [Test]
@@ -515,31 +516,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Directory.CreateDirectory(start);
 
             // Neither has a venv: the vendored in-repo component wins (closest candidate).
-            Assert.That(LyricMapImporter.ResolveLyricLabDir(null, start), Is.EqualTo(repoLab));
-            Assert.That(LyricMapImporter.EnvironmentReady(repoLab), Is.False);
+            Assert.That(AlignerEnvironment.ResolveLyricLabDir(null, start), Is.EqualTo(repoLab));
+            Assert.That(AlignerEnvironment.EnvironmentReady(repoLab), Is.False);
 
             // A candidate with a ready venv is preferred over a closer one without.
-            string siblingPython = LyricMapImporter.PythonExeFor(siblingLab);
+            string siblingPython = AlignerEnvironment.PythonExeFor(siblingLab);
             Directory.CreateDirectory(Path.GetDirectoryName(siblingPython)!);
             File.WriteAllText(siblingPython, "stub exe");
-            Assert.That(LyricMapImporter.ResolveLyricLabDir(null, start), Is.EqualTo(siblingLab));
+            Assert.That(AlignerEnvironment.ResolveLyricLabDir(null, start), Is.EqualTo(siblingLab));
 
             // Once the vendored component's venv exists too, it wins again.
-            string repoPython = LyricMapImporter.PythonExeFor(repoLab);
+            string repoPython = AlignerEnvironment.PythonExeFor(repoLab);
             Directory.CreateDirectory(Path.GetDirectoryName(repoPython)!);
             File.WriteAllText(repoPython, "stub exe");
-            Assert.That(LyricMapImporter.ResolveLyricLabDir(null, start), Is.EqualTo(repoLab));
-            Assert.That(LyricMapImporter.EnvironmentPresent(repoLab), Is.True);
+            Assert.That(AlignerEnvironment.ResolveLyricLabDir(null, start), Is.EqualTo(repoLab));
+            Assert.That(AlignerEnvironment.EnvironmentPresent(repoLab), Is.True);
 
             // A python alone is not an install (backlog 353): READY needs the setup sentinel too,
             // and a completed sibling now beats the closer, unconfirmed vendored venv.
-            Assert.That(LyricMapImporter.EnvironmentReady(repoLab), Is.False);
-            Assert.That(LyricMapImporter.EnvironmentNeedsRepair(repoLab), Is.True);
-            File.WriteAllText(LyricMapImporter.SetupSentinelFor(siblingLab), "ok");
-            Assert.That(LyricMapImporter.ResolveLyricLabDir(null, start), Is.EqualTo(siblingLab));
-            File.WriteAllText(LyricMapImporter.SetupSentinelFor(repoLab), "ok");
-            Assert.That(LyricMapImporter.EnvironmentReady(repoLab), Is.True);
-            Assert.That(LyricMapImporter.ResolveLyricLabDir(null, start), Is.EqualTo(repoLab));
+            Assert.That(AlignerEnvironment.EnvironmentReady(repoLab), Is.False);
+            Assert.That(AlignerEnvironment.EnvironmentNeedsRepair(repoLab), Is.True);
+            File.WriteAllText(AlignerEnvironment.SetupSentinelFor(siblingLab), "ok");
+            Assert.That(AlignerEnvironment.ResolveLyricLabDir(null, start), Is.EqualTo(siblingLab));
+            File.WriteAllText(AlignerEnvironment.SetupSentinelFor(repoLab), "ok");
+            Assert.That(AlignerEnvironment.EnvironmentReady(repoLab), Is.True);
+            Assert.That(AlignerEnvironment.ResolveLyricLabDir(null, start), Is.EqualTo(repoLab));
         }
 
         [Test]
@@ -557,7 +558,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(TimingJsonLoader.TryLoad(timingPath, out var expected), Is.True);
 
             string oszPath = Path.Combine(tempRoot, "spectator.osz");
-            var result = LyricMapImporter.PackageOsz(oszPath, "Friday Pilots Club", "Spectator", audioPath, timingJson, lyricsContent);
+            var result = OszPackager.PackageOsz(oszPath, "Friday Pilots Club", "Spectator", audioPath, timingJson, lyricsContent);
 
             Assert.That(result.Success, Is.True, result.Error);
             Assert.That(result.OszPath, Is.EqualTo(oszPath));
@@ -599,7 +600,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             string audioPath = Path.Combine(tempRoot, "audio.mp3");
             File.WriteAllBytes(audioPath, new byte[] { 0x49, 0x44, 0x33 });
             string packagePath = Path.Combine(tempRoot, "ttml.osz");
-            var result = LyricMapImporter.PackageOsz(packagePath, "Artist", "Title", audioPath, timing, ttml);
+            var result = OszPackager.PackageOsz(packagePath, "Artist", "Title", audioPath, timing, ttml);
             Assert.That(result.Success, Is.True, result.Error);
 
             using var archive = ZipFile.OpenRead(packagePath);
@@ -675,8 +676,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             string lab = makeLab();
             writeFakePython(lab, importsLoad: true);
-            File.WriteAllText(LyricMapImporter.SetupSentinelFor(lab), "python=3.11\n");
-            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.True);
+            File.WriteAllText(AlignerEnvironment.SetupSentinelFor(lab), "python=3.11\n");
+            Assert.That(AlignerEnvironment.EnvironmentReady(lab), Is.True);
 
             string audioPath = Path.Combine(tempRoot, "a.mp3");
             File.WriteAllText(audioPath, "fake");
@@ -1134,14 +1135,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Directory.CreateDirectory(lab);
             File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), "# stub");
 
-            string python = LyricMapImporter.PythonExeFor(lab);
+            string python = AlignerEnvironment.PythonExeFor(lab);
             Directory.CreateDirectory(Path.GetDirectoryName(python)!);
             File.WriteAllText(python, "stub exe");
-            File.WriteAllText(LyricMapImporter.SetupSentinelFor(lab), "python=3.11\n");
-            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.True);
+            File.WriteAllText(AlignerEnvironment.SetupSentinelFor(lab), "python=3.11\n");
+            Assert.That(AlignerEnvironment.EnvironmentReady(lab), Is.True);
 
             bool anyProgress = false;
-            var result = await LyricMapImporter.BootstrapEnvironmentAsync(
+            var result = await AlignerEnvironment.BootstrapEnvironmentAsync(
                 lab, _ => anyProgress = true, CancellationToken.None).ConfigureAwait(false);
 
             Assert.That(result.Success, Is.True, result.Error);
@@ -1156,11 +1157,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             string lab = Path.Combine(tempRoot, "lyriclab");
             Directory.CreateDirectory(lab);
 
-            var result = await LyricMapImporter.BootstrapEnvironmentAsync(
+            var result = await AlignerEnvironment.BootstrapEnvironmentAsync(
                 lab, _ => { }, CancellationToken.None).ConfigureAwait(false);
 
             Assert.That(result.Success, Is.False);
-            Assert.That(result.Error, Does.Contain(LyricMapImporter.SetupScriptName));
+            Assert.That(result.Error, Does.Contain(AlignerEnvironment.SetupScriptName));
         }
 
         [Test]
@@ -1176,7 +1177,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             File.WriteAllText(Path.Combine(lab, "setup.sh"), "echo 'py.exe : No suitable Python runtime found' >&2\nexit 103\n");
 
             var lines = new List<string>();
-            var result = await LyricMapImporter.BootstrapEnvironmentAsync(
+            var result = await AlignerEnvironment.BootstrapEnvironmentAsync(
                 lab, line => { lock (lines) lines.Add(line); }, CancellationToken.None).ConfigureAwait(false);
 
             Assert.That(result.Success, Is.False);
@@ -1196,7 +1197,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             string lab = Path.Combine(tempRoot, "lyriclab");
             Directory.CreateDirectory(lab);
-            File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), $"ALIGNER_VERSION = \"{LyricMapImporter.PERSISTS_VOCALS_STEM_ALIGNER_VERSION}\"\n");
+            File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), $"ALIGNER_VERSION = \"{AlignerEnvironment.PERSISTS_VOCALS_STEM_ALIGNER_VERSION}\"\n");
             return lab;
         }
 
@@ -1218,7 +1219,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(LyricMapImporter.FindProducedVocalsStem(lab, outDir), Is.Null);
 
             // A version-9 script with no stem file (a --no-separate run) is likewise no stem.
-            File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), $"ALIGNER_VERSION = \"{LyricMapImporter.PERSISTS_VOCALS_STEM_ALIGNER_VERSION}\"\n");
+            File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), $"ALIGNER_VERSION = \"{AlignerEnvironment.PERSISTS_VOCALS_STEM_ALIGNER_VERSION}\"\n");
             File.Delete(stem);
             Assert.That(LyricMapImporter.FindProducedVocalsStem(lab, outDir), Is.Null);
         }
@@ -1234,7 +1235,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             File.WriteAllBytes(stemWav, new byte[] { 0x52, 0x49, 0x46, 0x46 });
 
             string oszPath = Path.Combine(tempRoot, "withstem.osz");
-            var result = LyricMapImporter.PackageOsz(oszPath, "A", "B", audioPath, timing, "one two", vocalsStemSourcePath: stemWav);
+            var result = OszPackager.PackageOsz(oszPath, "A", "B", audioPath, timing, "one two", vocalsStemSourcePath: stemWav);
 
             Assert.That(result.Success, Is.True, result.Error);
 
@@ -1248,7 +1249,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             string stemOgg = Path.Combine(tempRoot, "some_encoded.ogg");
             File.WriteAllBytes(stemOgg, new byte[] { 0x4f, 0x67, 0x67, 0x53 });
             string oszOgg = Path.Combine(tempRoot, "oggstem.osz");
-            var oggResult = LyricMapImporter.PackageOsz(oszOgg, "A", "B", audioPath, timing, "one two", vocalsStemSourcePath: stemOgg);
+            var oggResult = OszPackager.PackageOsz(oszOgg, "A", "B", audioPath, timing, "one two", vocalsStemSourcePath: stemOgg);
 
             Assert.That(oggResult.Success, Is.True, oggResult.Error);
 
@@ -1264,7 +1265,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             string timing = "{\"version\":2,\"song_end_ms\":8000,\"lines\":[{\"text\":\"one two\",\"start_ms\":1000,\"end_ms\":3000}]}";
 
             string oszPath = Path.Combine(tempRoot, "nostem.osz");
-            var result = LyricMapImporter.PackageOsz(oszPath, "A", "B", audioPath, timing, "one two");
+            var result = OszPackager.PackageOsz(oszPath, "A", "B", audioPath, timing, "one two");
 
             Assert.That(result.Success, Is.True, result.Error);
 
@@ -1308,7 +1309,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(script, Does.Contain("def persist_vocals_stem"));
                 Assert.That(script, Does.Contain("persist_vocals_stem(out_dir, stem, wav16)"));
                 Assert.That(script, Does.Contain("if not args.no_separate:"), "a --no-separate run aligned on the mix and has no stem to keep");
-                Assert.That(LyricMapImporter.AlignerPersistsVocalsStem(Path.GetDirectoryName(vendored!)!), Is.True);
+                Assert.That(AlignerEnvironment.AlignerPersistsVocalsStem(Path.GetDirectoryName(vendored!)!), Is.True);
             });
         }
 
@@ -1331,7 +1332,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// </summary>
         private static void writeFakePython(string lab, bool importsLoad)
         {
-            string python = LyricMapImporter.PythonExeFor(lab);
+            string python = AlignerEnvironment.PythonExeFor(lab);
             Directory.CreateDirectory(Path.GetDirectoryName(python)!);
 
             if (OperatingSystem.IsWindows())
@@ -1353,12 +1354,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 "if (Test-Path '.venv\\canary.txt') { Set-Content -Path 'saw-canary.txt' -Value 'yes' }\n"
                 + "New-Item -ItemType Directory -Force -Path '.venv\\Scripts' | Out-Null\n"
                 + "Set-Content -Path '.venv\\Scripts\\python.exe' -Value 'rebuilt'\n"
-                + $"Set-Content -Path '.venv\\{LyricMapImporter.SETUP_SENTINEL_FILE}' -Value 'python=3.11'\n"
+                + $"Set-Content -Path '.venv\\{AlignerEnvironment.SETUP_SENTINEL_FILE}' -Value 'python=3.11'\n"
                 + "exit 0\n");
             File.WriteAllText(Path.Combine(lab, "setup.sh"),
                 "if [ -e .venv/canary.txt ]; then echo yes > saw-canary.txt; fi\n"
                 + "mkdir -p .venv/bin\necho rebuilt > .venv/bin/python\n"
-                + $"echo python=3.11 > .venv/{LyricMapImporter.SETUP_SENTINEL_FILE}\n"
+                + $"echo python=3.11 > .venv/{AlignerEnvironment.SETUP_SENTINEL_FILE}\n"
                 + "exit 0\n");
         }
 
@@ -1368,23 +1369,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // THE bug: a python.exe left by a setup whose torch install failed read as installed, so
             // the setup never ran again. That python cannot even start here (it is a text file).
             string lab = makeLab();
-            string python = LyricMapImporter.PythonExeFor(lab);
+            string python = AlignerEnvironment.PythonExeFor(lab);
             Directory.CreateDirectory(Path.GetDirectoryName(python)!);
             File.WriteAllText(python, "stub exe");
 
-            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.False);
-            Assert.That(LyricMapImporter.EnvironmentNeedsRepair(lab), Is.True);
+            Assert.That(AlignerEnvironment.EnvironmentReady(lab), Is.False);
+            Assert.That(AlignerEnvironment.EnvironmentNeedsRepair(lab), Is.True);
 
             var lines = new List<string>();
-            var result = await LyricMapImporter.BootstrapEnvironmentAsync(
+            var result = await AlignerEnvironment.BootstrapEnvironmentAsync(
                 lab, line => { lock (lines) lines.Add(line); }, CancellationToken.None).ConfigureAwait(false);
 
             // No setup script to rebuild with, so it fails, and it does so without having deleted
             // the venv it had no way to replace.
             Assert.That(result.Success, Is.False, "a sentinel-less venv must not short-circuit to Ok");
-            Assert.That(result.Error, Does.Contain(LyricMapImporter.SetupScriptName));
+            Assert.That(result.Error, Does.Contain(AlignerEnvironment.SetupScriptName));
             Assert.That(File.Exists(python), Is.True);
-            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.False);
+            Assert.That(AlignerEnvironment.EnvironmentReady(lab), Is.False);
             lock (lines)
                 Assert.That(lines, Has.Some.Contains("checking the existing aligner environment"));
         }
@@ -1399,12 +1400,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             writeFakePython(lab, importsLoad: true);
             File.WriteAllText(Path.Combine(lab, ".venv", "canary.txt"), "the existing environment");
 
-            var result = await LyricMapImporter.BootstrapEnvironmentAsync(lab, _ => { }, CancellationToken.None).ConfigureAwait(false);
+            var result = await AlignerEnvironment.BootstrapEnvironmentAsync(lab, _ => { }, CancellationToken.None).ConfigureAwait(false);
 
             Assert.That(result.Success, Is.True, result.Error);
-            Assert.That(File.Exists(LyricMapImporter.SetupSentinelFor(lab)), Is.True);
+            Assert.That(File.Exists(AlignerEnvironment.SetupSentinelFor(lab)), Is.True);
             Assert.That(File.Exists(Path.Combine(lab, ".venv", "canary.txt")), Is.True, "adoption must not touch the venv");
-            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.True);
+            Assert.That(AlignerEnvironment.EnvironmentReady(lab), Is.True);
         }
 
         [Test]
@@ -1419,14 +1420,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             writeRebuildingSetupScripts(lab);
 
             var lines = new List<string>();
-            var result = await LyricMapImporter.BootstrapEnvironmentAsync(
+            var result = await AlignerEnvironment.BootstrapEnvironmentAsync(
                 lab, line => { lock (lines) lines.Add(line); }, CancellationToken.None).ConfigureAwait(false);
 
             Assert.That(result.Success, Is.True, result.Error);
             Assert.That(File.Exists(Path.Combine(lab, ".venv", "canary.txt")), Is.False, "the broken venv should be gone");
             Assert.That(File.Exists(Path.Combine(lab, "saw-canary.txt")), Is.False, "the venv must be deleted before the setup re-runs");
-            Assert.That(File.ReadAllText(LyricMapImporter.PythonExeFor(lab)).Trim(), Is.EqualTo("rebuilt"));
-            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.True);
+            Assert.That(File.ReadAllText(AlignerEnvironment.PythonExeFor(lab)).Trim(), Is.EqualTo("rebuilt"));
+            Assert.That(AlignerEnvironment.EnvironmentReady(lab), Is.True);
             lock (lines)
                 Assert.That(lines, Has.Some.Contains("incomplete, rebuilding"));
         }
@@ -1440,11 +1441,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 "New-Item -ItemType Directory -Force -Path '.venv\\Scripts' | Out-Null\nSet-Content -Path '.venv\\Scripts\\python.exe' -Value 'x'\nexit 0\n");
             File.WriteAllText(Path.Combine(lab, "setup.sh"), "mkdir -p .venv/bin\necho x > .venv/bin/python\nexit 0\n");
 
-            var result = await LyricMapImporter.BootstrapEnvironmentAsync(lab, _ => { }, CancellationToken.None).ConfigureAwait(false);
+            var result = await AlignerEnvironment.BootstrapEnvironmentAsync(lab, _ => { }, CancellationToken.None).ConfigureAwait(false);
 
             Assert.That(result.Success, Is.False);
             Assert.That(result.Error, Does.Contain("could not finish"));
-            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.False);
+            Assert.That(AlignerEnvironment.EnvironmentReady(lab), Is.False);
         }
 
         /// <summary>The game's vendored lyriclab/ (the source of the shipped scripts), found above the test binaries.</summary>
@@ -1475,7 +1476,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void VendoredRecordNamesTheShippedAlignerVersion()
         {
             string lab = vendoredLyricLab();
-            string? version = LyricMapImporter.ReadAlignerVersion(lab);
+            string? version = AlignerEnvironment.ReadAlignerVersion(lab);
 
             Assert.That(version, Is.Not.Null);
             Assert.That(File.ReadAllLines(Path.Combine(lab, "VENDORED.md")), Has.Member($"- ALIGNER_VERSION: {version}"));
@@ -1488,13 +1489,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // read as needing repair forever (or, the other way, never).
             string lab = vendoredLyricLab();
 
-            Assert.That(File.ReadAllText(Path.Combine(lab, "setup.ps1")), Does.Contain($"$sentinel = '.venv\\{LyricMapImporter.SETUP_SENTINEL_FILE}'"));
-            Assert.That(File.ReadAllText(Path.Combine(lab, "setup.sh")), Does.Contain($"SENTINEL='.venv/{LyricMapImporter.SETUP_SENTINEL_FILE}'"));
+            Assert.That(File.ReadAllText(Path.Combine(lab, "setup.ps1")), Does.Contain($"$sentinel = '.venv\\{AlignerEnvironment.SETUP_SENTINEL_FILE}'"));
+            Assert.That(File.ReadAllText(Path.Combine(lab, "setup.sh")), Does.Contain($"SENTINEL='.venv/{AlignerEnvironment.SETUP_SENTINEL_FILE}'"));
 
             // And the setup's own import check is the adoption probe's, so a venv the game adopts
             // passed exactly what a fresh setup would have required of it.
-            Assert.That(File.ReadAllText(Path.Combine(lab, "setup.ps1")), Does.Contain($"import {LyricMapImporter.ALIGNER_IMPORTS}\""));
-            Assert.That(File.ReadAllText(Path.Combine(lab, "setup.sh")), Does.Contain($"import {LyricMapImporter.ALIGNER_IMPORTS}\""));
+            Assert.That(File.ReadAllText(Path.Combine(lab, "setup.ps1")), Does.Contain($"import {AlignerEnvironment.ALIGNER_IMPORTS}\""));
+            Assert.That(File.ReadAllText(Path.Combine(lab, "setup.sh")), Does.Contain($"import {AlignerEnvironment.ALIGNER_IMPORTS}\""));
         }
 
         [Test]
@@ -1506,7 +1507,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // the fake plus the system, so a real uv on this machine can never be reached.
             string shipped = vendoredLyricLab();
             string lab = makeLab();
-            File.Copy(Path.Combine(shipped, LyricMapImporter.SetupScriptName), Path.Combine(lab, LyricMapImporter.SetupScriptName));
+            File.Copy(Path.Combine(shipped, AlignerEnvironment.SetupScriptName), Path.Combine(lab, AlignerEnvironment.SetupScriptName));
             string uvVersion = pinnedUvVersion(shipped);
 
             string fakeUv = Path.Combine(tempRoot, "fakeuv");
@@ -1541,7 +1542,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             try
             {
                 Environment.SetEnvironmentVariable("PATH", path);
-                result = await LyricMapImporter.BootstrapEnvironmentAsync(
+                result = await AlignerEnvironment.BootstrapEnvironmentAsync(
                     lab, line => { lock (lines) lines.Add(line); }, CancellationToken.None).ConfigureAwait(false);
             }
             finally
@@ -1552,10 +1553,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             lock (lines)
                 Assert.That(result.Success, Is.True, $"{result.Error}\n{string.Join("\n", lines)}");
 
-            string sentinel = File.ReadAllText(LyricMapImporter.SetupSentinelFor(lab));
+            string sentinel = File.ReadAllText(AlignerEnvironment.SetupSentinelFor(lab));
             Assert.That(sentinel, Does.Contain("python=3.11"));
             Assert.That(sentinel, Does.Contain("device=cpu"));
-            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.True);
+            Assert.That(AlignerEnvironment.EnvironmentReady(lab), Is.True);
             lock (lines)
                 Assert.That(lines, Has.Some.Contains("verifying the installed packages import"));
         }
@@ -1577,10 +1578,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(ps1, Does.Contain($"$alignerPackages = '{LyricMapImporter.ALIGNER_PACKAGES}' -split ' '"));
-                Assert.That(sh, Does.Contain($"ALIGNER_PACKAGES='{LyricMapImporter.ALIGNER_PACKAGES}'"));
-                Assert.That(ps1, Does.Contain($"$fusedPackages = '{LyricMapImporter.FUSED_EVIDENCE_PACKAGES}' -split ' '"));
-                Assert.That(sh, Does.Contain($"FUSED_PACKAGES='{LyricMapImporter.FUSED_EVIDENCE_PACKAGES}'"));
+                Assert.That(ps1, Does.Contain($"$alignerPackages = '{AlignerEnvironment.ALIGNER_PACKAGES}' -split ' '"));
+                Assert.That(sh, Does.Contain($"ALIGNER_PACKAGES='{AlignerEnvironment.ALIGNER_PACKAGES}'"));
+                Assert.That(ps1, Does.Contain($"$fusedPackages = '{AlignerEnvironment.FUSED_EVIDENCE_PACKAGES}' -split ' '"));
+                Assert.That(sh, Does.Contain($"FUSED_PACKAGES='{AlignerEnvironment.FUSED_EVIDENCE_PACKAGES}'"));
                 Assert.That(ps1, Does.Contain("& $uvExe pip install --python $py $fusedPackages"));
                 Assert.That(sh, Does.Contain("\"$UV\" pip install --python \"$PY\" $FUSED_PACKAGES"));
                 Assert.That(ps1, Does.Contain("align_lyrics.qmul_weights_path()"));
@@ -1588,8 +1589,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(ps1, Does.Contain("[switch]$Update"));
                 Assert.That(sh, Does.Contain("--update) UPDATE=1 ;;"));
 
-                Assert.That(LyricMapImporter.ALIGNER_IMPORTS, Does.Not.Contain("phonemizer").And.Not.Contain("espeakng"));
-                Assert.That(LyricMapImporter.ALIGNER_PACKAGES, Does.Not.Contain("phonemizer").And.Not.Contain("espeakng"));
+                Assert.That(AlignerEnvironment.ALIGNER_IMPORTS, Does.Not.Contain("phonemizer").And.Not.Contain("espeakng"));
+                Assert.That(AlignerEnvironment.ALIGNER_PACKAGES, Does.Not.Contain("phonemizer").And.Not.Contain("espeakng"));
             });
         }
 
@@ -1605,7 +1606,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             string lab = makeLab();
             writeFakePython(lab, importsLoad: true);
-            File.WriteAllText(LyricMapImporter.SetupSentinelFor(lab), "python=3.11");
+            File.WriteAllText(AlignerEnvironment.SetupSentinelFor(lab), "python=3.11");
             File.WriteAllText(Path.Combine(lab, ".venv", "canary.txt"), "the existing environment");
             return lab;
         }
@@ -1620,20 +1621,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             writeRecordingSetupScripts(lab, exitCode: 0);
             string argsFile = Path.Combine(lab, "setup-args.txt");
 
-            var plain = await LyricMapImporter.BootstrapEnvironmentAsync(lab, _ => { }, CancellationToken.None).ConfigureAwait(false);
+            var plain = await AlignerEnvironment.BootstrapEnvironmentAsync(lab, _ => { }, CancellationToken.None).ConfigureAwait(false);
 
             Assert.That(plain.Success, Is.True, plain.Error);
             Assert.That(File.Exists(argsFile), Is.False, "without updateExisting a completed install is left as it stands");
 
             var lines = new List<string>();
-            var updated = await LyricMapImporter.BootstrapEnvironmentAsync(
+            var updated = await AlignerEnvironment.BootstrapEnvironmentAsync(
                 lab, line => { lock (lines) lines.Add(line); }, CancellationToken.None, "cpu", updateExisting: true).ConfigureAwait(false);
 
             Assert.That(updated.Success, Is.True, updated.Error);
             Assert.That(File.Exists(argsFile), Is.True, "the setup script did not run");
             Assert.That(File.ReadAllText(argsFile).Trim(), Does.EndWith(OperatingSystem.IsWindows() ? "-Update" : "--update"));
             Assert.That(File.Exists(Path.Combine(lab, ".venv", "canary.txt")), Is.True, "an update must not touch the venv");
-            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.True);
+            Assert.That(AlignerEnvironment.EnvironmentReady(lab), Is.True);
         }
 
         [Test]
@@ -1645,10 +1646,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             writeFakePython(lab, importsLoad: true);
             writeRecordingSetupScripts(lab, exitCode: 0);
 
-            var result = await LyricMapImporter.BootstrapEnvironmentAsync(lab, _ => { }, CancellationToken.None, "cpu", updateExisting: true).ConfigureAwait(false);
+            var result = await AlignerEnvironment.BootstrapEnvironmentAsync(lab, _ => { }, CancellationToken.None, "cpu", updateExisting: true).ConfigureAwait(false);
 
             Assert.That(result.Success, Is.True, result.Error);
-            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.True);
+            Assert.That(AlignerEnvironment.EnvironmentReady(lab), Is.True);
             Assert.That(File.ReadAllText(Path.Combine(lab, "setup-args.txt")).Trim(), Does.EndWith(OperatingSystem.IsWindows() ? "-Update" : "--update"));
         }
 
@@ -1661,14 +1662,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             writeRecordingSetupScripts(lab, exitCode: 1);
 
             var lines = new List<string>();
-            var result = await LyricMapImporter.BootstrapEnvironmentAsync(
+            var result = await AlignerEnvironment.BootstrapEnvironmentAsync(
                 lab, line => { lock (lines) lines.Add(line); }, CancellationToken.None, "cpu", updateExisting: true).ConfigureAwait(false);
 
             Assert.That(result.Success, Is.True, result.Error);
-            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.True);
+            Assert.That(AlignerEnvironment.EnvironmentReady(lab), Is.True);
             Assert.That(File.Exists(Path.Combine(lab, ".venv", "canary.txt")), Is.True);
             lock (lines)
-                Assert.That(lines, Has.Some.EqualTo(LyricMapImporter.ENVIRONMENT_UPDATE_INCOMPLETE));
+                Assert.That(lines, Has.Some.EqualTo(AlignerEnvironment.ENVIRONMENT_UPDATE_INCOMPLETE));
         }
 
         [Test]
@@ -1679,8 +1680,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // the version 10 pair, installed into the existing venv; no venv created, torch untouched.
             string shipped = vendoredLyricLab();
             string lab = makeCompletedInstall();
-            File.Copy(Path.Combine(shipped, LyricMapImporter.SetupScriptName), Path.Combine(lab, LyricMapImporter.SetupScriptName));
-            string sentinelBefore = File.ReadAllText(LyricMapImporter.SetupSentinelFor(lab));
+            File.Copy(Path.Combine(shipped, AlignerEnvironment.SetupScriptName), Path.Combine(lab, AlignerEnvironment.SetupScriptName));
+            string sentinelBefore = File.ReadAllText(AlignerEnvironment.SetupSentinelFor(lab));
             string uvVersion = pinnedUvVersion(shipped);
 
             string fakeUv = Path.Combine(tempRoot, "fakeuv");
@@ -1709,7 +1710,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             try
             {
                 Environment.SetEnvironmentVariable("PATH", path);
-                result = await LyricMapImporter.BootstrapEnvironmentAsync(
+                result = await AlignerEnvironment.BootstrapEnvironmentAsync(
                     lab, line => { lock (lines) lines.Add(line); }, CancellationToken.None, "cpu", updateExisting: true).ConfigureAwait(false);
             }
             finally
@@ -1729,14 +1730,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 {
                     Assert.That(result.Success, Is.True, $"{result.Error}\n{string.Join("\n", lines)}");
                     Assert.That(lines, Has.Some.Contains("lyriclab environment updated"));
-                    Assert.That(lines, Has.None.EqualTo(LyricMapImporter.ENVIRONMENT_UPDATE_INCOMPLETE));
+                    Assert.That(lines, Has.None.EqualTo(AlignerEnvironment.ENVIRONMENT_UPDATE_INCOMPLETE));
                     Assert.That(lines, Has.Some.Contains("fetching the fused-evidence weights"));
                     Assert.That(calls, Has.Length.EqualTo(2), string.Join("\n", calls));
-                    Assert.That(calls.ElementAtOrDefault(0), Does.StartWith("pip install").And.EndWith(LyricMapImporter.ALIGNER_PACKAGES));
-                    Assert.That(calls.ElementAtOrDefault(1), Does.StartWith("pip install").And.EndWith(" " + LyricMapImporter.FUSED_EVIDENCE_PACKAGES));
+                    Assert.That(calls.ElementAtOrDefault(0), Does.StartWith("pip install").And.EndWith(AlignerEnvironment.ALIGNER_PACKAGES));
+                    Assert.That(calls.ElementAtOrDefault(1), Does.StartWith("pip install").And.EndWith(" " + AlignerEnvironment.FUSED_EVIDENCE_PACKAGES));
                     Assert.That(calls, Has.None.Contains("torch"));
                     Assert.That(File.Exists(Path.Combine(lab, ".venv", "canary.txt")), Is.True);
-                    Assert.That(File.ReadAllText(LyricMapImporter.SetupSentinelFor(lab)), Is.EqualTo(sentinelBefore));
+                    Assert.That(File.ReadAllText(AlignerEnvironment.SetupSentinelFor(lab)), Is.EqualTo(sentinelBefore));
                 });
             }
         }
@@ -1757,8 +1758,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(result.Success, Is.False);
             Assert.That(timing, Is.Null);
             Assert.That(result.Error, Does.Contain("Repair local auto-aligner"));
-            Assert.That(LyricMapImporter.EnvironmentPresent(lab), Is.True, "an import must never delete the venv");
-            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.False);
+            Assert.That(AlignerEnvironment.EnvironmentPresent(lab), Is.True, "an import must never delete the venv");
+            Assert.That(AlignerEnvironment.EnvironmentReady(lab), Is.False);
         }
 
         [Test]
@@ -1774,7 +1775,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             await LyricMapImporter.ProduceTimingJsonAsync(
                 audioPath, "just some words\n", "A", "B", lab, Array.Empty<string>(), _ => { }, CancellationToken.None).ConfigureAwait(false);
 
-            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.True);
+            Assert.That(AlignerEnvironment.EnvironmentReady(lab), Is.True);
         }
 
         [Test]
@@ -1784,21 +1785,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // sentinel is withdrawn so Settings offers Repair, and the error says so in words.
             string lab = makeLab();
             writeFakePython(lab, importsLoad: true);
-            File.WriteAllText(LyricMapImporter.SetupSentinelFor(lab), "python=3.11");
+            File.WriteAllText(AlignerEnvironment.SetupSentinelFor(lab), "python=3.11");
 
-            var result = LyricMapImporter.AlignerFailure(lab, 1, "Traceback (most recent call last):\nModuleNotFoundError: No module named 'torch'");
+            var result = AlignerEnvironment.AlignerFailure(lab, 1, "Traceback (most recent call last):\nModuleNotFoundError: No module named 'torch'");
 
             Assert.That(result.Success, Is.False);
             Assert.That(result.Error, Does.Contain("Repair local auto-aligner"));
             Assert.That(result.Error, Does.Not.Contain("Traceback"));
-            Assert.That(LyricMapImporter.EnvironmentNeedsRepair(lab), Is.True);
+            Assert.That(AlignerEnvironment.EnvironmentNeedsRepair(lab), Is.True);
 
             // Any other failure is reported as it always was and leaves the install alone.
-            File.WriteAllText(LyricMapImporter.SetupSentinelFor(lab), "python=3.11");
-            var other = LyricMapImporter.AlignerFailure(lab, 2, "RuntimeError: demucs did not produce vocals.wav");
+            File.WriteAllText(AlignerEnvironment.SetupSentinelFor(lab), "python=3.11");
+            var other = AlignerEnvironment.AlignerFailure(lab, 2, "RuntimeError: demucs did not produce vocals.wav");
 
             Assert.That(other.Error, Does.StartWith("aligner exited with code 2"));
-            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.True);
+            Assert.That(AlignerEnvironment.EnvironmentReady(lab), Is.True);
         }
 
         /// <summary>
@@ -1815,13 +1816,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(LyricMapImporter.IsMissingPackageFailure($"{warning} | Traceback (most recent call last): | OSError: [Errno 28] No space left on device"), Is.False);
-                Assert.That(LyricMapImporter.IsMissingPackageFailure("WARNING: something optional raised ImportError, carrying on"), Is.False);
-                Assert.That(LyricMapImporter.IsMissingPackageFailure("fallback: hyphenation dictionary en: ModuleNotFoundError: No module named 'pyphen' | "
+                Assert.That(AlignerEnvironment.IsMissingPackageFailure($"{warning} | Traceback (most recent call last): | OSError: [Errno 28] No space left on device"), Is.False);
+                Assert.That(AlignerEnvironment.IsMissingPackageFailure("WARNING: something optional raised ImportError, carrying on"), Is.False);
+                Assert.That(AlignerEnvironment.IsMissingPackageFailure("fallback: hyphenation dictionary en: ModuleNotFoundError: No module named 'pyphen' | "
                                                                      + "Traceback (most recent call last): | OSError: [Errno 28] No space left on device"), Is.False);
-                Assert.That(LyricMapImporter.IsMissingPackageFailure($"{warning} | Traceback (most recent call last): | ModuleNotFoundError: No module named 'torch'"), Is.True);
-                Assert.That(LyricMapImporter.IsMissingPackageFailure("Traceback (most recent call last):\nModuleNotFoundError: No module named 'torch'"), Is.True);
-                Assert.That(LyricMapImporter.IsMissingPackageFailure("ImportError: DLL load failed while importing _C"), Is.True);
+                Assert.That(AlignerEnvironment.IsMissingPackageFailure($"{warning} | Traceback (most recent call last): | ModuleNotFoundError: No module named 'torch'"), Is.True);
+                Assert.That(AlignerEnvironment.IsMissingPackageFailure("Traceback (most recent call last):\nModuleNotFoundError: No module named 'torch'"), Is.True);
+                Assert.That(AlignerEnvironment.IsMissingPackageFailure("ImportError: DLL load failed while importing _C"), Is.True);
             });
         }
 
@@ -1842,8 +1843,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             string lab = makeLab();
             File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), version == null ? "# predates the constant\n" : $"ALIGNER_VERSION = \"{version}\"\n");
             writeFakePython(lab, importsLoad: true);
-            File.WriteAllText(LyricMapImporter.SetupSentinelFor(lab), "python=3.11\n");
-            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.True);
+            File.WriteAllText(AlignerEnvironment.SetupSentinelFor(lab), "python=3.11\n");
+            Assert.That(AlignerEnvironment.EnvironmentReady(lab), Is.True);
             return lab;
         }
 
@@ -1995,9 +1996,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             string lab = makeInstalledLab("9");
 
-            Assert.That(LyricMapImporter.AlignerVersionRefusal(lab, "9"), Is.Null);
-            Assert.That(LyricMapImporter.AlignerVersionRefusal(lab, null), Is.Null, "no required version checks nothing");
-            Assert.That(LyricMapImporter.AlignerVersionRefusal(lab, "10"), Does.StartWith("your local auto-aligner is out of date (v9, this version of type!beat needs v10)"));
+            Assert.That(AlignerEnvironment.AlignerVersionRefusal(lab, "9"), Is.Null);
+            Assert.That(AlignerEnvironment.AlignerVersionRefusal(lab, null), Is.Null, "no required version checks nothing");
+            Assert.That(AlignerEnvironment.AlignerVersionRefusal(lab, "10"), Does.StartWith("your local auto-aligner is out of date (v9, this version of type!beat needs v10)"));
         }
 
         #endregion
@@ -2109,7 +2110,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
                 Assert.Multiple(() =>
                 {
-                    Assert.That(run.FileName, Is.EqualTo(LyricMapImporter.PythonExeFor(lab)));
+                    Assert.That(run.FileName, Is.EqualTo(AlignerEnvironment.PythonExeFor(lab)));
                     Assert.That(run.WorkingDirectory, Is.EqualTo(lab));
                     Assert.That(run.Args, Is.EqualTo(new[] { "align_lyrics.py", audioPath, "--separate-only", "-o", expectedOut }));
                     Assert.That(run.Utf8, Is.EqualTo("1"), "demucs prints the track's name, which must not kill a non-Latin title");
@@ -2133,9 +2134,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void SeparateOnlyArgumentsCarryTheGpuDevice()
         {
             string lab = makeInstalledLab(separate_only_version);
-            File.WriteAllText(Path.Combine(lab, LyricMapImporter.DEVICE_MARKER_FILE), "cuda\n");
+            File.WriteAllText(Path.Combine(lab, AlignerEnvironment.DEVICE_MARKER_FILE), "cuda\n");
 
-            Assert.That(LyricMapImporter.SeparateOnlyArguments(lab, "song.mp3", "out"),
+            Assert.That(AlignerEnvironment.SeparateOnlyArguments(lab, "song.mp3", "out"),
                 Is.EqualTo(new[] { "align_lyrics.py", "song.mp3", "--separate-only", "-o", "out", "--device", "cuda" }));
         }
 
@@ -2266,7 +2267,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             writeFakePython(lab, importsLoad: true);
 
             Assert.That(LyricMapImporter.VocalsIsolationRefusal(lab, separate_only_version), Is.EqualTo(LyricMapImporter.VOCALS_NEED_A_REPAIR));
-            File.WriteAllText(LyricMapImporter.SetupSentinelFor(lab), "python=3.11\n");
+            File.WriteAllText(AlignerEnvironment.SetupSentinelFor(lab), "python=3.11\n");
             Assert.That(LyricMapImporter.VocalsIsolationRefusal(lab, separate_only_version), Is.Null);
             Assert.That(LyricMapImporter.VocalsIsolationRefusal(lab, null), Is.Null, "no required version checks only the flag's own version");
         }
@@ -2383,7 +2384,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(script, Does.Contain("\"--separate-only\""));
                 Assert.That(script, Does.Contain("def separate_only("));
                 Assert.That(script, Does.Contain("persist(out_dir, stem, wav16)"), "the stem is persisted the way an alignment run persists it");
-                Assert.That(LyricMapImporter.AlignerSeparatesOnly(Path.GetDirectoryName(vendored!)!), Is.True);
+                Assert.That(AlignerEnvironment.AlignerSeparatesOnly(Path.GetDirectoryName(vendored!)!), Is.True);
             });
         }
 
@@ -2437,7 +2438,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(timing, Is.Not.Null);
 
             string oszPath = Path.Combine(tempRoot, "piped.osz");
-            var result = LyricMapImporter.PackageOsz(oszPath, "A", "B", audioPath, timing!, "unused");
+            var result = OszPackager.PackageOsz(oszPath, "A", "B", audioPath, timing!, "unused");
             Assert.That(result.Success, Is.True, result.Error);
 
             using var archive = ZipFile.OpenRead(oszPath);
@@ -2468,7 +2469,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(timing, Does.Contain("\"freestyle\":true"), "the decoder needs the opt-in before it reads '&' as a marker");
 
             string oszPath = Path.Combine(tempRoot, "freestyle.osz");
-            var result = LyricMapImporter.PackageOsz(oszPath, "A", "B", audioPath, timing!, "unused");
+            var result = OszPackager.PackageOsz(oszPath, "A", "B", audioPath, timing!, "unused");
             Assert.That(result.Success, Is.True, result.Error);
 
             using var archive = ZipFile.OpenRead(oszPath);
@@ -2487,13 +2488,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void FlagFreestyleLinesOnlyTouchesAmpersandLines()
         {
             const string plain = "{\"version\":2,\"lines\":[{\"text\":\"me you\",\"start_ms\":1000,\"end_ms\":2000}]}";
-            Assert.That(LyricMapImporter.FlagFreestyleLines(plain), Is.SameAs(plain), "an ampersand-free document is returned verbatim");
+            Assert.That(TimingJsonPostProcess.FlagFreestyleLines(plain), Is.SameAs(plain), "an ampersand-free document is returned verbatim");
 
             const string marked = "{\"version\":2,\"lines\":["
                                   + "{\"text\":\"me & you\",\"start_ms\":1000,\"end_ms\":2000},"
                                   + "{\"text\":\"plain\",\"start_ms\":3000,\"end_ms\":4000}]}";
 
-            string flagged = LyricMapImporter.FlagFreestyleLines(marked);
+            string flagged = TimingJsonPostProcess.FlagFreestyleLines(marked);
 
             using var doc = JsonDocument.Parse(flagged);
             var lines = doc.RootElement.GetProperty("lines").EnumerateArray().ToList();
@@ -2503,7 +2504,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(lines[1].TryGetProperty("freestyle", out _), Is.False);
 
             // Malformed input is a pass-through, not a failure: this is a polish pass.
-            Assert.That(LyricMapImporter.FlagFreestyleLines("{ not json &"), Is.EqualTo("{ not json &"));
+            Assert.That(TimingJsonPostProcess.FlagFreestyleLines("{ not json &"), Is.EqualTo("{ not json &"));
         }
 
         #endregion
@@ -2543,7 +2544,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var psi = new System.Diagnostics.ProcessStartInfo { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
 
-            LyricMapImporter.RunPythonInUtf8(psi);
+            AlignerEnvironment.RunPythonInUtf8(psi);
 
             Assert.Multiple(() =>
             {
@@ -2578,7 +2579,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 Assert.That(body, Does.Contain("env[\"PYTHONUTF8\"] = \"1\""));
                 Assert.That(body, Does.Contain("env[\"PYTHONIOENCODING\"] = \"utf-8\""));
-                Assert.That(LyricMapImporter.AlignerPersistsVocalsStem(Path.GetDirectoryName(vendored!)!), Is.True,
+                Assert.That(AlignerEnvironment.AlignerPersistsVocalsStem(Path.GetDirectoryName(vendored!)!), Is.True,
                     "installed older copies must be offered the update, and the stem needs version 9 or newer");
             });
         }

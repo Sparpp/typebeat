@@ -6,8 +6,9 @@ using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json;
 using osu.Framework.Logging;
+using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 
-namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
+namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
     /// <summary>
     /// The lyric editor's clipboard payloads, serialized as JSON into the editor's string clipboard
