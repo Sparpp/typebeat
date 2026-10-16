@@ -92,15 +92,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
 
                 double configTime = wallStamped ? AnchorTimeFor(puppeteer!.AnchorMs!.Value) : time;
 
-                emit(TypeBeatReplayFrame.CreateConfigFrame(configTime, engine.AllowWrongInput, engine.SpaceSkipsWord, engine.SyllableTiming, engine.WrongInputOnWordGaps, engine.StrictSpaces, engine.CharTimedStretch, flexibleLines: engine.FlexibleLineSnap, boundedRush: engine.BoundedRush, firstCharTiming: engine.FirstCharTiming, wallClockFrames: wallStamped, backDatedSealBreak: engine.BackDatedSealBreak, losslessSkipReclaim: engine.LosslessSkipReclaim, foldsDisplacedClaim: engine.FoldsDisplacedClaim, unhalvedHardRockWindows: engine.UnhalvedHardRockWindows, manualNewlines: engine.ManualNewlines, newlineOnTypedLetter: engine.NewlineOnTypedLetter, firstLineLeadIn: engine.FirstLineLeadIn));
+                var (config, extended) = HeaderFramesFor(engine, configTime, wallStamped);
 
-                // The SECOND flags word (backlog 347), straight after the first and at the same time,
-                // which is the order ReplayEngineFeed.Apply relies on (the CONFIG frame clears these
-                // flags, this one sets them).
-                emit(TypeBeatReplayFrame.CreateExtendedConfigFrame(configTime, rushCapCostsAccuracy: engine.RushCapCostsAccuracy, inputEra2: engine.InputEra2, authoredSyllablesOnly: engine.AuthoredSyllablesOnly, alignSubdivisionTargets: engine.AlignSubdivisionTargets, earlyFinish: engine.EarlyFinish, japaneseRomajiInput: engine.JapaneseRomajiInput, japaneseWordTiming: engine.JapaneseWordTiming, japaneseInputEra2: engine.JapaneseInputEra2, japaneseInputEra3: engine.JapaneseInputEra3, keyTimeJudgement: engine.KeyTimeJudgement));
+                emit(config);
+                emit(extended);
             }
 
             emit(new TypeBeatReplayFrame(wallStamped && wallStamp is double stamp ? stamp : StampFor(puppeteer, wallStamped, time), character));
+        }
+
+        /// <summary>
+        /// The two header frames a run opens with, read off <paramref name="engine"/> through
+        /// <see cref="ReplayEraBits"/>: the CONFIG
+        /// frame, and the SECOND flags word (backlog 347) straight after it at the same time, which
+        /// is the order <see cref="ReplayEngineFeed.Apply"/> relies on (the CONFIG frame clears those
+        /// flags, the extended one sets them). Static for the same reason <see cref="WallStamps"/>
+        /// is: a recorder cannot be stood up headlessly, and this is what a test feeds a second
+        /// engine to prove it ends up judging like the first.
+        /// </summary>
+        public static (TypeBeatReplayFrame Config, TypeBeatReplayFrame Extended) HeaderFramesFor(TypingEngine engine, double time, bool wallClockFrames)
+        {
+            var config = new TypeBeatReplayFrame(time, TypeBeatReplayFrame.CONFIG);
+            ReplayEraBits.Record(engine, config, EraWord.Config);
+
+            // The one bit that is not an engine flag: the axis decision, made by the caller.
+            config.WallClockFrames = wallClockFrames;
+
+            var extended = new TypeBeatReplayFrame(time, TypeBeatReplayFrame.CONFIG_EXTENDED);
+            ReplayEraBits.Record(engine, extended, EraWord.ConfigExtended);
+
+            return (config, extended);
         }
 
         /// <summary>

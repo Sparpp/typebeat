@@ -199,8 +199,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// freedom to be late on one syllable because the word is still being sung.
         ///
         /// <para>It is the Easy arm and NOT an era. <see cref="Mods.TypeBeatModEasy"/> is the only
-        /// thing that sets it (<c>ApplyToDrawableRuleset</c> for live play,
-        /// <c>TypeBeatReplayScorer</c>'s mod loop for a re-derivation, and
+        /// thing that sets it (its <c>ApplyToEngine</c>, which both the live factory and
+        /// <c>TypeBeatReplayScorer</c> call, and
         /// <see cref="Mods.TypeBeatModAutoplay"/> passes it to the generator), and the mod ships in
         /// this release, so no stored row predates it and no CONFIG bit records it. Hard Rock does
         /// not interact with it: HR turns <see cref="SyllableTiming"/> off outright, and the two
@@ -551,9 +551,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <para>Set BEFORE the first keypress and left alone afterwards, like
         /// <see cref="ComboRestore"/>: judgements already made are never revisited, and the two sync
         /// readouts re-derive quality from stored deltas, so moving it mid-run would restate old
-        /// presses under a ladder they were never graded on. Both application sites do it while the
-        /// engine is being built (<c>DrawableTypeBeatRuleset.createEngine</c> for a live play,
-        /// <c>TypeBeatReplayScorer.createEngine</c> for a re-judged replay).</para>
+        /// presses under a ladder they were never graded on. Each scaling mod does it from its own
+        /// <c>ApplyToEngine</c>, which both engine factories call while the engine is being built
+        /// (<c>DrawableTypeBeatRuleset.createEngine</c> for a live play,
+        /// <c>TypeBeatReplayScorer.CreateEngine</c> for a re-judged replay).</para>
         ///
         /// <para>NOT the whole of the scale the ladder is built at. Hard Rock's halving (backlog
         /// 150, retired live by backlog 264 and kept for the runs stored under it) is a SECOND,
@@ -1483,9 +1484,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// seal grace all behave exactly as they do for everyone else.
         ///
         /// <para><b>Set by the Puppeteer mod, and by nothing else</b>
-        /// (<see cref="Mods.TypeBeatModPuppeteer.ApplyToDrawableRuleset"/> live, and the same mod's
-        /// arm in <see cref="Scoring.TypeBeatReplayScorer"/> for a rescore, which is what keeps the
-        /// two accounts of one run equal). Under that mod THE PLAYHEAD IS THE TAPE, and the tape is
+        /// (<see cref="Mods.TypeBeatModPuppeteer.ApplyToEngine"/>, which the live factory and
+        /// <see cref="Scoring.TypeBeatReplayScorer"/> both call, which is what keeps the two accounts
+        /// of one run equal). Under that mod THE PLAYHEAD IS THE TAPE, and the tape is
         /// walled at the preset's <c>MaxVelocity</c>, so a player typing faster than the tape can run
         /// opens a lead that grows without bound: the cap then breaks their combo on a press it is
         /// still judging Great, and cannot re-arm while the sprint continues. Every mod-shaped
@@ -1501,11 +1502,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// score's MOD LIST is the whole mechanism. That is only true because Puppeteer is UNSHIPPED,
         /// and it is worth saying plainly: had one released build carried it, this would have needed
         /// an era bit like any judgement change, because it moves max_combo on runs already
-        /// submitted. It reaches the live engine from <c>ApplyToDrawableRuleset</c> rather than from
-        /// <c>DrawableTypeBeatRuleset.createEngine</c> (where the era flags are decided) for the same
-        /// reason the window scale does: it is re-read at every press rather than at construction, so
-        /// there is no window in which it can be momentarily wrong, and no replay recorder stamps
-        /// it.</para>
+        /// submitted. It is re-read at every press rather than at construction, so there is no
+        /// window in which it can be momentarily wrong, and no replay recorder stamps it.</para>
         ///
         /// <para>A side effect worth knowing, on the replay side: the cap is the one judgement input
         /// that reads the PLAYHEAD rather than the keystroke, so a press near a countable boundary

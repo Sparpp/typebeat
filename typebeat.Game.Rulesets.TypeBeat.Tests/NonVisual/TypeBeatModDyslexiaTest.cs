@@ -231,7 +231,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var mod = new TypeBeatModDyslexia();
 
-            Assert.IsTrue(mod is IApplicableToDrawableRuleset<TypeBeatHitObject>);
+            Assert.IsTrue(mod is IApplicableToTypingEngine);
+            Assert.IsFalse(mod is IApplicableToDrawableRuleset<TypeBeatHitObject>);
             Assert.IsFalse(mod is IApplicableToScoreProcessor);
             Assert.IsFalse(mod is IApplicableToHealthProcessor);
             Assert.IsFalse(mod is IApplicableAfterBeatmapConversion);

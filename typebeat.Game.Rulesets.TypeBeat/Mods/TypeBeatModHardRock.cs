@@ -5,13 +5,14 @@ using System;
 using osu.Framework.Localisation;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.Mods;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Mods
 {
     /// <summary>
     /// Hard Rock: every character is graded on its OWN target time rather than on the syllable it
     /// belongs to, so a word has to be typed in step with the vocal instead of anywhere inside it.
-    /// One rule, applied in <c>DrawableTypeBeatRuleset.createEngine</c> and not here
+    /// One rule, applied in <see cref="ApplyToEngine"/>
     /// (<see cref="Gameplay.TypingEngine.SyllableTiming"/> = false under HR alone), and the mod owns
     /// no other live behaviour.
     ///
@@ -43,7 +44,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// mechanism: the run says which era it is, the score's mods say whether HR was on, and the
     /// engine multiplies the ladder itself.</para>
     /// </summary>
-    public class TypeBeatModHardRock : ModHardRock
+    public class TypeBeatModHardRock : ModHardRock, IApplicableToTypingEngine
     {
         /// <summary>
         /// What Hard Rock multiplied every judgement window by from backlog 150 until backlog 264
@@ -100,6 +101,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// </summary>
         public override void ApplyToDifficulty(BeatmapDifficulty difficulty)
         {
+        }
+
+        /// <summary>
+        /// The point-target revert, and the MOD FACT the CONFIG frame cannot carry
+        /// (<see cref="Gameplay.TypingEngine.HardRockFromMod"/>): a score's mods travel on the score,
+        /// so the engine is told here whether Hard Rock is in the stack and the frame's bit 13
+        /// supplies the era half. <see cref="Gameplay.TypingEngine.SyllableTiming"/> is the live
+        /// rule only: a stored replay's CONFIG frame (bit 2) is fed afterwards and wins.
+        /// </summary>
+        public void ApplyToEngine(TypingEngine engine)
+        {
+            engine.SyllableTiming = false;
+            engine.HardRockFromMod = true;
         }
     }
 }

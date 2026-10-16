@@ -341,25 +341,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The live seam and the replay seam must cover the SAME set of mods. The replay scorer
-        /// matches on <see cref="ModRateAdjust"/>, so every rate mod the ruleset offers has to carry
-        /// <see cref="IApplicableToDrawableRuleset{T}"/>, or a live play and its own replay would be
-        /// judged on different ladders. The ramps are outside both on purpose: a ramp's rate is a
-        /// function of time, which one scale set before the first keypress cannot express.
+        /// The live factory and the replay scorer must apply the SAME set of mods, and since both run
+        /// every <see cref="IApplicableToTypingEngine"/> through one loop, that reduces to every
+        /// window-scaling mod carrying the seam. The scorer's era switch (RateWindowRule.Unscaled)
+        /// skips <see cref="ModRateAdjust"/>, so every rate mod the ruleset offers has to be one. The
+        /// ramps are outside both on purpose: a ramp's rate is a function of time, which one scale
+        /// set before the first keypress cannot express.
         ///
-        /// <para>This is the RATE half of the seam, and it is not the whole of it. The scorer also
-        /// carries a fixed-scale arm per window-scaling mod that is not a rate mod at all (Easy, and
-        /// since backlog 256 Puppeteer), and the same both-ends rule applies to each: every mod that
-        /// scales the windows live must have an arm there. The walk below is over EVERY mod the
-        /// ruleset offers, so a new window-scaling mod cannot be added on one side only without this
-        /// failing.</para>
+        /// <para>This is the RATE half of the seam, and it is not the whole of it: Easy, and since
+        /// backlog 256 Puppeteer, scale the windows without being rate mods. <c>EngineModWiringTest</c>
+        /// walks EVERY mod the ruleset offers and compares the two factories' engines property by
+        /// property, so a new window-scaling mod cannot be added on one side only.</para>
         ///
         /// <para>HARD ROCK LEFT THIS LIST IN BACKLOG 264, which retired its halving: it scales
-        /// nothing live any more, so it has no <see cref="IApplicableToDrawableRuleset{T}"/> seam and
-        /// the scorer has no fixed-scale arm for it. Its stored rows still re-derive on the halved
-        /// ladder, but through the replay's own CONFIG frame (bit 13) rather than through either
-        /// seam, which is exactly why it is out of a test about seams. See
-        /// <c>TypeBeatModHardRockTest</c> for that era.</para>
+        /// nothing live any more. Its stored rows still re-derive on the halved ladder, but through
+        /// the replay's own CONFIG frame (bit 13) paired with the mod fact it sets
+        /// (<c>HardRockFromMod</c>), not through a window scale. See <c>TypeBeatModHardRockTest</c>
+        /// for that era.</para>
         /// </summary>
         [Test]
         public void EveryRateModCarriesTheLiveWindowScaleSeam()
@@ -372,18 +370,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             foreach (var mod in rateMods)
             {
-                Assert.IsInstanceOf<IApplicableToDrawableRuleset<TypeBeatHitObject>>(mod,
-                    $"{mod.Acronym} would scale a replay's windows but not a live play's");
+                Assert.IsInstanceOf<IApplicableToTypingEngine>(mod,
+                    $"{mod.Acronym} would scale neither a live play's windows nor a replay's");
             }
 
             Assert.IsNotInstanceOf<ModRateAdjust>(new ModWindUp());
             Assert.IsNotInstanceOf<ModRateAdjust>(new ModWindDown());
 
-            // The mods that reach TypingEngine.WindowScale from ApplyToDrawableRuleset, and the
-            // exact population the scorer's createEngine has an arm for. Rate mods are covered by
-            // the loop above; the rest are named one by one, so adding a window-scaling mod without
-            // a replay arm (or the other way round) fails here rather than silently re-judging
-            // stored runs on a ladder nobody played on.
             var windowScalers = ruleset.AllMods
                                        .Where(m => m is TypeBeatModEasy or TypeBeatModPuppeteer)
                                        .ToList();
@@ -392,14 +385,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             foreach (var mod in windowScalers)
             {
-                Assert.IsInstanceOf<IApplicableToDrawableRuleset<TypeBeatHitObject>>(mod,
-                    $"{mod.Acronym} would scale a replay's windows but not a live play's");
+                Assert.IsInstanceOf<IApplicableToTypingEngine>(mod,
+                    $"{mod.Acronym} would scale neither a live play's windows nor a replay's");
             }
-
-            // And the mod that LEFT the list is out of it on both sides, which is the seam rule
-            // holding rather than being waived: Hard Rock scales no windows live since backlog 264,
-            // so it carries no drawable-ruleset seam either.
-            Assert.IsNotInstanceOf<IApplicableToDrawableRuleset<TypeBeatHitObject>>(new TypeBeatModHardRock());
         }
 
         /// <summary>

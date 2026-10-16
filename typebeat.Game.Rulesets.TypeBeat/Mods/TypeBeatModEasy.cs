@@ -5,9 +5,7 @@ using System;
 using osu.Framework.Localisation;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.Mods;
-using typebeat.Game.Rulesets.TypeBeat.Objects;
-using typebeat.Game.Rulesets.TypeBeat.UI;
-using typebeat.Game.Rulesets.UI;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Mods
 {
@@ -39,13 +37,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// window, so a wider window really is easier to sit inside, and it would be incoherent to grade
     /// a press Great while the sync readouts scored it as though the window were half as wide.</para>
     /// </summary>
-    public class TypeBeatModEasy : ModEasy, IApplicableToDrawableRuleset<TypeBeatHitObject>
+    public class TypeBeatModEasy : ModEasy, IApplicableToTypingEngine
     {
         /// <summary>
-        /// What the mod multiplies every judgement window by. Read by
-        /// <see cref="Scoring.TypeBeatReplayScorer"/> too, so a replay is re-judged on the same
-        /// ladder the live run was, alongside <see cref="Gameplay.TypingEngine.WordShelter"/> for
-        /// the span it measures a press against.
+        /// What the mod multiplies every judgement window by, in <see cref="ApplyToEngine"/>, which
+        /// every engine factory calls, so a replay is re-judged on the same ladder the live run was,
+        /// alongside <see cref="Gameplay.TypingEngine.WordShelter"/> for the span it measures a press
+        /// against.
         /// </summary>
         public const double WINDOW_SCALE = 2.0;
 
@@ -78,9 +76,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         {
         }
 
-        public void ApplyToDrawableRuleset(DrawableRuleset<TypeBeatHitObject> drawableRuleset)
+        public void ApplyToEngine(TypingEngine engine)
         {
-            var engine = ((DrawableTypeBeatRuleset)drawableRuleset).Engine;
             engine.WindowScale *= WINDOW_SCALE;
             // Assignment and not a multiply: the shelter is a boolean reading of the span rule, so
             // applying the mod twice cannot compound it (unlike WindowScale, which multiplies).

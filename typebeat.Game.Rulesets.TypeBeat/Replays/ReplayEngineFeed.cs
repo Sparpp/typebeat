@@ -43,7 +43,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // one of them: a replay of a run played WITHOUT space-skip must not start skipping
                 // words because the watcher turned the setting on, and vice versa. Every replay
                 // recorded before a setting existed carries its bit clear, which decodes to false,
-                // i.e. to exactly the model those runs were played under.
+                // i.e. to exactly the model those runs were played under. Every bit of the word is
+                // applied here, from one table (ReplayEraBits), rather than at each of the three call
+                // sites, because this is the one place a recorded frame reaches an engine.
                 //
                 // SyllableTiming (backlog 179) is the same seam doing ERA work: the live client
                 // records the bit set, so a new replay re-derives on syllable spans, and every
@@ -55,101 +57,70 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // the third, and the sharpest of the three on exactly that point: with it clear a gap
                 // typo carries the caret into the next word and a mid-word space is refused, with it
                 // set the caret parks and the space lands, so the two arms disagree about where the
-                // caret is from the first misplaced space onwards. Applied here rather than at each of
-                // the three call sites for the same reason the others are: this is the one place a
-                // recorded frame reaches an engine. CharTimedStretch (backlog 209) is the fourth
-                // era bit, and it narrows SyllableTiming rather than competing with it: with it
-                // clear a mashed freestyle section or identical-character run keeps the delta of
-                // zero its whole syllable span paid it, which is what those runs were scored on.
-                engine.AllowWrongInput = frame.AllowWrongInput;
-                engine.SpaceSkipsWord = frame.SpaceSkipsWord;
-                engine.SyllableTiming = frame.SyllableTiming;
-                engine.WrongInputOnWordGaps = frame.WrongInputOnWordGaps;
-                engine.StrictSpaces = frame.StrictSpaces;
-                engine.CharTimedStretch = frame.CharTimedStretch;
-
+                // caret is from the first misplaced space onwards. CharTimedStretch (backlog 209) is
+                // the fourth era bit, and it narrows SyllableTiming rather than competing with it:
+                // with it clear a mashed freestyle section or identical-character run keeps the delta
+                // of zero its whole syllable span paid it, which is what those runs were scored on.
+                //
                 // FirstCharTiming (backlog 247) is the second narrowing on SyllableTiming, and an
                 // era bit for the same reason bit 6 is: with it clear a syllable's first character
                 // pressed late in the sung span keeps the delta of zero its whole span paid it,
                 // which is what every run stored before the hybrid was scored on.
-                engine.FirstCharTiming = frame.FirstCharTiming;
-
+                //
                 // BackDatedSealBreak (backlog 259) is the era bit that moves no keystroke at all:
                 // with it clear a line sealing on cells nobody typed wipes the whole run the player
                 // was holding, which is the combo every judgement after that seal was weighted by
-                // and the max_combo those runs were submitted with. Applied here like every other
-                // bit, so a stored row re-derives the account it was given rather than the kinder
-                // one the live client now keeps.
-                engine.BackDatedSealBreak = frame.BackDatedSealBreak;
-
+                // and the max_combo those runs were submitted with, so a stored row re-derives the
+                // account it was given rather than the kinder one the live client now keeps.
+                //
                 // LosslessSkipReclaim (backlog 260) is the second such bit, and it moves combo in the
                 // same narrow way: with it clear the word gap a skipping space landed on earns nothing
                 // whenever the abandoned tail put the caret past the rush cap, and a passive break
                 // drops the run it stood on, both of which are increments those runs' max_combo was
-                // submitted without. Applied here like every other bit, before a keystroke is fed.
-                engine.LosslessSkipReclaim = frame.LosslessSkipReclaim;
-
+                // submitted without.
+                //
                 // FoldsDisplacedClaim (backlog 262) is the third of them, and the narrowest yet: with
                 // it clear a break that takes the claim off an older break throws that claim away, so
                 // a player who typo'd twice and corrected both got back only what the SECOND break
-                // cost, which is the max_combo those runs were submitted with. Applied here like every
-                // other bit, before a keystroke is fed.
-                engine.FoldsDisplacedClaim = frame.FoldsDisplacedClaim;
-
+                // cost, which is the max_combo those runs were submitted with.
+                //
                 // UnhalvedHardRockWindows (backlog 264) is a WINDOW era, the first since bit 8, and
                 // it has the two-source shape bit 5 has: the bit says "this run's Hard Rock did not
                 // halve the ladder", which is the live rule since 264, and the MOD half cannot be in
                 // the frame at all, since a score's mods travel on the score. So the engine pairs it
-                // with TypingEngine.HardRockFromMod, set by the two engine factories, and the pair
+                // with TypingEngine.HardRockFromMod, set by the mod's ApplyToEngine, and the pair
                 // decides the ladder. Clear (every stored HR row) means the halved ladder those runs
                 // were really graded on; clear without HR on the score means nothing at all.
-                engine.UnhalvedHardRockWindows = frame.UnhalvedHardRockWindows;
-
+                //
                 // BoundedRush (backlog 218) is the fifth, and the sharpest of them on the caret
                 // question: with it clear a player's finished line handed them the next one however
                 // many seconds early, and the keystrokes they then typed into it LANDED. Re-derived
                 // under the bound those same keystrokes would be refused (a complete line takes no
-                // input), so an old run would lose whole lines' worth of judgements. Clobbered from
-                // the frame like every bit here, and inert whenever the caret is pinned, since
-                // FletcherEnabled gates every roll it bounds.
-                engine.BoundedRush = frame.BoundedRush;
-
+                // input), so an old run would lose whole lines' worth of judgements. Inert whenever
+                // the caret is pinned, since FletcherEnabled gates every roll it bounds.
+                //
                 // ManualNewlines (bit 14) is the same caret question one step further: with it set a
                 // finished line is NOT handed on by the two time-driven arms, so it waits for the
                 // player's own space or Enter. Re-derived with the bit clear, the keystrokes a player
                 // made AFTER pressing their newline - and the lines they never reached at all - would
-                // land on different cells, so this is applied before a keystroke is fed like every
-                // other era flag here. Inert under a pinned caret, which FletcherEnabled gates.
-                engine.ManualNewlines = frame.ManualNewlines;
-
+                // land on different cells. Inert under a pinned caret, which FletcherEnabled gates.
+                //
                 // NewlineOnTypedLetter (bit 15) is the accept/reject half of the same era: with it set
                 // a letter at a finished caret is a newline AND a keystroke, so a run re-derived with
                 // the bit clear refuses a press the player really made (and vice versa), and every
-                // judgement after it moves. Clobbered from the frame like the rest.
-                engine.NewlineOnTypedLetter = frame.NewlineOnTypedLetter;
-
+                // judgement after it moves.
+                //
                 // FirstLineLeadIn (bit 16) is an accept/reject bit as well, at the other end of the
                 // map: with it set a press shortly before the first vocal opens the first line, with
                 // it clear that press is refused until the line's own activation, which is the gate
                 // every run stored before the head start was played on. A frame rounded a fraction
                 // before a fractional activation is where the two disagree, and every press after it
-                // would land on a different cell. Clobbered from the frame like the rest.
-                engine.FirstLineLeadIn = frame.FirstLineLeadIn;
-
-                // FlexibleLines (backlog 208) is the one bit here that needs a word more than an
-                // assignment, because the axis it selects has TWO sources. The bit says
-                // "this run was played with the caret unpinned AND snapped forward at each line
-                // start", which is the live default since 208. Everything older carries it clear,
-                // and clear means two different things depending on the score's mods: a plain
-                // pre-208 run was played PINNED, and a run carrying the retired "FT" mod was played
-                // unpinned but with no snap, because the snap did not exist yet. So the bit decides
-                // the snap outright and is OR-ed with the mod-derived half for the caret itself
-                // (see TypingEngine.FlexibleCaretFromMod, set by the two engine factories). Clobber
-                // rather than OR on the snap: an FT replay whose caret this leaves unpinned must
-                // still re-derive without the snap, or it drags its player onto lines they were
-                // still parked behind.
-                engine.FlexibleLineSnap = frame.FlexibleLines;
-                engine.FletcherEnabled = frame.FlexibleLines || engine.FlexibleCaretFromMod;
+                // would land on a different cell.
+                //
+                // FlexibleLines (backlog 208) is the one bit that needs more than an assignment,
+                // because the axis it selects has TWO sources (the bit for the snap, the bit OR the
+                // retired FT mod for the caret); its table entry carries the reasoning.
+                ReplayEraBits.Apply(engine, frame, EraWord.Config);
 
                 // THE SECOND WORD IS ABSENT UNTIL PROVEN OTHERWISE (backlog 347). Every flag the
                 // extended header carries is CLEARED here, and set only by that frame (below), which
@@ -184,16 +155,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // same terms. Bit 9 (KeyTimeJudgement) is set too, although no rule here reads it:
                 // like WallClockFrames it says when the frames were stamped, and the engine carries
                 // it only so the live key handler (and a watch path handing a play back) can.
-                engine.RushCapCostsAccuracy = frame.RushCapCostsAccuracy;
-                engine.InputEra2 = frame.InputEra2;
-                engine.AuthoredSyllablesOnly = frame.AuthoredSyllablesOnly;
-                engine.AlignSubdivisionTargets = frame.AlignSubdivisionTargets;
-                engine.EarlyFinish = frame.EarlyFinish;
-                engine.JapaneseRomajiInput = frame.JapaneseRomajiInput;
-                engine.JapaneseWordTiming = frame.JapaneseWordTiming;
-                engine.JapaneseInputEra2 = frame.JapaneseInputEra2;
-                engine.JapaneseInputEra3 = frame.JapaneseInputEra3;
-                engine.KeyTimeJudgement = frame.KeyTimeJudgement;
+                ReplayEraBits.Apply(engine, frame, EraWord.ConfigExtended);
                 return;
             }
 
@@ -227,19 +189,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// frame, and by the watch path before it primes a newly attached replay, so an engine the live
         /// factory built with these flags on never judges a stored run under them by accident.
         /// </summary>
-        public static void ClearExtendedEras(TypingEngine engine)
-        {
-            engine.RushCapCostsAccuracy = false;
-            engine.InputEra2 = false;
-            engine.AuthoredSyllablesOnly = false;
-            engine.AlignSubdivisionTargets = false;
-            engine.EarlyFinish = false;
-            engine.JapaneseRomajiInput = false;
-            engine.JapaneseWordTiming = false;
-            engine.JapaneseInputEra2 = false;
-            engine.JapaneseInputEra3 = false;
-            engine.KeyTimeJudgement = false;
-        }
+        public static void ClearExtendedEras(TypingEngine engine) => ReplayEraBits.WriteAll(engine, EraWord.ConfigExtended, false);
 
         /// <summary>
         /// Re-derive engine state at <paramref name="time"/> from scratch, by resetting and replaying

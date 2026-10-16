@@ -203,43 +203,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // cells and the nested scoring objects are flattened identically by construction.
             bool literate = Mods?.Any(m => m is TypeBeatModLiterate) == true;
 
-            // HARD ROCK REVERTS THE JUDGEMENT RULE (backlog 180), and since backlog 264 that is the
-            // WHOLE of the mod: a rule that hands out delta 0 anywhere inside a syllable's whole
-            // sung span means most presses never reach the ladder at all, so HR alone judges on the
-            // classic per-character point targets. Read off the mod list here for the same reason
-            // Literate is: mod application has no guaranteed order against the first Engine read, and
-            // deciding it at construction means the flag is never momentarily wrong, which an era
-            // flag read by the replay recorder's CONFIG frame has to be.
-            //
-            // Backlog 150's window HALVING used to stack on top of this, applied late from the mod's
-            // own ApplyToDrawableRuleset. The two together made the mod unplayable for nearly
-            // everyone, so 264 dropped the halving live and kept it only as the era every stored HR
-            // row was played under (see UnhalvedHardRockWindows below). That is why the mod no longer
-            // implements IApplicableToDrawableRuleset at all, and why this one flag now feeds two
-            // engine properties.
-            bool hardRock = Mods?.Any(m => m is TypeBeatModHardRock) == true;
-
-            // FLEXIBLE LINES (backlog 208), read here for exactly the reason Hard Rock's judgement
-            // rule is: it is an ERA pair the replay recorder's CONFIG frame stamps at the first
-            // keystroke, and an era flag cannot be applied late from ApplyToDrawableRuleset, which
-            // has no guaranteed order against the first Engine read. TypeBeatModFletcher re-asserts
-            // the same two values from that seam and cannot disagree, both being derived from this
-            // same "is the mod in the list" question.
-            bool pinnedLines = Mods?.Any(m => m is TypeBeatModFletcher) == true;
-
-            // The retired "FT" mod, which can only ever arrive on a REPLAY being watched (it is a
-            // System mod, unselectable). It says the run was played with an unpinned caret and no
-            // line-start snap, and its frames carry bit 5 CLEAR, so the CONFIG frame alone would
-            // re-pin a caret that was played free. ReplayEngineFeed.Apply ORs this back in.
-            bool legacyFletcher = Mods?.Any(m => m is TypeBeatModLegacyFletcher) == true;
-
-            // DYSLEXIA (backlog 231): the letters of a word may be typed in any order. Read here
-            // alongside the others rather than left to TypeBeatModDyslexia.ApplyToDrawableRuleset
-            // alone, which is the AUTHORITATIVE site for the same reason it is for the flags above:
-            // mod application has no guaranteed order against the first Engine read, so deciding it
-            // at construction means the flag is never momentarily wrong. Unlike them it is NOT an
-            // era flag and stamps no CONFIG bit; the mod itself says why.
-            bool anyOrderWithinWord = Mods?.Any(m => m is TypeBeatModDyslexia) == true;
+            // Every OTHER mod's engine settings (Hard Rock's point targets and window fact, the
+            // caret pin, the retired FT caret, Dyslexia, Mashing, Gatekeeper, Easy, Puppeteer and the
+            // rate mods' window scales) are written by the mod itself, through
+            // IApplicableToTypingEngine, once the engine below exists. That is the one place each
+            // mod's settings live, and the replay scorer calls the same code, so a live play and a
+            // re-judged replay cannot disagree about what a mod does. Applied at construction rather
+            // than from ApplyToDrawableRuleset, which has no guaranteed order against the first
+            // Engine read, so no flag the replay recorder's CONFIG frame stamps is ever momentarily
+            // wrong.
 
             // POLYGLOT (backlog 331) changes the cell list exactly as Literate does, so it is read here for
             // the same reason; the language is asked of the same function the mod stamps the hit
@@ -250,8 +222,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             var created = new TypingEngine(lyricBeatmap, literate, polyglot, polyglotLanguage)
             {
                 // THE live judgement rule since backlog 179, for every player and (since backlog
-                // 180) every mod stack but Hard Rock: a character typed while its syllable is being
-                // sung is perfectly timed. Backlog 174 shipped this as a debug-only experiment and
+                // 180) every mod stack but Hard Rock, which turns it back off from its own
+                // ApplyToEngine: a character typed while its syllable is being sung is perfectly
+                // timed. Backlog 174 shipped this as a debug-only experiment and
                 // this seam was its gate; there is no build gate any more, and the flag doubles as
                 // the ERA arm every stored replay needs (TypeBeatReplayScorer re-derives on the
                 // CONFIG frame's bit 2, and a replay written before backlog 179, or any HR replay,
@@ -260,14 +233,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // 177) and this flag does not gate them. The press-now highlight asks the engine for
                 // each cell's judged span (TypingEngine.JudgedSpanOf), so under HR it lights each
                 // character on its own target, exactly as it is graded.
-                SyllableTiming = !hardRock,
-
-                // THE MOD FACT the CONFIG frame cannot carry, the same shape FlexibleCaretFromMod
-                // has: a score's mods travel on the score, so the engine is told here whether Hard
-                // Rock is in the stack and the frame's bit 13 supplies the era half. Together they
-                // decide whether the judgement ladder is halved, and under a live run they never
-                // are, because the line below sets the era to the unhalved one.
-                HardRockFromMod = hardRock,
+                SyllableTiming = true,
 
                 // THE LIVE HARD ROCK WINDOW SINCE BACKLOG 264: normal width. Backlog 150 halved
                 // every window under HR and backlog 180 then took the syllable's shelter away on top
@@ -275,9 +241,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // the halving and kept the judgement revert alone.
                 //
                 // Set UNCONDITIONALLY, exactly as bits 3, 4, 6, 8 and 10 to 12 are, and INERT
-                // without Hard Rock in the stack (HardRockFromMod above gates it) the way bits 6 and
-                // 8 are inert under Hard Rock. Recording it regardless keeps re-derivation uniform
-                // and means no reader has to work out which stacks stamped it.
+                // without Hard Rock in the stack (HardRockFromMod, set by the mod, gates it) the way
+                // bits 6 and 8 are inert under Hard Rock. Recording it regardless keeps re-derivation
+                // uniform and means no reader has to work out which stacks stamped it.
                 //
                 // An ERA flag on CONFIG frame bit 13, because every HR replay recorded before this
                 // holds presses that WERE graded against halved windows, and that ladder is in the
@@ -396,9 +362,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // it: a caret sitting past the end of its line is handed to the next line when that
                 // line starts, which is what keeps the unpinned default feeling like the pinned game
                 // it replaced. An "FT" replay must re-derive WITHOUT it, so it is its own era bit
-                // (CONFIG frame bit 5) rather than something FletcherEnabled implies.
-                FletcherEnabled = !pinnedLines,
-                FlexibleLineSnap = !pinnedLines,
+                // (CONFIG frame bit 5) rather than something FletcherEnabled implies. The pinning
+                // mod clears both from its own ApplyToEngine.
+                FletcherEnabled = true,
+                FlexibleLineSnap = true,
 
                 // THE RUSH BOUND SINCE BACKLOG 218, and the symmetry the unpinned caret shipped
                 // without: drag borrows 1500 ms past a line's end, so rush may enter a line 1500 ms
@@ -476,14 +443,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // key handler is its only reader, and every replay recorded before it carries the
                 // pairing-time stamps it was judged at.
                 KeyTimeJudgement = true,
-
-                FlexibleCaretFromMod = legacyFletcher,
-
-                // THE ONE MOD FLAG SET HERE THAT IS NOT AN ERA (backlog 231). A stored replay can
-                // never disagree with the mod list about it, because no run predates the mod, so
-                // there is nothing for a CONFIG bit to disambiguate and the score's mods are the
-                // whole mechanism (TypeBeatReplayScorer.createEngine reads the same list).
-                AnyOrderWithinWord = anyOrderWithinWord,
             };
 
             // The fourth Japanese era (bit 5 of the second CONFIG word) is NOT unconditional: romaji
@@ -491,6 +450,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // value its constructor already gives it. Named here for the same reason as the three
             // above.
             created.JapaneseRomajiInput = created.UsesJapaneseRomaji;
+
+            if (Mods != null)
+                TypingEngineMods.Apply(created, Mods);
 
             return created;
         }

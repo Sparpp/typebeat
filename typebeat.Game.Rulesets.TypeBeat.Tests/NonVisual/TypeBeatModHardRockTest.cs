@@ -144,10 +144,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// off the constructor's beatmap and mod list, which is precisely why backlog 180 decides
         /// the judgement ERA there rather than from an <c>ApplyToDrawableRuleset</c> seam.
         ///
-        /// <para>Since backlog 264 Hard Rock has no such seam at all: it no longer implements
-        /// <see cref="IApplicableToDrawableRuleset{T}"/>, so the loop below is a no-op for it and
-        /// everything the mod does to the engine is decided in <c>createEngine</c>. Easy still uses
-        /// the seam, which is what the loop is for.</para>
+        /// <para>Neither Hard Rock nor Easy uses that seam: both write the engine from their own
+        /// <c>ApplyToEngine</c>, which <c>createEngine</c> calls, so the loop below is a no-op for
+        /// both and stays only because it is what gameplay does.</para>
         /// </summary>
         private static TypingEngine liveEngine(params Mod[] mods)
         {
@@ -204,14 +203,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <summary>
         /// EASY IS FULLY INDEPENDENT AND WAS NOT TOUCHED BY BACKLOG 264. Its 2.0 was never derived
         /// from Hard Rock's 0.5 (the reciprocal was a design symmetry, not a dependency), and it
-        /// still reaches the live engine from its own <c>ApplyToDrawableRuleset</c>. Pinned here
+        /// still reaches the live engine from its own <c>ApplyToEngine</c>. Pinned here
         /// rather than only in <c>TypeBeatModEasyTest</c> because this is the file that changed.
         /// </summary>
         [Test]
         public void EasyKeepsItsOwnDoubledWindowsAndItsOwnLiveSeam()
         {
             Assert.AreEqual(2.0, TypeBeatModEasy.WINDOW_SCALE, 1e-9);
-            Assert.IsInstanceOf<IApplicableToDrawableRuleset<TypeBeatHitObject>>(new TypeBeatModEasy());
+            Assert.IsInstanceOf<IApplicableToTypingEngine>(new TypeBeatModEasy());
 
             // The live ladder itself: Easy doubles it and Hard Rock, since 264, leaves it alone.
             double plain = liveEngine().Windows.GreatLate;

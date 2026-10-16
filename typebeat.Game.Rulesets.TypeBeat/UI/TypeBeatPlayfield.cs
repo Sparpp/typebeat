@@ -195,7 +195,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             // The wrong-input model is fixed for the play and is no longer a setting (backlog 107):
             // typing wrong chars through is the default, and TypeBeatModGatekeeper is the only thing
-            // that turns it off, via ApplyToDrawableRuleset.
+            // that turns it off, via its ApplyToEngine.
 
             // Space-to-skip-a-word IS a setting, and is read ONCE here rather than bound live: it
             // decides how a space is judged, and the replay CONFIG frame stamps whatever the engine
@@ -581,9 +581,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             /// attaches and put back when it detaches (the editor's autoplay toggle), so a mapper
             /// typing on after autoplay plays on the live rules again rather than on whatever the
             /// replay's headers selected (backlog 363: above all the grouping, which the lyric stack
-            /// re-lays when it flips back).
+            /// re-lays when it flips back). Taken and put back through <see cref="ReplayEraBits"/>, so
+            /// every second-word era is covered.
             /// </summary>
-            private (bool RushCapCostsAccuracy, bool InputEra2, bool AuthoredSyllablesOnly, bool AlignSubdivisionTargets, bool EarlyFinish, bool JapaneseRomajiInput, bool JapaneseWordTiming, bool JapaneseInputEra2, bool JapaneseInputEra3, bool KeyTimeJudgement)? liveExtendedEras;
+            private bool[]? liveExtendedEras;
             private int nextFrameIndex;
 
             /// <summary>
@@ -629,7 +630,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // The replay can be swapped mid-play (editor autoplay toggle); restart feeding.
                     if (!ReferenceEquals(replay, activeReplay))
                     {
-                        liveExtendedEras ??= (engine.RushCapCostsAccuracy, engine.InputEra2, engine.AuthoredSyllablesOnly, engine.AlignSubdivisionTargets, engine.EarlyFinish, engine.JapaneseRomajiInput, engine.JapaneseWordTiming, engine.JapaneseInputEra2, engine.JapaneseInputEra3, engine.KeyTimeJudgement);
+                        liveExtendedEras ??= ReplayEraBits.Capture(engine, EraWord.ConfigExtended);
                         activeReplay = replay;
                         nextFrameIndex = 0;
                         lastFedTime = double.NegativeInfinity;
@@ -703,18 +704,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     activeReplay = null;
 
                     if (liveExtendedEras is { } live)
-                    {
-                        engine.RushCapCostsAccuracy = live.RushCapCostsAccuracy;
-                        engine.InputEra2 = live.InputEra2;
-                        engine.AuthoredSyllablesOnly = live.AuthoredSyllablesOnly;
-                        engine.AlignSubdivisionTargets = live.AlignSubdivisionTargets;
-                        engine.EarlyFinish = live.EarlyFinish;
-                        engine.JapaneseRomajiInput = live.JapaneseRomajiInput;
-                        engine.JapaneseWordTiming = live.JapaneseWordTiming;
-                        engine.JapaneseInputEra2 = live.JapaneseInputEra2;
-                        engine.JapaneseInputEra3 = live.JapaneseInputEra3;
-                        engine.KeyTimeJudgement = live.KeyTimeJudgement;
-                    }
+                        ReplayEraBits.Restore(engine, EraWord.ConfigExtended, live);
 
                     liveExtendedEras = null;
                 }
