@@ -69,7 +69,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// renamed to match the mod.</para></item>
     /// </list>
     ///
-    /// <para><b>Legacy (.osr) mapping</b>, chosen to round-trip through
+    /// <para><b>Legacy (.osr) mapping</b> (the bit positions of both words are one table,
+    /// <see cref="ReplayEraBits"/>), chosen to round-trip through
     /// <see cref="typebeat.Game.Scoring.Legacy.LegacyScoreEncoder"/>/<c>Decoder</c> untouched:
     /// MouseX = character code, MouseY = config flags (bit 0 = allow-wrong-input, bit 1 =
     /// space-skips-word, bit 2 = syllable-span timing, bit 3 = wrong-input-on-word-gaps, bit 4 =
@@ -214,6 +215,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// word windows that skip uses. Older replays retain the single-character skip and the plan
     /// they were played on. (The cell list itself is not covered: see
     /// <c>PolyglotLine.joinJapaneseWords</c>.)</para>
+    ///
+    /// <para><b>Second word, bit 9 (value 512): <see cref="KeyTimeJudgement"/>.</b> A Latin or
+    /// Japanese-romaji press's frame carries the time its KEY went down, also when the OS committed its text
+    /// frames later or committed none (the spacebar's fallback). Like bit 9 of the first word it
+    /// describes the frames rather than a rule: playback feeds every frame at its own time either
+    /// way, so a replay without it re-derives at the pairing-time stamps it was recorded with, and
+    /// one with it at the key times the live engine judged at.</para>
     ///
     /// <para><b>Second word, bit 7 (value 128): <see cref="JapaneseInputEra2"/>.</b> Japanese
     /// Space to Skip advances by one unfinished character; completed readings remain protected.
@@ -571,6 +579,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         public bool JapaneseInputEra3;
 
         /// <summary>
+        /// Bit 9 of the extended word: typed characters are stamped at their key's time, not at the
+        /// pairing of key and text commit (see <see cref="Gameplay.TypingEngine.KeyTimeJudgement"/>).
+        /// Absent on existing replays, whose frames carry the pairing time.
+        /// </summary>
+        public bool KeyTimeJudgement;
+
+        /// <summary>
         /// The final line sealed as soon as it was fully typed correctly (see
         /// <see cref="Gameplay.TypingEngine.EarlyFinish"/>). Bit 4 (value 16) of the extended flags
         /// word; absent on existing replays, which seal the final line at its end.
@@ -631,6 +646,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// <paramref name="manualNewlines"/> (bit 14) after that,
         /// <paramref name="newlineOnTypedLetter"/> (bit 15) after that, and
         /// <paramref name="firstLineLeadIn"/> (bit 16) last. Pass the newer ones by name.</para>
+        ///
+        /// <para>Every parameter is one entry of <see cref="ReplayEraBits"/> (the same name, camel
+        /// cased), which <c>ReplayEraBitsTest</c> checks in both directions.</para>
         /// </summary>
         public static TypeBeatReplayFrame CreateConfigFrame(double time, bool allowWrongInput, bool spaceSkipsWord = false, bool syllableTiming = false, bool wrongInputOnWordGaps = false, bool strictSpaces = false, bool charTimedStretch = false, bool flexibleLines = false, bool boundedRush = false, bool firstCharTiming = false, bool wallClockFrames = false, bool backDatedSealBreak = false, bool losslessSkipReclaim = false, bool foldsDisplacedClaim = false, bool unhalvedHardRockWindows = false, bool manualNewlines = false, bool newlineOnTypedLetter = false, bool firstLineLeadIn = false) => new TypeBeatReplayFrame(time, CONFIG)
         {
@@ -659,7 +677,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// Parameters are append-only and named, as <see cref="CreateConfigFrame"/>'s are; each one
         /// defaults to clear, which is what a replay with no extended frame decodes to.
         /// </summary>
-        public static TypeBeatReplayFrame CreateExtendedConfigFrame(double time, bool rushCapCostsAccuracy = false, bool inputEra2 = false, bool authoredSyllablesOnly = false, bool alignSubdivisionTargets = false, bool earlyFinish = false, bool japaneseRomajiInput = false, bool japaneseWordTiming = false, bool japaneseInputEra2 = false, bool japaneseInputEra3 = false) => new TypeBeatReplayFrame(time, CONFIG_EXTENDED)
+        public static TypeBeatReplayFrame CreateExtendedConfigFrame(double time, bool rushCapCostsAccuracy = false, bool inputEra2 = false, bool authoredSyllablesOnly = false, bool alignSubdivisionTargets = false, bool earlyFinish = false, bool japaneseRomajiInput = false, bool japaneseWordTiming = false, bool japaneseInputEra2 = false, bool japaneseInputEra3 = false, bool keyTimeJudgement = false) => new TypeBeatReplayFrame(time, CONFIG_EXTENDED)
         {
             EarlyFinish = earlyFinish,
             RushCapCostsAccuracy = rushCapCostsAccuracy,
@@ -670,101 +688,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             JapaneseWordTiming = japaneseWordTiming,
             JapaneseInputEra2 = japaneseInputEra2,
             JapaneseInputEra3 = japaneseInputEra3,
+            KeyTimeJudgement = keyTimeJudgement,
         };
-
-        /// <summary>Bit 0 of the EXTENDED CONFIG frame's (second) flags word: an over-cap press was
-        /// awarded Meh and credited combo, with the cap at six, rather than breaking the combo at five
-        /// (backlog 347).</summary>
-        private const int ext_flag_rush_cap_costs_accuracy = 1;
-
-        /// <summary>Bit 1 of the EXTENDED CONFIG frame's (second) flags word: the run was played in the
-        /// second input era (see <see cref="InputEra2"/>).</summary>
-        private const int ext_flag_input_era_2 = 2;
-
-        /// <summary>Bit 2 of the EXTENDED CONFIG frame's (second) flags word: only authored syllable
-        /// boundaries split a word (see <see cref="AuthoredSyllablesOnly"/>, backlog 363).</summary>
-        private const int ext_flag_authored_syllables_only = 4;
-
-        /// <summary>Bit 3: per-character timing follows the editor's effective subdivision cuts.</summary>
-        private const int ext_flag_align_subdivision_targets = 8;
-
-        /// <summary>Bit 4: the final line seals as soon as it is fully typed (see <see cref="EarlyFinish"/>).</summary>
-        private const int ext_flag_early_finish = 16;
-        private const int ext_flag_japanese_romaji_input = 32;
-        private const int ext_flag_japanese_word_timing = 64;
-        private const int ext_flag_japanese_input_era_2 = 128;
-        private const int ext_flag_japanese_input_era_3 = 256;
-
-        /// <summary>Bit 0 of the CONFIG frame's flags word: wrong input allowed (fixed by every replay on disk).</summary>
-        private const int flag_allow_wrong_input = 1;
-
-        /// <summary>Bit 1 of the CONFIG frame's flags word: space skips the current word.</summary>
-        private const int flag_space_skips_word = 2;
-
-        /// <summary>Bit 2 of the CONFIG frame's flags word: presses are judged against syllable spans.</summary>
-        private const int flag_syllable_timing = 4;
-
-        /// <summary>Bit 3 of the CONFIG frame's flags word: a wrong letter on a word gap is typed through.</summary>
-        private const int flag_wrong_input_on_word_gaps = 8;
-
-        /// <summary>Bit 4 of the CONFIG frame's flags word: the spacebar is the word boundary (a gap
-        /// typo parks the caret, a mid-word space is a typo rather than a rejection).</summary>
-        private const int flag_strict_spaces = 16;
-
-        /// <summary>Bit 5 of the CONFIG frame's flags word: the caret was unpinned from the playhead
-        /// and snapped forward when the next line started (backlog 208's flexible-lines default).</summary>
-        private const int flag_flexible_lines = 32;
-
-        /// <summary>Bit 6 of the CONFIG frame's flags word: a freestyle slot or a stretched
-        /// identical-character run is judged on its own character target rather than its syllable's
-        /// span.</summary>
-        private const int flag_char_timed_stretch = 64;
-
-        /// <summary>Bit 7 of the CONFIG frame's flags word: rushing onto the next line was bounded to
-        /// the same margin dragging is granted at the other end of a line (backlog 218).</summary>
-        private const int flag_bounded_rush = 128;
-
-        /// <summary>Bit 8 of the CONFIG frame's flags word: the first character of a syllable is
-        /// judged on its distance from the syllable's start rather than paid 0 anywhere in the sung
-        /// span (backlog 247).</summary>
-        private const int flag_first_char_timing = 256;
-
-        /// <summary>Bit 9 of the CONFIG frame's flags word: every frame's time in this run is a WALL
-        /// stamp on the axis anchored at the CONFIG frame's own time, not a lyric time (backlog 256,
-        /// the Puppeteer era). The only bit here that describes the FRAMES rather than the
-        /// engine.</summary>
-        private const int flag_wall_clock_frames = 512;
-
-        /// <summary>Bit 10 of the CONFIG frame's flags word: a sealed line's combo break was
-        /// back-dated to the cells it missed, so a run built past them survived it (backlog
-        /// 259).</summary>
-        private const int flag_back_dated_seal_break = 1024;
-
-        /// <summary>Bit 11 of the CONFIG frame's flags word: a word given up by accident and then
-        /// typed out in full cost the run nothing (backlog 260).</summary>
-        private const int flag_lossless_skip_reclaim = 2048;
-
-        /// <summary>Bit 12 of the CONFIG frame's flags word: a break taking the claim off an older
-        /// break folded that claim into its own rather than discarding it, so two accidents corrected
-        /// in full cost the run nothing (backlog 262).</summary>
-        private const int flag_displaced_claim_fold = 4096;
-
-        /// <summary>Bit 13 of the CONFIG frame's flags word: this run's Hard Rock left the judgement
-        /// windows at their normal width instead of halving them (backlog 264).</summary>
-        private const int flag_unhalved_hard_rock_windows = 8192;
-
-        /// <summary>Bit 14 of the CONFIG frame's flags word: a finished line was handed over by the
-        /// player's own space or Enter rather than automatically (the manual-newlines setting).</summary>
-        private const int flag_manual_newlines = 16384;
-
-        /// <summary>Bit 15 of the CONFIG frame's flags word: a finished line may also be handed over by
-        /// typing the next line's first slot (see <see cref="NewlineOnTypedLetter"/>).</summary>
-        private const int flag_newline_on_typed_letter = 32768;
-
-        /// <summary>Bit 16 of the CONFIG frame's flags word: a press shortly before the map's first
-        /// vocal opened the first line (see <see cref="FirstLineLeadIn"/>). The highest bit the .osr
-        /// carrier can hold (see the class summary).</summary>
-        private const int flag_first_line_lead_in = 65536;
 
         public void FromLegacy(LegacyReplayFrame currentFrame, IBeatmap beatmap, ReplayFrame? lastFrame = null)
         {
@@ -775,72 +700,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             // The two header kinds carry DIFFERENT words in the same slot, so each decodes its own
             // and leaves the other's fields false. Before backlog 347 every frame decoded the first
             // word regardless of kind, which was harmless because only a CONFIG frame carries a
-            // non-zero one; an extended frame's word must not be read as first-word bits.
-            if (Character == CONFIG_EXTENDED)
-            {
-                RushCapCostsAccuracy = (flags & ext_flag_rush_cap_costs_accuracy) != 0;
-                InputEra2 = (flags & ext_flag_input_era_2) != 0;
-                AuthoredSyllablesOnly = (flags & ext_flag_authored_syllables_only) != 0;
-                AlignSubdivisionTargets = (flags & ext_flag_align_subdivision_targets) != 0;
-                EarlyFinish = (flags & ext_flag_early_finish) != 0;
-                JapaneseRomajiInput = (flags & ext_flag_japanese_romaji_input) != 0;
-                JapaneseWordTiming = (flags & ext_flag_japanese_word_timing) != 0;
-                JapaneseInputEra2 = (flags & ext_flag_japanese_input_era_2) != 0;
-                JapaneseInputEra3 = (flags & ext_flag_japanese_input_era_3) != 0;
-                return;
-            }
-
-            AllowWrongInput = (flags & flag_allow_wrong_input) != 0;
-            SpaceSkipsWord = (flags & flag_space_skips_word) != 0;
-            SyllableTiming = (flags & flag_syllable_timing) != 0;
-            WrongInputOnWordGaps = (flags & flag_wrong_input_on_word_gaps) != 0;
-            StrictSpaces = (flags & flag_strict_spaces) != 0;
-            FlexibleLines = (flags & flag_flexible_lines) != 0;
-            CharTimedStretch = (flags & flag_char_timed_stretch) != 0;
-            BoundedRush = (flags & flag_bounded_rush) != 0;
-            FirstCharTiming = (flags & flag_first_char_timing) != 0;
-            WallClockFrames = (flags & flag_wall_clock_frames) != 0;
-            BackDatedSealBreak = (flags & flag_back_dated_seal_break) != 0;
-            LosslessSkipReclaim = (flags & flag_lossless_skip_reclaim) != 0;
-            FoldsDisplacedClaim = (flags & flag_displaced_claim_fold) != 0;
-            UnhalvedHardRockWindows = (flags & flag_unhalved_hard_rock_windows) != 0;
-            ManualNewlines = (flags & flag_manual_newlines) != 0;
-            NewlineOnTypedLetter = (flags & flag_newline_on_typed_letter) != 0;
-            FirstLineLeadIn = (flags & flag_first_line_lead_in) != 0;
+            // non-zero one; an extended frame's word must not be read as first-word bits. The bit
+            // positions are ReplayEraBits' table.
+            ReplayEraBits.Decode(this, Character == CONFIG_EXTENDED ? EraWord.ConfigExtended : EraWord.Config, flags);
         }
 
         public LegacyReplayFrame ToLegacy(IBeatmap beatmap) =>
-            new LegacyReplayFrame(Time, Character, IsConfig ? configFlags() : IsConfigExtended ? extendedConfigFlags() : 0, ReplayButtonState.None);
-
-        private int extendedConfigFlags() =>
-            (RushCapCostsAccuracy ? ext_flag_rush_cap_costs_accuracy : 0)
-            | (InputEra2 ? ext_flag_input_era_2 : 0)
-            | (AuthoredSyllablesOnly ? ext_flag_authored_syllables_only : 0)
-            | (AlignSubdivisionTargets ? ext_flag_align_subdivision_targets : 0)
-            | (JapaneseRomajiInput ? ext_flag_japanese_romaji_input : 0)
-            | (JapaneseWordTiming ? ext_flag_japanese_word_timing : 0)
-            | (JapaneseInputEra2 ? ext_flag_japanese_input_era_2 : 0)
-            | (JapaneseInputEra3 ? ext_flag_japanese_input_era_3 : 0)
-            | (EarlyFinish ? ext_flag_early_finish : 0);
-
-        private int configFlags() =>
-            (AllowWrongInput ? flag_allow_wrong_input : 0)
-            | (SpaceSkipsWord ? flag_space_skips_word : 0)
-            | (SyllableTiming ? flag_syllable_timing : 0)
-            | (WrongInputOnWordGaps ? flag_wrong_input_on_word_gaps : 0)
-            | (StrictSpaces ? flag_strict_spaces : 0)
-            | (FlexibleLines ? flag_flexible_lines : 0)
-            | (CharTimedStretch ? flag_char_timed_stretch : 0)
-            | (BoundedRush ? flag_bounded_rush : 0)
-            | (FirstCharTiming ? flag_first_char_timing : 0)
-            | (WallClockFrames ? flag_wall_clock_frames : 0)
-            | (BackDatedSealBreak ? flag_back_dated_seal_break : 0)
-            | (LosslessSkipReclaim ? flag_lossless_skip_reclaim : 0)
-            | (FoldsDisplacedClaim ? flag_displaced_claim_fold : 0)
-            | (UnhalvedHardRockWindows ? flag_unhalved_hard_rock_windows : 0)
-            | (ManualNewlines ? flag_manual_newlines : 0)
-            | (NewlineOnTypedLetter ? flag_newline_on_typed_letter : 0)
-            | (FirstLineLeadIn ? flag_first_line_lead_in : 0);
+            new LegacyReplayFrame(Time, Character, IsConfig ? ReplayEraBits.Encode(this, EraWord.Config) : IsConfigExtended ? ReplayEraBits.Encode(this, EraWord.ConfigExtended) : 0, ReplayButtonState.None);
 
         /// <summary>
         /// Never equivalent: every frame is a discrete keystroke. Two identical characters at the

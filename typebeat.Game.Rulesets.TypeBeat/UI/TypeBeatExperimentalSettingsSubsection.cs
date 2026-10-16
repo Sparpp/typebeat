@@ -113,7 +113,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     HintText = "Fade the screen edges to red during the final 1.5 seconds before you are forced onto the next line. Display only; does not affect health, scores or timing.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.LinePushWarningEdges),
                 }),
-                CreateSubsectionHeader("Lyric timing"),
+                CreateSubsectionHeader(LocalAlignerVersion.SETTINGS_HEADING),
                 new SettingsItemV2(new FormCheckBox
                 {
                     Caption = HIGH_QUALITY_CAPTION,

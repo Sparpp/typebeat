@@ -61,7 +61,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             File.WriteAllText(audioPath, "fake audio");
 
             string oszPath = Path.Combine(tempRoot, Guid.NewGuid().ToString("N") + ".osz");
-            var result = LyricMapImporter.PackageOsz(oszPath, "A", "B", audioPath, timingJson, "unused", language: language);
+            var result = OszPackager.PackageOsz(oszPath, "A", "B", audioPath, timingJson, "unused", language: language);
             Assert.That(result.Success, Is.True, result.Error);
 
             using var archive = ZipFile.OpenRead(oszPath);
@@ -215,7 +215,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void AKoreanTimingJsonImportsWithItsSyllablesCarried()
         {
-            string romanised = LyricMapImporter.RomaniseLines(korean_timing, LyricOriginals.DetectLanguage(new[] { korean_timing }));
+            string romanised = TimingJsonPostProcess.RomaniseLines(korean_timing, LyricOriginals.DetectLanguage(new[] { korean_timing }));
             var line = load(romanised).Single();
 
             Assert.That(line.RawText, Is.EqualTo("saranghae arirang"));
@@ -234,7 +234,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void ADocumentWithNothingToRomaniseIsReturnedVerbatim()
         {
             const string english = "{\"version\":2,\"lines\":[{\"text\":\"hello world\",\"start_ms\":1000,\"end_ms\":2000,\"words\":[{\"text\":\"hello\",\"start_ms\":1000,\"end_ms\":1500}]}]}";
-            Assert.That(LyricMapImporter.RomaniseLines(english, null), Is.SameAs(english));
+            Assert.That(TimingJsonPostProcess.RomaniseLines(english, null), Is.SameAs(english));
         }
 
         /// <summary>
@@ -247,7 +247,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             const string json = "{\"version\":2,\"lines\":[{\"text\":\"かった\",\"start_ms\":0,\"end_ms\":900,\"words\":["
                                 + "{\"text\":\"かった\",\"start_ms\":0,\"end_ms\":900,\"syllables\":[{\"text\":\"か\",\"start_ms\":0,\"end_ms\":300},{\"text\":\"っ\",\"start_ms\":300,\"end_ms\":600},{\"text\":\"た\",\"start_ms\":600,\"end_ms\":900}]}]}]}";
 
-            var unit = load(LyricMapImporter.RomaniseLines(json, "japanese")).Single().Units.Single();
+            var unit = load(TimingJsonPostProcess.RomaniseLines(json, "japanese")).Single().Units.Single();
 
             Assert.That(unit.Text, Is.EqualTo("katta"));
             Assert.That(unit.SyllableBoundaries, Is.EqualTo(new[] { 600.0 }));
@@ -302,14 +302,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             const string json = "{\"version\":2,\"lines\":[{\"text\":\"我爱你\",\"start_ms\":0,\"end_ms\":900},{\"text\":\"yeah\",\"start_ms\":1000,\"end_ms\":1900}]}";
 
-            var lines = load(LyricMapImporter.RomaniseLines(json, "chinese"));
+            var lines = load(TimingJsonPostProcess.RomaniseLines(json, "chinese"));
 
             Assert.That(lines.Select(l => l.RawText), Is.EqualTo(new[] { string.Empty, "yeah" }));
             Assert.That(lines[0].Original, Is.EqualTo("我爱你"));
             Assert.That(lines[0].UnromanisedWords, Is.Empty);
             Assert.That(LyricOriginals.UnromanisedWords(lines), Is.EqualTo(new[] { "我爱你" }));
 
-            var (result, beatmap, _) = package(LyricMapImporter.RomaniseLines(json, "chinese"), "chinese");
+            var (result, beatmap, _) = package(TimingJsonPostProcess.RomaniseLines(json, "chinese"), "chinese");
             Assert.That(result.Notice, Does.Contain("我爱你"));
             Assert.That(new TypeBeatRuleset().GetSubmissionRefusal(beatmap), Does.Contain("我爱你"));
         }

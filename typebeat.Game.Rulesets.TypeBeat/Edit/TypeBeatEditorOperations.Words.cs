@@ -3,11 +3,12 @@
 
 using System;
 using System.Linq;
+using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Screens.Edit;
 
-namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
+namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
     public static partial class TypeBeatEditorOperations
     {
@@ -65,9 +66,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 : line.Original;
 
             editorBeatmap.BeginChange();
-            hitObject.Line = rebuild(line, rawText: string.Join(' ', units.Select(u => u.Text)), units: units,
-                originals: (original, pending));
-            editorBeatmap.Update(hitObject);
+            setLine(editorBeatmap, hitObject, rebuild(line, rawText: string.Join(' ', units.Select(u => u.Text)), units: units,
+                originals: (original, pending)));
             syncGranularity(editorBeatmap, keepAuthoredWords: true);
             editorBeatmap.EndChange();
             return true;

@@ -229,7 +229,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// </summary>
         private static void emit(TypingEngine engine, List<TypeBeatReplayFrame> derived, TypeBeatReplayFrame source, double time)
         {
-            var frame = clone(source, time);
+            var frame = Clone(source, time);
 
             frame.WallClockFrames = false;
 
@@ -237,34 +237,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             ReplayEngineFeed.Apply(engine, frame);
         }
 
-        private static TypeBeatReplayFrame clone(TypeBeatReplayFrame source, double time) => new TypeBeatReplayFrame(time, source.Character)
+        /// <summary>The stored frame at a new time, every era field of both words carried across.</summary>
+        internal static TypeBeatReplayFrame Clone(TypeBeatReplayFrame source, double time)
         {
-            AllowWrongInput = source.AllowWrongInput,
-            SpaceSkipsWord = source.SpaceSkipsWord,
-            SyllableTiming = source.SyllableTiming,
-            WrongInputOnWordGaps = source.WrongInputOnWordGaps,
-            StrictSpaces = source.StrictSpaces,
-            FlexibleLines = source.FlexibleLines,
-            CharTimedStretch = source.CharTimedStretch,
-            BoundedRush = source.BoundedRush,
-            FirstCharTiming = source.FirstCharTiming,
-            WallClockFrames = source.WallClockFrames,
-            BackDatedSealBreak = source.BackDatedSealBreak,
-            LosslessSkipReclaim = source.LosslessSkipReclaim,
-            FoldsDisplacedClaim = source.FoldsDisplacedClaim,
-            UnhalvedHardRockWindows = source.UnhalvedHardRockWindows,
-            ManualNewlines = source.ManualNewlines,
-            NewlineOnTypedLetter = source.NewlineOnTypedLetter,
-            FirstLineLeadIn = source.FirstLineLeadIn,
-            RushCapCostsAccuracy = source.RushCapCostsAccuracy,
-            InputEra2 = source.InputEra2,
-            AuthoredSyllablesOnly = source.AuthoredSyllablesOnly,
-            AlignSubdivisionTargets = source.AlignSubdivisionTargets,
-            EarlyFinish = source.EarlyFinish,
-            JapaneseRomajiInput = source.JapaneseRomajiInput,
-            JapaneseWordTiming = source.JapaneseWordTiming,
-            JapaneseInputEra2 = source.JapaneseInputEra2,
-            JapaneseInputEra3 = source.JapaneseInputEra3,
-        };
+            var frame = new TypeBeatReplayFrame(time, source.Character);
+            ReplayEraBits.Copy(source, frame);
+            return frame;
+        }
     }
 }

@@ -7,8 +7,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 
-namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
+namespace typebeat.Game.Rulesets.TypeBeat.Import
 {
     /// <summary>
     /// Writes the version-2 timing.json that <see cref="TimingJsonLoader"/> reads, for lyric lines

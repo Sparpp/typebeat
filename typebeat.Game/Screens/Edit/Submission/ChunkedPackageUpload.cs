@@ -8,8 +8,10 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using osu.Framework.Extensions;
 using osu.Framework.Logging;
@@ -84,44 +86,52 @@ namespace typebeat.Game.Screens.Edit.Submission
         /// <summary>
         /// Splits <paramref name="totalBytes"/> into chunks of at most <paramref name="chunkBytes"/>.
         /// </summary>
-        public static int TotalChunks(int totalBytes, int chunkBytes)
+        /// <remarks>
+        /// Sizes and offsets are <see langword="long"/>, so a payload past 2 GB slices correctly; only the chunk
+        /// count and each chunk's own length are <see langword="int"/>, matching the server's session store.
+        /// </remarks>
+        public static int TotalChunks(long totalBytes, int chunkBytes)
         {
             ArgumentOutOfRangeException.ThrowIfNegative(totalBytes);
             ArgumentOutOfRangeException.ThrowIfLessThan(chunkBytes, 1);
 
-            return (totalBytes + chunkBytes - 1) / chunkBytes;
+            return checked((int)(totalBytes / chunkBytes + (totalBytes % chunkBytes == 0 ? 0 : 1)));
         }
 
         /// <summary>
         /// The offset into the payload at which chunk <paramref name="index"/> starts.
         /// </summary>
-        public static int ChunkOffset(int index, int chunkBytes)
+        public static long ChunkOffset(int index, int chunkBytes)
         {
             ArgumentOutOfRangeException.ThrowIfNegative(index);
             ArgumentOutOfRangeException.ThrowIfLessThan(chunkBytes, 1);
 
-            return index * chunkBytes;
+            return (long)index * chunkBytes;
         }
 
         /// <summary>
         /// How many bytes chunk <paramref name="index"/> covers. Every chunk but the last is
         /// <paramref name="chunkBytes"/> long; the last one is the remainder.
         /// </summary>
-        public static int ChunkLength(int index, int totalBytes, int chunkBytes)
+        public static int ChunkLength(int index, long totalBytes, int chunkBytes)
         {
-            int offset = ChunkOffset(index, chunkBytes);
+            long offset = ChunkOffset(index, chunkBytes);
             ArgumentOutOfRangeException.ThrowIfNegative(totalBytes);
 
             if (offset >= totalBytes)
                 throw new ArgumentOutOfRangeException(nameof(index), index, @"Chunk index is past the end of the payload.");
 
-            return Math.Min(chunkBytes, totalBytes - offset);
+            return (int)Math.Min(chunkBytes, totalBytes - offset);
         }
 
         /// <summary>
         /// Builds the payload the full-package path would have sent as one request: a single
         /// <c>beatmapArchive</c> file part carrying the package zip.
         /// </summary>
+        /// <remarks>
+        /// The payload refers to <paramref name="package"/> rather than copying it (see <see cref="UploadPayload"/>),
+        /// so the caller must not change it afterwards.
+        /// </remarks>
         public static async Task<UploadPayload> BuildFullPayloadAsync(byte[] package)
         {
             ArgumentNullException.ThrowIfNull(package);
@@ -130,7 +140,7 @@ namespace typebeat.Game.Screens.Edit.Submission
 
             content.Add(filePart(package), @"beatmapArchive", @"package.osz");
 
-            return await payloadFrom(CreateUploadSessionRequest.KIND_FULL, content).ConfigureAwait(false);
+            return await payloadFrom(CreateUploadSessionRequest.KIND_FULL, content, new[] { package }).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -138,6 +148,10 @@ namespace typebeat.Game.Screens.Edit.Submission
         /// part per changed file (the multipart filename being the archive path) plus a
         /// <c>filesDeleted</c> string field per removed file.
         /// </summary>
+        /// <remarks>
+        /// As with <see cref="BuildFullPayloadAsync"/>, the payload refers to the changed files' arrays rather than
+        /// copying them.
+        /// </remarks>
         public static async Task<UploadPayload> BuildPatchPayloadAsync(IEnumerable<KeyValuePair<string, byte[]>> filesChanged, IEnumerable<string> filesDeleted)
         {
             ArgumentNullException.ThrowIfNull(filesChanged);
@@ -167,7 +181,7 @@ namespace typebeat.Game.Screens.Edit.Submission
             foreach (string filename in deleted)
                 content.Add(new StringContent(filename), @"filesDeleted");
 
-            return await payloadFrom(CreateUploadSessionRequest.KIND_PATCH, content).ConfigureAwait(false);
+            return await payloadFrom(CreateUploadSessionRequest.KIND_PATCH, content, changed.Select(c => c.Value)).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -216,14 +230,107 @@ namespace typebeat.Game.Screens.Edit.Submission
             return part;
         }
 
-        private static async Task<UploadPayload> payloadFrom(string kind, MultipartFormDataContent content)
+        private static async Task<UploadPayload> payloadFrom(string kind, MultipartFormDataContent content, IEnumerable<byte[]> fileContents)
         {
             // the boundary lives in the content type, which is why the content type has to be handed to
             // the server rather than assumed by it.
             string contentType = content.Headers.ContentType!.ToString();
-            byte[] bytes = await content.ReadAsByteArrayAsync().ConfigureAwait(false);
 
-            return new UploadPayload(kind, contentType, bytes);
+            // serialised by the BCL exactly as ReadAsByteArrayAsync would, so the bytes on the wire cannot drift
+            // from what the multipart content produces; the recorder only keeps the file parts by reference.
+            var recorder = new SegmentRecorder(fileContents);
+            await content.CopyToAsync(recorder).ConfigureAwait(false);
+
+            return new UploadPayload(kind, contentType, recorder.Finish());
+        }
+
+        /// <summary>
+        /// A write-only stream that records what is written to it as a list of segments: the multipart framing
+        /// (boundaries and part headers, a few hundred bytes) copied, and every write of a whole file part's array
+        /// kept as a reference to that array instead of a copy.
+        /// </summary>
+        /// <remarks>
+        /// A write it does not recognise is copied, so the recorded bytes are always exactly what was written; the
+        /// recognition only decides how many copies of a large package exist in memory.
+        /// </remarks>
+        private sealed class SegmentRecorder : Stream
+        {
+            private readonly HashSet<byte[]> references;
+            private readonly List<ReadOnlyMemory<byte>> segments = new List<ReadOnlyMemory<byte>>();
+            private readonly MemoryStream pending = new MemoryStream();
+
+            public SegmentRecorder(IEnumerable<byte[]> references)
+            {
+                this.references = new HashSet<byte[]>(references, ReferenceEqualityComparer.Instance);
+            }
+
+            public IReadOnlyList<ReadOnlyMemory<byte>> Finish()
+            {
+                flushPending();
+                return segments;
+            }
+
+            public override void Write(byte[] buffer, int offset, int count) => record(new ReadOnlyMemory<byte>(buffer, offset, count));
+
+            public override void Write(ReadOnlySpan<byte> buffer) => pending.Write(buffer);
+
+            public override void WriteByte(byte value) => pending.WriteByte(value);
+
+            public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            {
+                record(new ReadOnlyMemory<byte>(buffer, offset, count));
+                return Task.CompletedTask;
+            }
+
+            public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+            {
+                record(buffer);
+                return ValueTask.CompletedTask;
+            }
+
+            private void record(ReadOnlyMemory<byte> buffer)
+            {
+                if (MemoryMarshal.TryGetArray(buffer, out ArraySegment<byte> array)
+                    && array.Array != null
+                    && array.Offset == 0
+                    && array.Count == array.Array.Length
+                    && references.Contains(array.Array))
+                {
+                    flushPending();
+                    segments.Add(buffer);
+                    return;
+                }
+
+                pending.Write(buffer.Span);
+            }
+
+            private void flushPending()
+            {
+                if (pending.Length == 0)
+                    return;
+
+                segments.Add(pending.ToArray());
+                pending.SetLength(0);
+            }
+
+            public override void Flush()
+            {
+            }
+
+            public override bool CanRead => false;
+            public override bool CanSeek => false;
+            public override bool CanWrite => true;
+            public override long Length => throw new NotSupportedException();
+
+            public override long Position
+            {
+                get => throw new NotSupportedException();
+                set => throw new NotSupportedException();
+            }
+
+            public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+            public override void SetLength(long value) => throw new NotSupportedException();
         }
 
         /// <summary>
@@ -353,9 +460,9 @@ namespace typebeat.Game.Screens.Edit.Submission
         /// </summary>
         public void Start()
         {
-            log($"Creating {payload.Kind} upload session ({payload.Bytes.Length} bytes, sha256:{payload.Sha256})");
+            log($"Creating {payload.Kind} upload session ({payload.Length} bytes, sha256:{payload.Sha256})");
 
-            var request = new CreateUploadSessionRequest(beatmapSetId, payload.Kind, payload.ContentType, payload.Bytes.Length, payload.Sha256);
+            var request = new CreateUploadSessionRequest(beatmapSetId, payload.Kind, payload.ContentType, payload.Length, payload.Sha256);
             activeRequest = request;
 
             request.Success += response =>
@@ -423,7 +530,7 @@ namespace typebeat.Game.Screens.Edit.Submission
                 return;
             }
 
-            int expectedChunks = TotalChunks(payload.Bytes.Length, response.ChunkBytes);
+            int expectedChunks = TotalChunks(payload.Length, response.ChunkBytes);
 
             if (response.TotalChunks != expectedChunks)
             {
@@ -495,8 +602,7 @@ namespace typebeat.Game.Screens.Edit.Submission
         /// </remarks>
         private void sendChunk(int index)
         {
-            byte[] slice = new byte[ChunkLength(index, payload.Bytes.Length, chunkBytes)];
-            Array.Copy(payload.Bytes, ChunkOffset(index, chunkBytes), slice, 0, slice.Length);
+            byte[] slice = payload.ReadChunk(ChunkOffset(index, chunkBytes), ChunkLength(index, payload.Length, chunkBytes));
 
             var request = new UploadSessionChunkRequest(sessionId, index, slice);
             inFlightRequests[index] = request;
@@ -858,9 +964,45 @@ namespace typebeat.Game.Screens.Edit.Submission
             => Logger.Log($@"[{nameof(ChunkedPackageUpload)}] {message}", LoggingTarget.Database);
 
         /// <summary>
+        /// An upload payload that is assembled the first time it is asked for, off the calling thread, and then
+        /// kept. The chunked flow is a fallback most submissions never reach, so they never pay for the build.
+        /// </summary>
+        /// <remarks>
+        /// A build that fails stays failed: every later <see cref="GetAsync"/> hands back the same faulted task,
+        /// since the inputs have not changed and neither would the outcome.
+        /// </remarks>
+        public sealed class DeferredPayload
+        {
+            private readonly Func<Task<UploadPayload>> build;
+            private Task<UploadPayload>? building;
+
+            public DeferredPayload(Func<Task<UploadPayload>> build)
+            {
+                ArgumentNullException.ThrowIfNull(build);
+
+                this.build = build;
+            }
+
+            /// <summary>
+            /// Whether the build has been started.
+            /// </summary>
+            public bool Started => building != null;
+
+            /// <summary>
+            /// The payload, building it on first call.
+            /// </summary>
+            public Task<UploadPayload> GetAsync() => building ??= Task.Run(build);
+        }
+
+        /// <summary>
         /// One assembled upload payload: the exact bytes the single-request path would have sent, plus
         /// the two things the server needs to accept them back in pieces.
         /// </summary>
+        /// <remarks>
+        /// The bytes are held as segments rather than one array: the multipart framing, and the file parts as
+        /// references to the arrays the caller already holds. A large package therefore costs no further copy here,
+        /// and each chunk is cut from the segments only when it is sent.
+        /// </remarks>
         public class UploadPayload
         {
             /// <summary>
@@ -874,27 +1016,83 @@ namespace typebeat.Game.Screens.Edit.Submission
             /// </summary>
             public string ContentType { get; }
 
-            public byte[] Bytes { get; }
+            /// <summary>
+            /// The payload's length in bytes.
+            /// </summary>
+            public long Length { get; }
 
             /// <summary>
-            /// Lowercase hex SHA-256 of <see cref="Bytes"/>. Also the session's identity, since session
+            /// Lowercase hex SHA-256 of the payload bytes. Also the session's identity, since session
             /// creation is idempotent on it.
             /// </summary>
             public string Sha256 { get; }
 
-            public UploadPayload(string kind, string contentType, byte[] bytes)
+            private readonly IReadOnlyList<ReadOnlyMemory<byte>> segments;
+
+            public UploadPayload(string kind, string contentType, IReadOnlyList<ReadOnlyMemory<byte>> segments)
             {
                 ArgumentException.ThrowIfNullOrEmpty(kind);
                 ArgumentException.ThrowIfNullOrEmpty(contentType);
-                ArgumentNullException.ThrowIfNull(bytes);
+                ArgumentNullException.ThrowIfNull(segments);
 
                 Kind = kind;
                 ContentType = contentType;
-                Bytes = bytes;
+                this.segments = segments;
 
-                using (var stream = new MemoryStream(bytes))
-                    Sha256 = stream.ComputeSHA2Hash();
+                using var digest = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+
+                foreach (var segment in segments)
+                {
+                    Length += segment.Length;
+                    digest.AppendData(segment.Span);
+                }
+
+                Sha256 = Convert.ToHexString(digest.GetHashAndReset()).ToLowerInvariant();
             }
+
+            /// <summary>
+            /// Copies <paramref name="length"/> bytes starting at <paramref name="offset"/> into a new array.
+            /// </summary>
+            public byte[] ReadChunk(long offset, int length)
+            {
+                ArgumentOutOfRangeException.ThrowIfNegative(offset);
+                ArgumentOutOfRangeException.ThrowIfNegative(length);
+
+                if (offset + length > Length)
+                    throw new ArgumentOutOfRangeException(nameof(length), length, @"The chunk runs past the end of the payload.");
+
+                byte[] chunk = new byte[length];
+                int written = 0;
+                long segmentStart = 0;
+
+                foreach (var segment in segments)
+                {
+                    if (written == length)
+                        break;
+
+                    long segmentEnd = segmentStart + segment.Length;
+                    long from = offset + written;
+
+                    if (from < segmentEnd)
+                    {
+                        int start = (int)(from - segmentStart);
+                        int count = Math.Min(segment.Length - start, length - written);
+
+                        segment.Span.Slice(start, count).CopyTo(chunk.AsSpan(written));
+                        written += count;
+                    }
+
+                    segmentStart = segmentEnd;
+                }
+
+                return chunk;
+            }
+
+            /// <summary>
+            /// The whole payload as one new array. This is the copy the segments exist to avoid, so it is for
+            /// inspecting a payload, not for sending one.
+            /// </summary>
+            public byte[] ToArray() => ReadChunk(0, checked((int)Length));
         }
     }
 }

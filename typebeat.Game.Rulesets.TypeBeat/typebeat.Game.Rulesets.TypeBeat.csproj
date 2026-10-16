@@ -13,6 +13,9 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Kawazu" Version="1.1.4" />
+    <!-- Import/JapaneseLyricGenerator.cs reads this package's IpaDic/sys.dic (MeCab format v102) and matrix.bin
+         byte by byte, so this reference pins that layout. Check any version bump against that parser
+         (NonVisual/JapaneseDictionaryLayoutTest.cs). -->
     <PackageReference Include="LibNMeCab.IpaDicBin" Version="0.10.0" />
   </ItemGroup>
 </Project>

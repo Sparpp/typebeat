@@ -91,10 +91,10 @@ namespace typebeat.Game.Screens.Select
                 // the online version without manufacturing an offer for a set never versioned before.
                 dbBeatmapSet.AdoptOnlineVersion(onlineBeatmapSet.LastUpdated);
 
-                // The online version's stem presence (backlog 396), the same flag the metadata lookup
-                // records. Song select's set fetch is the other refresh point, so the UPDATE offer is
-                // correct whichever lookup ran last.
-                dbBeatmapSet.RecordOnlineVocalsStem(onlineBeatmapSet.HasVocalsStem);
+                // The online version's tracked-file manifest (backlog 396), the same value the metadata
+                // lookup records. Song select's set fetch is the other refresh point, so the UPDATE offer
+                // is correct whichever lookup ran last.
+                dbBeatmapSet.RecordOnlineFileManifest(SetFileManifest.Online(onlineBeatmapSet.FileManifest, onlineBeatmapSet.HasVocalsStem));
 
                 foreach (var dbBeatmap in dbBeatmapSet.Beatmaps)
                 {

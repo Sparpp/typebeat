@@ -182,7 +182,7 @@ namespace typebeat.Game.Graphics
                     return Color4.Black;
 
                 case BeatmapOnlineStatus.Unranked:
-                    // Muted slate — clearly "not ranked" without reading as an error/graveyard state.
+                    // Muted slate: clearly "not ranked" without reading as an error/graveyard state.
                     return Color4Extensions.FromHex(@"6f7583");
 
                 default:
@@ -320,7 +320,7 @@ namespace typebeat.Game.Graphics
 
         // type!beat: the "Pink" family holds the website's Caret lime ramp (accent #c9f24d) so
         // every osu-pink accent (nubs, sliders, tab underlines, ...) re-skins in place. Names are
-        // kept to avoid touching hundreds of call sites — same trick as the site's CSS variables.
+        // kept to avoid touching hundreds of call sites, the same trick as the site's CSS variables.
         public readonly Color4 PinkLighter = Color4Extensions.FromHex(@"f0fad2");
         public readonly Color4 PinkLight = Color4Extensions.FromHex(@"d3f66d");
         public readonly Color4 Pink = Color4Extensions.FromHex(@"c9f24d");
@@ -481,7 +481,7 @@ namespace typebeat.Game.Graphics
         public Color4 FeaturedArtistColour => Blue2;
 
         // Was Pink3, which read as "brand" in osu; with the brand ramp now lime, a lime delete
-        // button would read as safe/confirm — so dangerous actions go red (website --bad).
+        // button would read as safe/confirm, so dangerous actions go red (website --bad).
         public Color4 DangerousButtonColour => Red2;
     }
 }

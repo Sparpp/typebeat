@@ -37,7 +37,7 @@ namespace typebeat.Game.Screens.Menu
             else
             {
                 // type!beat: the bars carry the brand lime (the cookie itself went charcoal).
-                // `Pink` holds the Caret accent — see the note in OsuColour.
+                // `Pink` holds the Caret accent; see the note in OsuColour.
                 Colour = colours.Pink;
             }
         }

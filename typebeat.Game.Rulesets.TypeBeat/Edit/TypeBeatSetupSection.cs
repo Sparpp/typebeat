@@ -458,13 +458,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 try
                 {
                     // Local only: the server aligner (backlog 413) is an opt-in of the import screen,
-                    // and this re-align does not offer it.
+                    // and this re-align does not offer it. A failed aligner run fails here rather than
+                    // replacing the map's lines with line timing.
                     var (result, timingJson) = await importer.ProduceTimingJsonAsync(
                         tempAudio, lyricsContent, artist, title,
                         reportProgress,
                         token,
                         language: romanisationLanguage(lyricsContent),
-                        vocalMode: vocalMode).ConfigureAwait(false);
+                        vocalMode: vocalMode,
+                        allowLineFallback: false).ConfigureAwait(false);
 
                     if (!result.Success || timingJson == null)
                     {
@@ -497,7 +499,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     try { File.Delete(tempAudio); }
                     catch { /* best-effort */ }
                 }
-            }, token);
+            });
         }
 
         // ---- the lyric font picker (backlog 291) ----

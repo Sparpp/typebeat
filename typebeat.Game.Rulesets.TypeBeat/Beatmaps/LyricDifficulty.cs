@@ -16,118 +16,49 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     ///
     /// <para>THE TIMELINE. Every typeable word is a block running from its onset to the end of its
     /// sung span, in REAL seconds (beatmap time divided by the clock <c>rate</c>, span floored at
-    /// <c>min_span_ms</c>), and the block's cells are spread uniformly across that span into
-    /// <c>timeline_bin_ms</c> bins. A word's cells are its fixed-key characters plus
+    /// the axis's <c>span_ms</c>), and the block's cells are spread uniformly across that span into
+    /// the axis's <c>bin_ms</c> bins. A word's cells are its fixed-key characters plus
     /// <c>freestyle_cost_weight</c> per freestyle slot, plus ONE TRAILING SPACE when the next word
     /// belongs to the same line: the spacebar is a real keypress and the pace figures have always
     /// counted it, so the rating counts it too.</para>
     ///
     /// <para>THE CAPABILITY CURVE. <c>S(t) = capability_base_wpm + capability_burst_wpm *
     /// (capability_ref_seconds / t) ^ capability_exponent</c> is the WPM the fastest humans sustain
-    /// for t seconds. A window of t seconds holding <c>c</c> cells therefore has ratio
-    /// <c>(c / 5) / (t / 60) / S(t)</c>, its pace as a fraction of the record pace FOR ITS OWN
-    /// DURATION, which is what makes a 1.5 second burst and a 60 second verse comparable numbers.
-    /// A window is measured against <c>S(t)</c> times that window's TYPABILITY multiplier, so hard
-    /// lyrics buy the window a slower reference and therefore a harder ratio.</para>
+    /// for t seconds (<see cref="ChunkedEndurance.Capability"/>, at the axis's own dials). A window
+    /// of t seconds holding <c>c</c> cells therefore has ratio <c>(c / 5) / (t / 60) / S(t)</c>, its
+    /// pace as a fraction of the record pace FOR ITS OWN DURATION, which is what makes a 1.5 second
+    /// burst and a 60 second verse comparable numbers.</para>
     ///
-    /// <para>THE PEAK sets the RANGE. <c>ratio_0</c> is the best ratio at any eligible duration
-    /// anywhere on the map, and <c>stars_at_human_peak / (1 + envelope_range) * ratio_0</c> is the
-    /// FLOOR of the map's range: what the hardest window alone is worth. A window is eligible only
-    /// if it carries at least <see cref="MinimumWindowChars"/> weighted characters AND lasts at
-    /// least the minimum duration that cutoff implies (see
-    /// <see cref="ShortestCharacterWindow"/>), so a dense burst cannot set the floor from a window
-    /// the player never has to hold.</para>
+    /// <para>THE RATING IS THE CHUNKED ENDURANCE AXIS (<see cref="ChunkedEndurance"/>): the map's own
+    /// windows are scored against that curve, each with its typability, its judgement-window premium
+    /// and its local rhythm boost, and the stars are their decay-weighted mean with the hardest
+    /// weighted most, lifted by a length bonus. This class builds what the axis reads (the words, the
+    /// cell timeline, the press stream and the character boundaries) and reports what it found.</para>
     ///
-    /// <para>THE EXACT PEAK. The duration schedule and the 50 ms bin grid both quantise the
-    /// reported peak, and the sandbox carries a fork experiment that REFINES it further onto the
-    /// map's own character boundaries (see <see cref="RefinePeakWindow"/> for why the boundary set
-    /// is the whole answer rather than a hill climb, and <see cref="DensityIndex"/> for the exact
-    /// mass arithmetic that makes enumerating it cheap). The sandbox documents OFF as the shipped
-    /// model, and <see cref="exact_peak"/> holds the game there, so no rating depends on the
-    /// experiment unless it is switched on deliberately.</para>
-    ///
-    /// <para>THE ENVELOPE decides where inside that range the map lands. Every bin takes
-    /// <c>env[i]</c>, the best ratio of any window CONTAINING it, and
-    /// <c>d = min(1, env[i] / ratio_0)</c> is how hard that bin is as a fraction of the peak. The
-    /// map's DIFFICULT CHARACTERS are <c>N = sum_i cells(i) * d^envelope_power</c>, with no cutoff.
-    /// The range fills as <c>1 - exp(-N / envelope_chars)</c>, and the rating is
-    /// <c>floor * (1 + envelope_range * fill)</c>.</para>
-    ///
-    /// <para>THE TWO EXPERIMENTS ARE SEPARATE MULTIPLIERS ON THAT RATING. TYPABILITY
-    /// (<see cref="TypabilityIndex"/>) is the reference-speed adjustment and can contribute exactly
-    /// nothing for a map whose scores do not clear its two gates. RHYTHMIC COMPLEXITY
-    /// (<see cref="RhythmicComplexity"/>) is a multiplier for forced pace change, and is exactly 1
-    /// at strength 0. With both off this file computes the envelope model and nothing else.</para>
-    ///
-    /// <para>A MAP SHORTER THAN THE SMALLEST WINDOW rates exactly zero: no scheduled window fits on
-    /// its timeline, so <c>ratio_0</c> is 0 and so is the range it scales.</para>
+    /// <para>THE TARGET WPM (<see cref="TargetWpm"/>) is read off the same timeline and the same window
+    /// family by raw speed alone, with every difficulty adjustment left out. It is display only.</para>
     ///
     /// <para>Kept in step with the Star Rating Sandbox, which is where this model is tuned:
     /// <c>tools/star-rating-sandbox/model.mjs</c> is the same arithmetic with every constant lifted
-    /// into a dial. Every constant below is that sandbox's currently active setting.</para>
+    /// into a dial, and <see cref="ChunkedEndurance.Settings"/> mirrors its active settings.</para>
     ///
-    /// <para>One reading of a map, above. The sandbox also carries a second one, the CHUNKED
-    /// ENDURANCE AXIS, which cuts the map into equal chunks and scores each as a window of its own,
-    /// and <see cref="ComputeDetail"/> takes either through <see cref="EnduranceAxis"/>. That axis
-    /// reads none of the peak, envelope, stamina or catch-up machinery below; see
-    /// <see cref="ChunkedEndurance"/> for what it does read. THE SHIPPED RATING IS THE CHUNKED AXIS:
-    /// <see cref="Live"/> is <see cref="EnduranceAxis.Chunked"/>, and every default-argument caller
-    /// (the difficulty calculator, pp, the server mirror) rates through it. The envelope model
-    /// documented here survives as the explicit <see cref="EnduranceAxis.Envelope"/> arm, which the
-    /// pace statistics still read for their target figure.</para>
+    /// <para>The sandbox's other reading, the ENVELOPE model (a floor from the hardest window and a
+    /// range filled by the rest), used to live here beside the chunked axis. Nothing rated through
+    /// it, and once Target WPM moved onto the chunked axis nothing read it either, so it is gone.</para>
     /// </summary>
     public static class LyricDifficulty
     {
-        // The capability curve S(t), the WPM the fastest humans sustain for t seconds.
-        private const double capability_base_wpm = 220; // the asymptote a human holds indefinitely
-        private const double capability_burst_wpm = 221; // how much more a burst is worth at the reference
-        private const double capability_ref_seconds = 1.35; // the burst record's own duration
-        private const double capability_exponent = 0.35; // how fast the burst premium decays with t
-
         /// <summary>
-        /// What a map that types at the record pace THROUGHOUT WITH ITS RANGE FILLED is worth, and
-        /// the anchor every other rating is read against. Stars are LINEAR in it, so moving it alone
-        /// is a pure rescale that cannot reorder anything.
-        /// </summary>
-        private const double stars_at_human_peak = 12.0;
-
-        /// <summary>
-        /// How much the map can add ON TOP of its hardest window, as a fraction of that floor: a map
-        /// whose range is completely filled rates <c>1 + envelope_range</c> times what its peak
-        /// alone is worth.
-        /// </summary>
-        private const double envelope_range = 0.3333;
-
-        // How sharply a character's weight falls away from the peak: weight is (env/ratio_0)^this.
-        private const double envelope_power = 8;
-
-        // The difficult characters that fill 63% (1 - 1/e) of the range.
-        private const double envelope_chars = 500;
-
-        private const double timeline_bin_ms = 50; // timeline resolution
-
-        /// <summary>
-        /// Whether the peak window is refined off the duration schedule and onto the map's own
-        /// character boundaries. This is the sandbox's <c>exactPeak</c> fork experiment; its own
-        /// comment calls OFF "the shipped model", and every fixture in the suite pins that reading.
-        /// </summary>
-        private const bool exact_peak = false;
-
-        /// <summary>The shortest window the model will rate a map from, in seconds.</summary>
-        public const double MinimumWindowSeconds = 1.36;
-
-        /// <summary>
-        /// The hardest window must carry at least this many weighted characters. The shortest
-        /// interval holding them raises the minimum duration above
-        /// <see cref="MinimumWindowSeconds"/> when it is longer; it can never lower it. A map with
-        /// no window carrying them therefore rates zero, however fast its short bursts are. Zero
-        /// disables the cutoff.
+        /// The Target WPM window must carry at least this many weighted characters (see
+        /// <see cref="TargetWpm"/>), so a map whose whole timeline is one short burst reports no
+        /// target rather than one read off a window the player never has to hold. The rating itself
+        /// has no such cutoff: the chunked axis scores sparse windows directly.
         /// </summary>
         public const double MinimumWindowChars = 16;
 
         /// <summary>
-        /// The duration every map's peak is re-expressed at for the Target WPM readout (see
-        /// <see cref="ModelResult.TargetWpm"/>). Display only: nothing in the rating reads it.
+        /// The duration every map's fastest window is re-expressed at for the Target WPM readout (see
+        /// <see cref="TargetWpm"/>). Display only: nothing in the rating reads it.
         /// </summary>
         public const double TargetWindowSeconds = 30;
 
@@ -137,7 +68,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// </summary>
         private const double freestyle_cost_weight = 0.25;
 
-        private const double min_span_ms = 50; // floor a word's sung span, in beatmap time, before the rate divide
         private const double density_epsilon = 1e-9;
 
         /// <summary>Maps longer than this (at the selected rate) are refused rather than rated.</summary>
@@ -201,38 +131,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
         /// <summary>
         /// Everything the rating computed, for the surfaces that read more than a single star
-        /// number: the peak window the floor came from, the difficult-character count the miss
-        /// penalty is measured against, the Target WPM readout, and what each adjustment did.
+        /// number: the difficult-character count the miss penalty is measured against, the Target
+        /// WPM readout, and what each adjustment did.
         /// </summary>
         public readonly struct ModelResult
         {
-            /// <summary>Final star rating: the envelope's rating times the rhythmic-complexity multiplier.</summary>
+            /// <summary>Final star rating: the chunked axis's figure, its rhythm boost and length bonus included.</summary>
             public required double Stars { get; init; }
 
-            /// <summary>The peak ratio the whole range is scaled by: <c>wpm / capability(seconds)</c> at its own duration.</summary>
-            public required double Peak { get; init; }
-
-            /// <summary>Duration of the peak window, in seconds, after exact refinement.</summary>
-            public required double PeakSeconds { get; init; }
-
-            /// <summary>Weighted cells the peak window carries.</summary>
-            public required double PeakCells { get; init; }
-
-
-            /// <summary>Start of the peak window, in seconds from the map's first sung word.</summary>
-            public required double PeakStartSeconds { get; init; }
-
-            /// <summary>The effective minimum peak duration the character cutoff produced, or null when no window qualifies.</summary>
-            public required double? MinimumSeconds { get; init; }
-
-            /// <summary>THE DIFFICULT CHARACTERS: every cell weighted by how close its bin sits to the peak.</summary>
+            /// <summary>
+            /// THE DIFFICULT CHARACTERS: the chunked axis's LengthCharacters, every weighted
+            /// character credited by how close its window's strain sits to the map's own score.
+            /// </summary>
             public required double DifficultCharacters { get; init; }
 
-            /// <summary>How much of the envelope's range those characters fill, in [0, 1).</summary>
+            /// <summary>How much of the axis's <c>chars</c> dial those characters fill, in [0, 1). A readout only.</summary>
             public required double Fill { get; init; }
-
-            /// <summary>What the peak window alone is worth, in stars: the floor of the map's range.</summary>
-            public required double Floor { get; init; }
 
             /// <summary>Total weighted cells on the timeline.</summary>
             public required double Cells { get; init; }
@@ -242,20 +156,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             /// <summary>
             /// The map's fastest window re-expressed as the WPM an equally demanding
-            /// <see cref="TargetWindowSeconds"/> window would need. Typability and rhythm are left out
-            /// of the window choice and the translation, so this need not be the window
-            /// <see cref="Peak"/> came from.
+            /// <see cref="TargetWindowSeconds"/> window would need: <see cref="LyricDifficulty.TargetWpm"/>
+            /// for the same lines, rate and stream, so neither the judgement arm nor any difficulty
+            /// adjustment moves it.
             ///
-            /// <para>Display only, and on the CHUNKED axis it is 0: that axis reads none of the
-            /// schedule scan this comes from. The pace figure the game publishes is its own
-            /// (<see cref="LyricPaceStatistics.TargetWpm"/>), which both axes share.</para>
+            /// <para>Display only. The pace figure the game publishes floors it at the whole-map
+            /// average (<see cref="LyricPaceStatistics.TargetWpm"/>).</para>
             /// </summary>
             public required double TargetWpm { get; init; }
 
-            /// <summary>The multiplier rhythmic complexity put on the envelope's rating.</summary>
+            /// <summary>What the rhythm boost multiplied the rating by, against the same axis with every window's boost neutralised.</summary>
             public required double ComplexityMultiplier { get; init; }
 
-            /// <summary>Forced pace change the rolling scan measured, before the curve.</summary>
+            /// <summary>The map's whole rolling load, the same prefix every window boost is read from. A diagnostic.</summary>
             public required double ComplexityLoad { get; init; }
 
             /// <summary>Share of the map's weighted cells that carried a typability score.</summary>
@@ -269,18 +182,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         /// <summary>
-        /// Which reading of a map the rating is taken from. This is the sandbox's own
-        /// <c>enduranceAxis</c> setting, and the game ships the CHUNKED one (see <see cref="Live"/>):
-        /// the difficulty calculator, the pp formula and the pace figures all rate a map the way the
-        /// sandbox's live configuration does. <see cref="Envelope"/> is the model this class
-        /// documents, kept and still selectable by name as the sandbox's baseline.
+        /// Which reading of a map the rating is taken from: the sandbox's own <c>enduranceAxis</c>
+        /// setting. One reading remains, the CHUNKED one (see <see cref="Live"/>), since the
+        /// envelope model it replaced was retired; the switch stays so every caller names the axis
+        /// it rates on.
         /// </summary>
         public enum EnduranceAxis
         {
-            /// <summary>The shipped envelope model: floor from the hardest window, range filled by the rest.</summary>
-            Envelope,
-
-            /// <summary>The sandbox's chunked endurance axis, read off equal chunks of the map (see <see cref="ChunkedEndurance"/>).</summary>
+            /// <summary>The sandbox's chunked endurance axis, read off the map's own windows (see <see cref="ChunkedEndurance"/>).</summary>
             Chunked,
         }
 
@@ -323,9 +232,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>
         /// The axis the GAME rates maps on: the Star Rating Sandbox's own live <c>enduranceAxis</c>
         /// setting, which is the chunked one. It is the default every caller gets, so the difficulty
-        /// calculator, the pp formula and the pace figures all read one rating rather than three,
-        /// and <see cref="EnduranceAxis.Envelope"/> is the model this class documents - kept, and
-        /// still selectable by name, as the sandbox's baseline.
+        /// calculator, the pp formula and the pace figures all read one rating.
         /// </summary>
         public const EnduranceAxis Live = EnduranceAxis.Chunked;
 
@@ -338,8 +245,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
         /// <summary>
         /// The shipped index, which is what every caller but the chunked-axis fixture reads: the
-        /// sandbox's own two gates are <see cref="TypabilityIndex.Strength"/> here and
-        /// <see cref="TypabilityIndex.MinScoredFraction"/> on the map.
+        /// index's own <see cref="TypabilityIndex.Strength"/> gates it here, and the axis applies
+        /// its own scored-fraction gate on the map.
         /// </summary>
         internal static bool ShippedScores(string typedText, out double z)
         {
@@ -372,13 +279,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             => ComputeDetail(lines, rate, literate, enduranceAxis, judgementArm).Stars;
 
         /// <summary>
-        /// The full rating: the stars plus the peak window, difficult-character count and
-        /// adjustment readings the pp formula and the pace figures read.
+        /// The full rating: the stars plus the difficult-character count, the Target WPM readout and
+        /// the adjustment readings the pp formula and the panels read.
         ///
-        /// <para><paramref name="enduranceAxis"/> selects the reading. <see cref="EnduranceAxis.Envelope"/>
-        /// is the shipped model documented on this class; <see cref="EnduranceAxis.Chunked"/> is the
-        /// sandbox's chunked endurance axis, which reads none of the peak, envelope, stamina or
-        /// catch-up machinery and carries its own star scale.</para>
+        /// <para><paramref name="enduranceAxis"/> names the reading, and the chunked endurance axis
+        /// is the only one there is (see <see cref="EnduranceAxis"/>).</para>
         /// </summary>
         public static ModelResult ComputeDetail(IEnumerable<LyricLine> lines, double rate = 1, bool literate = false, EnduranceAxis enduranceAxis = Live, JudgementArm judgementArm = JudgementArm.None)
             => ComputeDetail(lines, rate, literate, enduranceAxis, judgementArm, ShippedScores);
@@ -393,340 +298,60 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         {
             var lineList = lines as IReadOnlyList<LyricLine> ?? lines.ToList();
 
-            if (enduranceAxis == EnduranceAxis.Chunked)
+            // The arm is a DIAL OF THE RHYTHM AXIS rather than a filter over the finished rating,
+            // exactly as it is in the sandbox where it rides in the complexity settings.
+            ChunkedEndurance.Settings armSettings = ChunkedEndurance.Live with
             {
-                // The arm is a DIAL OF THE RHYTHM AXIS rather than a filter over the finished rating,
-                // exactly as it is in the sandbox where it rides in the complexity settings.
-                ChunkedEndurance.Settings armSettings = ChunkedEndurance.Live with
+                complexity_mod = judgementArm switch
                 {
-                    complexity_mod = judgementArm switch
-                    {
-                        JudgementArm.Easy => ChunkedEndurance.mod_easy,
-                        JudgementArm.HardRock => ChunkedEndurance.mod_hardrock,
-                        _ => ChunkedEndurance.mod_none,
-                    },
-                };
-
-                return ComputeChunked(lineList, rate, literate, scores, armSettings);
-            }
-
-            var empty = new ModelResult
-            {
-                Stars = 0,
-                Peak = 0,
-                PeakSeconds = 0,
-                PeakCells = 0,
-                PeakStartSeconds = 0,
-                MinimumSeconds = null,
-                DifficultCharacters = 0,
-                Fill = 0,
-                Floor = 0,
-                Cells = 0,
-                DurationSeconds = 0,
-                TargetWpm = 0,
-                ComplexityMultiplier = 1,
-                ComplexityLoad = 0,
-                TypabilityScoredFraction = 0,
-                TypabilityMeanZ = 0,
-                TypabilityApplied = false,
+                    JudgementArm.Easy => ChunkedEndurance.mod_easy,
+                    JudgementArm.HardRock => ChunkedEndurance.mod_hardrock,
+                    _ => ChunkedEndurance.mod_none,
+                },
             };
 
-            if (lineList.Count == 0 || rate <= 0)
-                return empty;
-
-            var words = BuildWords(lineList, rate, literate, scores, min_span_ms);
-
-            if (words.Count == 0)
-                return empty;
-
-            words.Sort((a, b) => a.Start.CompareTo(b.Start));
-
-            double t0 = words[0].Start;
-            double t1 = double.NegativeInfinity;
-
-            foreach (var w in words)
-                t1 = Math.Max(t1, w.End);
-
-            double durationSeconds = (t1 - t0) / 1000.0;
-
-            if (durationSeconds > max_map_seconds)
-                throw new InvalidOperationException("Maps must fit within 30 minutes at the selected rate.");
-
-            int nb = Math.Max(1, (int)Math.Ceiling((t1 - t0) / timeline_bin_ms) + 1);
-            BuildTimeline(words, t0, nb, timeline_bin_ms, out double[] dens, out double[] pre, out double[] preZ, out double[] preScored);
-            double[] env = new double[nb];
-
-            double scoredFraction = pre[nb] > 0 ? preScored[nb] / pre[nb] : 0;
-            bool applies = TypabilityIndex.Strength > 0 && scoredFraction >= TypabilityIndex.MinScoredFraction;
-
-            // Character-weighted typability of a span given in BIN coordinates, with fractional
-            // endpoints interpolating between bins.
-            double typabilityMultiplier(double a, double b)
-            {
-                double weight = At(pre, b, nb) - At(pre, a, nb);
-
-                if (!applies || weight <= 0)
-                    return 1;
-
-                double z = (At(preZ, b, nb) - At(preZ, a, nb)) / weight;
-                return TypabilityIndex.Multiplier(z);
-            }
-
-            var minimumWindow = ShortestCharacterWindow(words, MinimumWindowChars);
-            double minimumSeconds = MinimumWindowChars > 0
-                ? Math.Max(MinimumWindowSeconds, minimumWindow?.Seconds ?? double.PositiveInfinity)
-                : MinimumWindowSeconds;
-
-            var schedule = new List<double> { MinimumWindowSeconds };
-
-            for (double t = 1.5; t <= 15; t += 1.5)
-                schedule.Add(t);
-
-            for (double t = 20; t <= 60; t += 5)
-                schedule.Add(t);
-
-            for (double t = 90; t <= durationSeconds; t += 30)
-                schedule.Add(t);
-
-            double peak = 0;
-            double peakSeconds = 0, peakCells = 0, peakStartSeconds = 0;
-            var windows = new List<(double Seconds, double Ratio, bool Eligible)>();
-
-            // TARGET WPM'S OWN WINDOW, which is NOT necessarily the rating's peak. The figure
-            // answers "what raw speed does this map ask for over N seconds", so it is read off the
-            // hardest window by speed ALONE - its own WPM over what is sustainable for its own
-            // length - with the typability multiplier left out of both the window-choice and the
-            // translation. A slower-to-type window can win the rating while a plain faster one
-            // still asks for more speed, and mixing the two would make the published figure move
-            // with a dial it is not about. Display only: nothing in the rating reads it.
-            double speedTargetRatio = 0, speedTargetSeconds = 0, speedTargetCells = 0;
-
-            void ConsiderSpeedWindow(double seconds, double cells, double startSeconds)
-            {
-                if (!(seconds > 0) || !(cells > 0))
-                    return;
-
-                double speedRatio = cells / 5 / (seconds / 60) / capability(seconds);
-
-                if (speedRatio <= speedTargetRatio)
-                    return;
-
-                speedTargetRatio = speedRatio;
-                speedTargetSeconds = seconds;
-                speedTargetCells = cells;
-            }
-
-            if (minimumWindow is { } characterWindow && characterWindow.Seconds >= MinimumWindowSeconds)
-            {
-                double multiplier = typabilityMultiplier(
-                    (characterWindow.Start - t0) / timeline_bin_ms,
-                    (characterWindow.Start + characterWindow.Seconds * 1000 - t0) / timeline_bin_ms);
-
-                double wpm = characterWindow.Cells / 5 / (characterWindow.Seconds / 60);
-                double ratio = wpm / capability(characterWindow.Seconds) / multiplier;
-
-                peak = ratio;
-                peakSeconds = characterWindow.Seconds;
-                peakCells = characterWindow.Cells;
-                peakStartSeconds = (characterWindow.Start - t0) / 1000;
-                ConsiderSpeedWindow(characterWindow.Seconds, characterWindow.Cells, (characterWindow.Start - t0) / 1000);
-                windows.Add((characterWindow.Seconds, ratio, true));
-            }
-
-            foreach (double t in schedule)
-            {
-                if (t > Math.Max(durationSeconds, MinimumWindowSeconds))
-                    continue;
-
-                int wb = Math.Max(1, (int)Math.Floor(t * 1000 / timeline_bin_ms + 0.5));
-
-                if (wb > nb)
-                    continue;
-
-                int ns = nb - wb + 1;
-                double[] ratios = new double[ns];
-                int[] dq = new int[ns];
-                double cap = capability(t);
-                double denominator = 5 * (t / 60) * cap;
-                double best = 0, bestStart = 0, bestMultiplier = 1;
-
-                for (int st = 0; st < ns; st++)
-                {
-                    double cells = pre[st + wb] - pre[st];
-                    double multiplier = typabilityMultiplier(st, st + wb);
-                    ratios[st] = cells / (denominator * multiplier);
-
-                    if (cells > best)
-                    {
-                        best = cells;
-                        bestStart = st;
-                        bestMultiplier = multiplier;
-                    }
-                }
-
-                double ratio = best / 5 / (t / 60) / cap / bestMultiplier;
-
-                // The character cutoff gates the PEAK only: the envelope below is unchanged by it,
-                // so the knob moves hardest-window selection without reweighting the rest of the map.
-                bool eligible = best + 1e-9 >= MinimumWindowChars && t + 1e-12 >= minimumSeconds;
-
-                // This duration's fastest window is its max-cells one, so the raw-speed race the
-                // target is read off is exactly `best` at `bestStart`. No typability, no boost.
-                if (eligible)
-                    ConsiderSpeedWindow(t, best, bestStart * timeline_bin_ms / 1000);
-
-                if (eligible && ratio > peak)
-                {
-                    peak = ratio;
-                    peakSeconds = t;
-                    peakCells = best;
-                    peakStartSeconds = bestStart * timeline_bin_ms / 1000;
-                }
-
-                windows.Add((t, ratio, eligible));
-
-                int head = 0, tail = 0, next = 0;
-
-                for (int i = 0; i < nb; i++)
-                {
-                    while (next <= i && next < ns)
-                    {
-                        while (tail > head && ratios[dq[tail - 1]] <= ratios[next])
-                            tail--;
-
-                        dq[tail++] = next++;
-                    }
-
-                    while (tail > head && dq[head] < i - wb + 1)
-                        head++;
-
-                    if (tail > head && ratios[dq[head]] > env[i])
-                        env[i] = ratios[dq[head]];
-                }
-            }
-
-            // THE EXACT PEAK. The schedule scan above only SEEDS this: the winning window's
-            // duration and start come from it, and the sweep then walks both edges onto character
-            // boundaries and off the schedule's fixed durations.
-            var seed = windows.Where(w => w.Eligible).OrderByDescending(w => w.Ratio).FirstOrDefault();
-
-            if (exact_peak && seed.Ratio > 0)
-            {
-                DensityIndex index = DensityIndex.Build(words);
-
-                PeakCandidate best = RefinePeakWindow(
-                    index,
-                    (aMs, bMs, seconds, cells) =>
-                    {
-                        double multiplier = typabilityMultiplier((aMs - t0) / timeline_bin_ms, (bMs - t0) / timeline_bin_ms);
-                        double wpm = cells / 5 / (seconds / 60);
-                        // Every candidate the refinement measures is gated by the same minimums as
-                        // the peak, so this is where the target window's best case is found too.
-                        ConsiderSpeedWindow(seconds, cells, (aMs - t0) / 1000);
-                        return new PeakCandidate(wpm / capability(seconds) / multiplier, seconds, cells, aMs, multiplier);
-                    },
-                    minimumSeconds,
-                    MinimumWindowChars,
-                    schedule);
-
-                if (best.Found && best.Ratio > peak + 1e-12)
-                {
-                    peak = best.Ratio;
-                    peakSeconds = best.Seconds;
-                    peakCells = best.Cells;
-                    peakStartSeconds = (best.StartMs - t0) / 1000;
-                }
-            }
-
-            double difficult = 0;
-
-            if (peak > 0)
-            {
-                for (int i = 0; i < nb; i++)
-                {
-                    if (dens[i] <= 0)
-                        continue;
-
-                    double d = Math.Min(1, env[i] / peak);
-                    difficult += dens[i] * Math.Pow(d, envelope_power);
-                }
-            }
-
-            double fill = 1 - Math.Exp(-difficult / envelope_chars);
-            double floor = stars_at_human_peak / (1 + envelope_range) * peak;
-
-            // THE TARGET WPM. A window's raw speed is wpm / capability(its seconds), so the figure
-            // converts to a plain speed at any fixed duration in one multiplication by the
-            // capability curve. It is read off the window chosen by ConsiderSpeedWindow above -
-            // the hardest by speed alone, typability and rhythm left out of both the choice and
-            // the translation - which can be a different window from the rating's peak. Display
-            // only: nothing in the rating reads it, and the figure rises with a rate mod because
-            // the same map asks for more WPM in the same playback time.
-            double targetWpm = speedTargetRatio > 0
-                ? speedTargetCells / 5 / (speedTargetSeconds / 60) * capability(TargetWindowSeconds) / capability(speedTargetSeconds)
-                : 0;
-
-            double complexityMultiplier = 1, complexityLoad = 0;
-
-            if (RhythmicComplexity.Strength > 0 && peak > 0)
-            {
-                // Each keypress carries its OWN demand weight, fixed BEFORE the search: its demand
-                // over the map's peak, to the envelope power, times the typability of its line. An
-                // easy keypress therefore gives up its own timing cheaply, and no single hardest
-                // word can price a whole passage.
-                var presses = BuildPresses(words, literate, RhythmicComplexity.Tolerance * Arm(judgementArm).Scale, Arm(judgementArm).Shelter, word =>
-                {
-                    double lineMultiplier = applies && word.Scored ? TypabilityIndex.Multiplier(word.Z) : 1;
-                    double demand = word.Cells / 5 / (word.Span / 60000) / (capability(word.Span / 1000) * lineMultiplier);
-                    double weight = peak > 0 ? Math.Pow(Math.Min(1, demand / peak), envelope_power) : 0;
-
-                    return Math.Max(RhythmicComplexity.WeightFloor, weight);
-                });
-                var report = RhythmicComplexity.Compute(presses, RhythmicComplexity.Strength, RhythmicComplexity.Horizon, RhythmicComplexity.RollingScale);
-                complexityLoad = report.Load;
-                complexityMultiplier = report.Multiplier;
-            }
-
-            double stars = Math.Max(0, floor * (1 + envelope_range * fill)) * complexityMultiplier;
-
-            return new ModelResult
-            {
-                Stars = Math.Max(stars, 0),
-                Peak = peak,
-                PeakSeconds = peakSeconds,
-                PeakCells = peakCells,
-                PeakStartSeconds = peakStartSeconds,
-                MinimumSeconds = double.IsFinite(minimumSeconds) ? minimumSeconds : null,
-                DifficultCharacters = difficult,
-                Fill = fill,
-                Floor = floor,
-                Cells = pre[nb],
-                DurationSeconds = durationSeconds,
-                TargetWpm = targetWpm,
-                ComplexityMultiplier = complexityMultiplier,
-                ComplexityLoad = complexityLoad,
-                TypabilityScoredFraction = scoredFraction,
-                TypabilityMeanZ = pre[nb] > 0 ? preZ[nb] / pre[nb] : 0,
-                TypabilityApplied = applies,
-            };
+            return ComputeChunked(lineList, rate, literate, scores, armSettings);
         }
 
         /// <summary>
-        /// The WPM the fastest humans sustain for <paramref name="seconds"/>, i.e. the pace a window
-        /// of that duration is scored against.
+        /// THE TARGET WPM: the map's fastest window BY RAW SPEED, re-expressed as the WPM an equally
+        /// demanding <see cref="TargetWindowSeconds"/> window would need, under a clock
+        /// <paramref name="rate"/> and on the cell stream <paramref name="literate"/> selects.
+        ///
+        /// <para>The windows are the chunked axis's own family (see
+        /// <see cref="ChunkedEndurance.TargetWpm"/>) on the rating's own timeline, and a window's raw
+        /// speed is its WPM over the axis's capability curve at its own length. Typability, the
+        /// judgement-window premium, the rhythm boost and the Shift surcharge are left out of both the
+        /// window choice and the conversion, so the figure is a speed and no difficulty dial moves it.
+        /// A window holding fewer than <see cref="MinimumWindowChars"/> weighted characters never
+        /// qualifies, so a map that is one short burst reports 0.</para>
+        ///
+        /// <para>Read AT THE RATE rather than scaled from rate 1: the timeline is binned in real
+        /// milliseconds and the window lengths are real durations, so a faster clock can name a
+        /// different window. Display only: nothing in the rating reads it.</para>
         /// </summary>
-        private static double capability(double seconds)
-            => capability_base_wpm + capability_burst_wpm * Math.Pow(capability_ref_seconds / seconds, capability_exponent);
+        public static double TargetWpm(IEnumerable<LyricLine> lines, double rate = 1, bool literate = false)
+        {
+            var lineList = lines as IReadOnlyList<LyricLine> ?? lines.ToList();
+            ChunkedEndurance.Settings settings = ChunkedEndurance.Live;
 
-        /// <summary>Public form of the capability curve, so the pace figures and tests can read it.</summary>
-        public static double Capability(double seconds) => capability(seconds);
+            // No typability reaches the figure, so no line is scored for it.
+            List<Word>? words = SortedWords(lineList, rate, literate, NoScores, settings.span_ms, out double t0, out double t1);
 
+            if (words == null)
+                return 0;
+
+            int nb = Math.Max(1, (int)Math.Ceiling((t1 - t0) / settings.bin_ms) + 1);
+            BuildTimeline(words, t0, nb, settings.bin_ms, out double[] pre, out _, out _);
+
+            return ChunkedEndurance.TargetWpm(new ChunkedEndurance.Timeline(words, t0, nb, settings.bin_ms, pre), settings, TargetWindowSeconds, MinimumWindowChars);
+        }
 
         /// <summary>
-        /// A prefix table read at a fractional position, clamped to the table's own ends. Both arms
-        /// read a window's mass through this one interpolation - the envelope's character-weighted
-        /// typability and the chunked axis's cell and load arithmetic - so neither can disagree with
-        /// the other about where a span's edges sit.
+        /// A prefix table read at a fractional position, clamped to the table's own ends. Every mass
+        /// the chunked axis reads (its cells, its typability and its load) and every window the
+        /// Target WPM scan measures is read through this one interpolation, so none of them can
+        /// disagree with another about where a span's edges sit.
         /// </summary>
         internal static double At(double[] table, double value, int binCount)
         {
@@ -737,24 +362,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         /// <summary>
-        /// The map's cells on the timeline: the binned density, the cell prefix, and the
-        /// character-weighted typability prefixes. Built in one place so the envelope model and the
-        /// chunked endurance axis cannot weight a word differently. A word's cells are spread evenly
-        /// across its own span, the z of the line it sits on rides on the mass it contributes (0 when
-        /// that line carried no score), and the scored mass is accumulated separately so a window can
-        /// report how much of its own material the index actually scored.
+        /// The map's cells on the timeline: the cell prefix and the character-weighted typability
+        /// prefixes. Built in one place so the rating and the Target WPM scan cannot weight a word
+        /// differently. A word's cells are spread evenly across its own span, the z of the line it
+        /// sits on rides on the mass it contributes (0 when that line carried no score), and the
+        /// scored mass is accumulated separately so a window can report how much of its own material
+        /// the index actually scored.
         /// </summary>
         private static void BuildTimeline(
             IReadOnlyList<Word> words,
             double t0,
             int nb,
             double binMs,
-            out double[] dens,
             out double[] pre,
             out double[] preZ,
             out double[] preScored)
         {
-            dens = new double[nb];
+            var dens = new double[nb];
             var densZ = new double[nb];
             var densScored = new double[nb];
             pre = new double[nb + 1];
@@ -872,18 +496,49 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             double DurationSeconds,
             double TypabilityMeanZ,
             double TypabilityScoredFraction,
-            bool TypabilityApplied);
+            bool TypabilityApplied,
+            double TargetWpm);
 
         /// <summary>
-        /// Rates a map on the chunked endurance axis. Read through <see cref="ComputeDetail"/> with
-        /// <see cref="EnduranceAxis.Chunked"/>; the fixture pin calls it directly so it can hand the
-        /// axis the same score snapshot the fixture was emitted with (see <see cref="NoScores"/>).
+        /// The map's words in timeline order, plus the first onset and the last sung end, or null
+        /// when there is nothing to rate (no typeable word, or a rate that is not a clock). Shared by
+        /// the rating and the Target WPM scan so the two lay out one timeline.
+        /// </summary>
+        private static List<Word>? SortedWords(IReadOnlyList<LyricLine> lines, double rate, bool literate, LyricScoreSource scores, double spanFloorMs, out double t0, out double t1)
+        {
+            t0 = 0;
+            t1 = 0;
+
+            if (rate <= 0)
+                return null;
+
+            var words = BuildWords(lines, rate, literate, scores, spanFloorMs);
+
+            if (words.Count == 0)
+                return null;
+
+            words.Sort((a, b) => a.Start.CompareTo(b.Start));
+
+            t0 = words[0].Start;
+            t1 = double.NegativeInfinity;
+
+            foreach (var w in words)
+                t1 = Math.Max(t1, w.End);
+
+            if ((t1 - t0) / 1000.0 > max_map_seconds)
+                throw new InvalidOperationException("Maps must fit within 30 minutes at the selected rate.");
+
+            return words;
+        }
+
+        /// <summary>
+        /// Rates a map on the chunked endurance axis. Read through <c>ComputeDetail</c>; the
+        /// fixture pin calls it directly so it can hand the axis the same score snapshot the fixture
+        /// was emitted with (see <see cref="NoScores"/>).
         ///
-        /// <para>This arm builds its own word list and timeline rather than sharing the envelope
-        /// path's, because it reads none of what that path builds them for: the peak scan, the
-        /// envelope sweep and the schedule. The pieces both arms really do share - the word builder,
-        /// the press stream, the capability curve, the density interpolation and the rolling scan -
-        /// are the envelope model's own, so neither can drift from the other.</para>
+        /// <para>The pieces the axis shares with the rest of this class (the word builder, the press
+        /// stream, the density interpolation and the rolling scan) live here, so the rating, the
+        /// Target WPM scan and the panels cannot drift from one another.</para>
         /// </summary>
         internal static ChunkedRating RateChunked(
             IReadOnlyList<LyricLine> lines,
@@ -893,29 +548,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             ChunkedEndurance.Settings settings,
             bool decideRuns = true)
         {
-            if (rate <= 0)
-                return new ChunkedRating(ChunkedEndurance.EmptyReport(settings), 0, 0, 0, 0, false);
+            List<Word>? words = SortedWords(lines, rate, literate, scores, settings.span_ms, out double t0, out double t1);
 
-            var words = BuildWords(lines, rate, literate, scores, settings.span_ms);
-
-            if (words.Count == 0)
-                return new ChunkedRating(ChunkedEndurance.EmptyReport(settings), 0, 0, 0, 0, false);
-
-            words.Sort((a, b) => a.Start.CompareTo(b.Start));
-
-            double t0 = words[0].Start;
-            double t1 = double.NegativeInfinity;
-
-            foreach (var w in words)
-                t1 = Math.Max(t1, w.End);
+            if (words == null)
+                return new ChunkedRating(ChunkedEndurance.EmptyReport(settings), 0, 0, 0, 0, false, 0);
 
             double durationSeconds = (t1 - t0) / 1000.0;
 
-            if (durationSeconds > max_map_seconds)
-                throw new InvalidOperationException("Maps must fit within 30 minutes at the selected rate.");
-
             int nb = Math.Max(1, (int)Math.Ceiling((t1 - t0) / settings.bin_ms) + 1);
-            BuildTimeline(words, t0, nb, settings.bin_ms, out _, out double[] pre, out double[] preZ, out double[] preScored);
+            BuildTimeline(words, t0, nb, settings.bin_ms, out double[] pre, out double[] preZ, out double[] preScored);
 
             // The axis's own typability arm: its own strength, CV and gate, which are the sandbox's
             // PARAMETERS for this axis rather than the shipped index's.
@@ -945,6 +586,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             var timeline = new ChunkedEndurance.Timeline(words, t0, nb, settings.bin_ms, pre,
                 ChunkedEndurance.BuildShiftPrefix(words, t0, nb, literate, settings));
+
+            // Read off the very timeline the rating lays out, so the readout and the rating cannot
+            // disagree about where a word's cells sit (see TargetWpm).
+            double targetWpm = ChunkedEndurance.TargetWpm(timeline, settings, TargetWindowSeconds, MinimumWindowChars);
 
             // THE RUNS AND THE GRID ARE DECIDED BEFORE THE NON-RATE MODS, and ONLY when one is actually
             // in play. A run is a property of the map's material - which passages butt up against each
@@ -977,14 +622,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             ChunkedEndurance.Report report = ChunkedEndurance.Compute(timeline, load, Window, settings, literate, baseRuns);
 
-            return new ChunkedRating(report, pre[nb], durationSeconds, meanZ, scoredFraction, applies);
+            return new ChunkedRating(report, pre[nb], durationSeconds, meanZ, scoredFraction, applies, targetWpm);
         }
 
         /// <summary>
-        /// The chunked endurance axis's <see cref="ModelResult"/>. It fills in the map-level readings
-        /// the panel and the pp figure share, and NOTHING the peak scan produces: on this axis the
-        /// peak, the floor and Target WPM are not read at all, so the work that builds them is not
-        /// paid (the sandbox's own pool path skips it for the same reason).
+        /// The chunked endurance axis's <see cref="ModelResult"/>: the stars, the difficult
+        /// characters pp prices a miss against, the Target WPM readout and the map-level readings
+        /// the panel and the pp figure share.
         /// </summary>
         private static ModelResult ComputeChunked(
             IReadOnlyList<LyricLine> lines,
@@ -998,17 +642,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             return new ModelResult
             {
                 Stars = Math.Max(rating.Report.Stars, 0),
-                Peak = 0,
-                PeakSeconds = 0,
-                PeakCells = 0,
-                PeakStartSeconds = 0,
-                MinimumSeconds = null,
                 DifficultCharacters = rating.Report.LengthCharacters,
                 Fill = 1 - Math.Exp(-rating.Report.LengthCharacters / settings.chars),
-                Floor = 0,
                 Cells = rating.Cells,
                 DurationSeconds = rating.DurationSeconds,
-                TargetWpm = 0,
+                TargetWpm = rating.TargetWpm,
                 ComplexityMultiplier = rating.Report.RhythmMultiplier,
                 ComplexityLoad = rating.Report.Load,
                 TypabilityScoredFraction = rating.TypabilityScoredFraction,
@@ -1020,16 +658,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>
         /// The map's typeable units, in playback milliseconds: one entry per word, with the weighted
         /// cell mass it carries. A word followed by another word on the same line also carries one
-        /// space cell. The density index, the peak refinement and the complexity scan all read this
-        /// same structure, so none of them can weight a word differently from the others.
+        /// space cell. The timeline, the press stream and the complexity scan all read this same
+        /// structure, so none of them can weight a word differently from the others. Built at the
+        /// chunked axis's own span floor.
         /// </summary>
         internal static List<Word> BuildWords(IReadOnlyList<LyricLine> lines, double rate, bool literate)
-            => BuildWords(lines, rate, literate, ShippedScores, min_span_ms);
+            => BuildWords(lines, rate, literate, ShippedScores, ChunkedEndurance.Live.span_ms);
 
         /// <summary>
-        /// As above, with the two things a non-envelope arm moves: the per-line score source (the
-        /// chunked axis's fixture was emitted with no scores at all) and the floor on a word's sung
-        /// span, which is a dial of the arm that reads it rather than a property of the map.
+        /// As above, with the two things a caller moves: the per-line score source (the chunked
+        /// axis's fixture was emitted with no scores at all) and the floor on a word's sung span,
+        /// which is a dial of the axis that reads it rather than a property of the map.
         /// </summary>
         internal static List<Word> BuildWords(IReadOnlyList<LyricLine> lines, double rate, bool literate, LyricScoreSource scores, double spanFloorMs)
         {
@@ -1208,11 +847,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// be. A pause INSIDE a line is sung time and stays in as idle recovery.</para>
         ///
         /// <para>The Great window the intervals are read in and the weight each keypress carries are
-        /// the caller's, because the rhythmic-complexity bonus and the chunked endurance axis's load
-        /// prefix are two different readings of the same stream: the bonus prices a press against the
-        /// map's own peak, the load prefix against a fixed reference demand. Everything else - the
-        /// deleted line pauses, the point targets, the idle accumulation - is shared, so no two
-        /// callers can disagree about what a press IS.</para>
+        /// the caller's: the chunked endurance axis's load prefix prices a press against a fixed
+        /// reference demand, at the judgement arm's own window. Everything else - the deleted line
+        /// pauses, the point targets, the idle accumulation - is built here, so no caller can
+        /// disagree with another about what a press IS.</para>
         /// </summary>
         internal static List<RhythmicComplexity.Press> BuildPresses(IReadOnlyList<Word> words, bool literate, double toleranceMs, Shelter shelter, Func<Word, double> weightOf)
         {
@@ -1423,277 +1061,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // Only the mapper subdivides (backlog 363): a word with no authored boundary is ONE
             // judgement window spanning its unit.
             return 1;
-        }
-
-        /// <summary>
-        /// The map's cells as an exact piecewise-uniform density: each word spreads its own cells
-        /// evenly across its own span, so the mass between two arbitrary times is exact with no bin
-        /// rounding and a window edge can sit anywhere, down to the millisecond.
-        ///
-        /// <para><see cref="Times"/> holds every word start and end, which are the only times the
-        /// density can change, and therefore the candidate set the exact peak lives on.</para>
-        /// </summary>
-        private sealed class DensityIndex
-        {
-            public readonly double[] Times;
-            private readonly double[] density;
-            private readonly double[] mass;
-            public readonly double Total;
-
-            private DensityIndex(double[] times, double[] density, double[] mass, double total)
-            {
-                Times = times;
-                this.density = density;
-                this.mass = mass;
-                Total = total;
-            }
-
-            public static DensityIndex Build(IReadOnlyList<Word> words)
-            {
-                var events = new SortedDictionary<double, double>();
-
-                foreach (var w in words)
-                {
-                    if (!(w.Span > 0))
-                        continue;
-
-                    double d = w.Cells / w.Span;
-                    events[w.Start] = events.TryGetValue(w.Start, out double atStart) ? atStart + d : d;
-                    events[w.End] = events.TryGetValue(w.End, out double atEnd) ? atEnd - d : -d;
-                }
-
-                double[] times = events.Keys.ToArray();
-                var density = new double[Math.Max(0, times.Length - 1)];
-                var mass = new double[times.Length];
-                double current = 0;
-
-                for (int i = 0; i < times.Length - 1; i++)
-                {
-                    current += events[times[i]];
-                    density[i] = Math.Max(0, current);
-                    mass[i + 1] = mass[i] + density[i] * (times[i + 1] - times[i]);
-                }
-
-                return new DensityIndex(times, density, mass, mass.Length > 0 ? mass[^1] : 0);
-            }
-
-            public double MassAt(double x)
-            {
-                if (Times.Length == 0)
-                    return 0;
-
-                if (x <= Times[0])
-                    return 0;
-
-                if (x >= Times[^1])
-                    return Total;
-
-                int lo = 0, hi = Times.Length - 1;
-
-                while (lo < hi)
-                {
-                    int mid = (lo + hi + 1) >> 1;
-
-                    if (Times[mid] <= x)
-                        lo = mid;
-                    else
-                        hi = mid - 1;
-                }
-
-                return mass[lo] + density[lo] * (x - Times[lo]);
-            }
-
-            public double CellsBetween(double a, double b) => b > a ? MassAt(b) - MassAt(a) : 0;
-        }
-
-        /// <summary>
-        /// The exact shortest interval in the piecewise-uniform word density that holds
-        /// <paramref name="target"/> weighted characters, with no bin rounding. A minimum occurs
-        /// with at least one endpoint on a density boundary, so the scan walks the prefix mass table
-        /// from each boundary forward and backward.
-        /// </summary>
-        private static (double Start, double Seconds, double Cells)? ShortestCharacterWindow(IReadOnlyList<Word> words, double target)
-        {
-            if (!(target > 0) || words.Count == 0)
-                return null;
-
-            DensityIndex index = DensityIndex.Build(words);
-            double[] times = index.Times;
-
-            if (times.Length < 2)
-                return null;
-
-            const double tolerance = 1e-9;
-            double total = index.Total;
-
-            if (target > total + tolerance)
-                return null;
-
-            target = Math.Min(target, total);
-
-            double[] mass = new double[times.Length];
-
-            for (int i = 0; i < times.Length; i++)
-                mass[i] = index.MassAt(times[i]);
-
-            double inverse(double value, bool latest)
-            {
-                int lo = 0, hi = mass.Length;
-
-                while (lo < hi)
-                {
-                    int mid = (lo + hi) >> 1;
-
-                    if (latest ? mass[mid] <= value : mass[mid] < value)
-                        lo = mid + 1;
-                    else
-                        hi = mid;
-                }
-
-                int indexAt = latest ? lo - 1 : lo;
-
-                if (indexAt >= 0 && indexAt < mass.Length && mass[indexAt] == value)
-                    return times[indexAt];
-
-                int a = Math.Max(0, lo - 1), b = Math.Min(times.Length - 1, lo);
-
-                if (b <= a)
-                    return times[a];
-
-                return times[a] + (value - mass[a]) / (mass[b] - mass[a]) * (times[b] - times[a]);
-            }
-
-            (double Start, double Seconds, double Cells)? best = null;
-
-            void consider(double a, double b)
-            {
-                double from = inverse(a, true), to = inverse(b, false);
-                double seconds = (to - from) / 1000;
-
-                if (seconds > 0 && (best == null || seconds < best.Value.Seconds))
-                    best = (from, seconds, target);
-            }
-
-            foreach (double c in mass)
-            {
-                if (c + target <= total + tolerance)
-                    consider(c, Math.Min(total, c + target));
-
-                if (c - target >= -tolerance)
-                    consider(Math.Max(0, c - target), c);
-            }
-
-            return best;
-        }
-
-        private readonly record struct PeakCandidate(double Ratio, double Seconds, double Cells, double StartMs, double Multiplier, bool Found = true);
-
-        /// <summary>
-        /// The exact peak-window refinement, on the CHARACTER grid.
-        ///
-        /// <para>Two facts bound the search, which is why this is a boundary sweep rather than a
-        /// hill climb. For a FIXED DURATION the mass in <c>[a, a+t]</c> is piecewise-linear in the
-        /// start <c>a</c>, with slope equal to the density entering at the left edge minus the
-        /// density leaving at the right, so its maximum sits where that slope changes sign: at a
-        /// word start, or with the window's END on a word end. For a FIXED START the mass is linear
-        /// in <c>t</c> between word boundaries while the denominator
-        /// <c>5*(t/60)*capability(t)</c> is concave, so the ratio on such a piece is maximised at
-        /// one of the piece's endpoints, which are word boundaries again. An expand-and-contract
-        /// walk stalls the moment both edges would have to move together; enumerating the two
-        /// families does not.</para>
-        ///
-        /// <para>Family 1 is every duration the schedule scans, with the window's start at a word
-        /// start or its end at a word end. Family 2 is every pair of word boundaries at any duration
-        /// at or above the floor, which covers moving both edges onto characters and letting the
-        /// duration come out wherever it lands.</para>
-        /// </summary>
-        private static PeakCandidate RefinePeakWindow(
-            DensityIndex index,
-            Func<double, double, double, double, PeakCandidate> measure,
-            double minimumSeconds,
-            double minimumChars,
-            IReadOnlyList<double> durations)
-        {
-            double[] times = index.Times;
-
-            if (times.Length < 2)
-                return default;
-
-            double first = times[0], last = times[^1];
-            PeakCandidate best = default;
-            bool hasBest = false;
-
-            void consider(double a, double b, double? cells = null)
-            {
-                if (!(b > a) || a < first - 1e-9 || b > last + 1e-9)
-                    return;
-
-                double seconds = (b - a) / 1000;
-
-                if (seconds + 1e-12 < minimumSeconds)
-                    return;
-
-                double count = cells ?? index.CellsBetween(a, b);
-
-                if (count + 1e-9 < minimumChars)
-                    return;
-
-                PeakCandidate measured = measure(a, b, seconds, count);
-
-                if (!(measured.Ratio > 0) || double.IsNaN(measured.Ratio) || double.IsInfinity(measured.Ratio))
-                    return;
-
-                if (!hasBest || measured.Ratio > best.Ratio)
-                {
-                    best = measured;
-                    hasBest = true;
-                }
-            }
-
-            foreach (double seconds in durations.Concat(new[] { minimumSeconds }).Where(t => t > 0))
-            {
-                double span = seconds * 1000;
-
-                foreach (double a in times)
-                {
-                    if (a + span > last + 1e-9)
-                        break;
-
-                    consider(a, a + span);
-                }
-
-                for (int j = times.Length - 1; j >= 0; j--)
-                {
-                    double b = times[j];
-
-                    if (b - span < first - 1e-9)
-                        break;
-
-                    consider(b - span, b);
-                }
-            }
-
-            double[] mass = new double[times.Length];
-
-            for (int i = 0; i < times.Length; i++)
-                mass[i] = index.MassAt(times[i]);
-
-            for (int i = 0; i < times.Length; i++)
-            {
-                double a = times[i], mi = mass[i];
-
-                for (int j = i + 1; j < times.Length; j++)
-                {
-                    double b = times[j];
-
-                    if ((b - a) / 1000 + 1e-12 < minimumSeconds)
-                        continue;
-
-                    consider(a, b, mass[j] - mi);
-                }
-            }
-
-            return hasBest ? best : default;
         }
     }
 }

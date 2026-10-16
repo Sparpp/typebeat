@@ -6,10 +6,11 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using typebeat.Game.Screens.Edit;
+using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 
-namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
+namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
     /// <summary>
     /// Editor mutations on a type!beat beatmap that respect the immutable <see cref="LyricLine"/>/
@@ -41,9 +42,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             foreach (var o in objects)
             {
-                o.Line = ShiftLine(o.Line, applied);
+                setLine(editorBeatmap, o, ShiftLine(o.Line, applied));
                 o.StartTime = o.Line.StartTime;
-                editorBeatmap.Update(o);
             }
 
             editorBeatmap.EndChange();
@@ -141,6 +141,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         public const double LAST_LINE_TAIL_MS = TimingJsonLoader.LAST_LINE_TAIL_MS;
 
         #region Single-line rebuild helpers (model is init-only: every edit builds new instances)
+
+        /// <summary>
+        /// Replaces <paramref name="hitObject"/>'s line and queues its update. Every editor edit that
+        /// replaces a line goes through here, so the beatmap always raises
+        /// <see cref="EditorBeatmap.HitObjectUpdated"/> for it, which is the only change signal
+        /// <see cref="EditorLineSnapshot"/> listens for. Inside a transaction the update is queued
+        /// like any other and committed with it.
+        /// </summary>
+        private static void setLine(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, LyricLine line)
+        {
+            hitObject.Line = line;
+            editorBeatmap.Update(hitObject);
+        }
 
         /// <remarks>
         /// The line's ORIGINAL TEXT (backlog 330) rides along untouched unless
@@ -405,22 +418,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             var line = hitObject.Line;
             double newSingEnd = Math.Clamp(line.SingEndTime, newStart + minimumLineWindow(hitObject), line.EndTime);
-            hitObject.Line = rebuild(line,
+            setLine(editorBeatmap, hitObject, rebuild(line,
                 start: newStart,
                 singEnd: newSingEnd,
-                units: unitsFor(hitObject, line.RawText, line.Units, newStart, newSingEnd, line.EndTime));
+                units: unitsFor(hitObject, line.RawText, line.Units, newStart, newSingEnd, line.EndTime)));
             hitObject.StartTime = newStart;
-            editorBeatmap.Update(hitObject);
 
             if (previous != null)
             {
                 var prevLine = previous.Line;
                 double prevSingEnd = Math.Clamp(prevLine.SingEndTime, prevLine.StartTime + minimumLineWindow(previous), newStart);
-                previous.Line = rebuild(prevLine,
+                setLine(editorBeatmap, previous, rebuild(prevLine,
                     end: newStart,
                     singEnd: prevSingEnd,
-                    units: unitsFor(previous, prevLine.RawText, prevLine.Units, prevLine.StartTime, prevSingEnd, newStart));
-                editorBeatmap.Update(previous);
+                    units: unitsFor(previous, prevLine.RawText, prevLine.Units, prevLine.StartTime, prevSingEnd, newStart)));
             }
 
             editorBeatmap.EndChange();
@@ -458,11 +469,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             double newEnd = isLast ? lastLineEnd(line, newSingEnd, singEndMax) : line.EndTime;
 
             editorBeatmap.BeginChange();
-            hitObject.Line = rebuild(line,
+            setLine(editorBeatmap, hitObject, rebuild(line,
                 singEnd: newSingEnd,
                 end: newEnd,
-                units: unitsFor(hitObject, line.RawText, line.Units, line.StartTime, newSingEnd, newEnd));
-            editorBeatmap.Update(hitObject);
+                units: unitsFor(hitObject, line.RawText, line.Units, line.StartTime, newSingEnd, newEnd)));
             editorBeatmap.EndChange();
         }
 
@@ -708,7 +718,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             }
 
             editorBeatmap.BeginChange();
-            hitObject.Line = new LyricLine
+            setLine(editorBeatmap, hitObject, new LyricLine
             {
                 RawText = line.RawText,
                 StartTime = line.StartTime,
@@ -719,8 +729,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Estimated = false,
                 Original = line.Original,
                 UnromanisedWords = line.UnromanisedWords,
-            };
-            editorBeatmap.Update(hitObject);
+            });
             promoteToWordGranularity(editorBeatmap);
             syncSingEndToLastUnit(editorBeatmap, hitObject, previousLastEnd);
             editorBeatmap.EndChange();
@@ -762,7 +771,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             units[unitIndex] = retime(units[unitIndex], newStart, newEnd, TimingSource.Explicit, 1, translate);
 
             editorBeatmap.BeginChange();
-            hitObject.Line = new LyricLine
+            setLine(editorBeatmap, hitObject, new LyricLine
             {
                 RawText = line.RawText,
                 StartTime = line.StartTime,
@@ -773,8 +782,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Estimated = false, // hand timing IS acoustic evidence; judge at full granularity again.
                 Original = line.Original,
                 UnromanisedWords = line.UnromanisedWords,
-            };
-            editorBeatmap.Update(hitObject);
+            });
             promoteToWordGranularity(editorBeatmap);
             syncSingEndToLastUnit(editorBeatmap, hitObject, previousLastEnd);
             editorBeatmap.EndChange();
@@ -1028,17 +1036,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (finish != null)
             {
                 var (text, finalUnits, originals) = finish(units);
-                hitObject.Line = rebuild(line, rawText: text, units: finalUnits, originals: originals);
+                setLine(editorBeatmap, hitObject, rebuild(line, rawText: text, units: finalUnits, originals: originals));
 
                 // An unromanised word lives only in words[], so the map has to carry them.
                 wordCountChanged |= originals.Pending.Count > 0 || line.UnromanisedWords.Count > 0;
             }
             else
             {
-                hitObject.Line = rebuild(line, rawText: normalized, units: units);
+                setLine(editorBeatmap, hitObject, rebuild(line, rawText: normalized, units: units));
             }
 
-            editorBeatmap.Update(hitObject);
             // The sung end follows the last word only when this commit moved it: a word typed on
             // at the tail, or the tail word typed away. A same-count commit, and any change that
             // leaves the last word alone, keeps the stored end_ms exactly.
@@ -1758,12 +1765,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             double unitWindowEnd = Math.Max(line.EndTime, units.Count > 0 ? units[^1].EndTime : line.EndTime);
 
             editorBeatmap.BeginChange();
-            hitObject.Line = rebuild(line,
+            setLine(editorBeatmap, hitObject, rebuild(line,
                 rawText: rawText,
                 units: unitsFor(hitObject, rawText, units, line.StartTime, line.SingEndTime, unitWindowEnd),
                 // An unromanised word (backlog 330) behind the new one keeps its place after it.
-                originals: (line.Original, line.UnromanisedWords.Select(w => w.Position >= insertAt ? w with { Position = w.Position + 1 } : w).ToArray()));
-            editorBeatmap.Update(hitObject);
+                originals: (line.Original, line.UnromanisedWords.Select(w => w.Position >= insertAt ? w with { Position = w.Position + 1 } : w).ToArray())));
             // Bisecting the anchor can strip subdivisions that no longer fit inside its half.
             syncGranularity(editorBeatmap, keepAuthoredWords: true);
             // An append at the tail gives the line a new last word, so its sung end follows.
@@ -1888,12 +1894,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             string rawText = string.Join(' ', tokens.Where((_, i) => i != unitIndex));
 
             editorBeatmap.BeginChange();
-            hitObject.Line = rebuild(line,
+            setLine(editorBeatmap, hitObject, rebuild(line,
                 rawText: rawText,
                 units: unitsFor(hitObject, rawText, units, line.StartTime, line.SingEndTime, line.EndTime),
                 // An unromanised word (backlog 330) behind the removed one moves up a place.
-                originals: (line.Original, line.UnromanisedWords.Select(w => w.Position > unitIndex ? w with { Position = w.Position - 1 } : w).ToArray()));
-            editorBeatmap.Update(hitObject);
+                originals: (line.Original, line.UnromanisedWords.Select(w => w.Position > unitIndex ? w with { Position = w.Position - 1 } : w).ToArray())));
             // The removed word may have carried the map's last syllable subdivisions.
             syncGranularity(editorBeatmap, keepAuthoredWords: true);
             // Removing the TAIL word leaves an earlier word last, so the line's sung end follows it.
@@ -2047,10 +2052,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // The ORIGINAL (backlog 330) has no cut that corresponds to this one in general, so the two
             // halves carry none of their own (the line keeps its original as the caption), and an
             // unromanised word behind the split word moves back a place.
-            hitObject.Line = rebuild(line, rawText: string.Join(' ', tokens), units: units.ToArray(),
+            setLine(editorBeatmap, hitObject, rebuild(line, rawText: string.Join(' ', tokens), units: units.ToArray(),
                 originals: (line.Original ?? (unit.Original != null ? JoinedOriginal(line.Units, line.UnromanisedWords) : null),
-                    line.UnromanisedWords.Select(w => w.Position > unitIndex ? w with { Position = w.Position + 1 } : w).ToArray()));
-            editorBeatmap.Update(hitObject);
+                    line.UnromanisedWords.Select(w => w.Position > unitIndex ? w with { Position = w.Position + 1 } : w).ToArray())));
 
             // A word whose only subdivision this was leaves none behind, so the line's granularity has
             // to follow it down (the units stay Explicit, so that lands on Word, never on Line).
@@ -2119,14 +2123,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             editorBeatmap.BeginChange();
 
-            hitObject.Line = rebuild(line,
+            setLine(editorBeatmap, hitObject, rebuild(line,
                 rawText: firstText,
                 end: boundary,
                 singEnd: firstSingEnd,
                 units: unitsFor(hitObject, firstText, firstUnits, line.StartTime, firstSingEnd, boundary),
                 sealGrace: 0,
-                originals: originalsOfRange(line, 0, firstUnitOfSecondLine, double.NegativeInfinity, boundary));
-            editorBeatmap.Update(hitObject);
+                originals: originalsOfRange(line, 0, firstUnitOfSecondLine, double.NegativeInfinity, boundary)));
 
             editorBeatmap.Add(new TypeBeatHitObject
             {
@@ -2161,7 +2164,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             string mergedText = a.RawText + " " + b.RawText;
 
-            hitObject.Line = new LyricLine
+            setLine(editorBeatmap, hitObject, new LyricLine
             {
                 RawText = mergedText,
                 StartTime = a.StartTime,
@@ -2174,8 +2177,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 // words move behind the first line's words.
                 Original = a.Original == null && b.Original == null ? null : (a.Original ?? a.RawText) + " " + (b.Original ?? b.RawText),
                 UnromanisedWords = a.UnromanisedWords.Concat(b.UnromanisedWords.Select(w => w with { Position = w.Position + a.Units.Count })).ToArray(),
-            };
-            editorBeatmap.Update(hitObject);
+            });
             editorBeatmap.Remove(next);
 
             renumber(editorBeatmap);
@@ -2257,11 +2259,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             {
                 var prevLine = previous.Line;
                 double prevSingEnd = Math.Clamp(prevLine.SingEndTime, prevLine.StartTime, startTime);
-                previous.Line = rebuild(prevLine,
+                setLine(editorBeatmap, previous, rebuild(prevLine,
                     end: startTime,
                     singEnd: prevSingEnd,
-                    units: unitsFor(previous, prevLine.RawText, prevLine.Units, prevLine.StartTime, prevSingEnd, startTime));
-                editorBeatmap.Update(previous);
+                    units: unitsFor(previous, prevLine.RawText, prevLine.Units, prevLine.StartTime, prevSingEnd, startTime)));
             }
 
             var added = new TypeBeatHitObject
@@ -2306,8 +2307,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     ? Math.Clamp(hitObject.Line.EndTime, previous.Line.SingEndTime, previous.Line.SingEndTime + LAST_LINE_TAIL_MS)
                     : hitObject.Line.EndTime;
 
-                previous.Line = rebuild(previous.Line, end: inheritedEnd);
-                editorBeatmap.Update(previous);
+                setLine(editorBeatmap, previous, rebuild(previous.Line, end: inheritedEnd));
             }
 
             editorBeatmap.Remove(hitObject);
@@ -2680,8 +2680,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             };
 
             editorBeatmap.BeginChange();
-            hitObject.Line = rebuild(line, units: units);
-            editorBeatmap.Update(hitObject);
+            setLine(editorBeatmap, hitObject, rebuild(line, units: units));
             editorBeatmap.EndChange();
         }
 
@@ -2811,7 +2810,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             };
 
             editorBeatmap.BeginChange();
-            hitObject.Line = new LyricLine
+            setLine(editorBeatmap, hitObject, new LyricLine
             {
                 RawText = line.RawText,
                 StartTime = line.StartTime,
@@ -2822,8 +2821,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Estimated = false,
                 Original = line.Original,
                 UnromanisedWords = line.UnromanisedWords,
-            };
-            editorBeatmap.Update(hitObject);
+            });
             syncGranularity(editorBeatmap);
             editorBeatmap.EndChange();
         }
@@ -3136,8 +3134,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             };
 
             editorBeatmap.BeginChange();
-            hitObject.Line = rebuild(line, units: units);
-            editorBeatmap.Update(hitObject);
+            setLine(editorBeatmap, hitObject, rebuild(line, units: units));
             promoteToWordGranularity(editorBeatmap);
             editorBeatmap.EndChange();
         }
@@ -3338,7 +3335,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     }
                 }
 
-                target.Line = new LyricLine
+                setLine(editorBeatmap, target, new LyricLine
                 {
                     RawText = line.RawText,
                     StartTime = line.StartTime,
@@ -3349,8 +3346,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     Estimated = false, // pasted hand timing is acoustic evidence, same as a drag.
                     Original = line.Original,
                     UnromanisedWords = line.UnromanisedWords,
-                };
-                editorBeatmap.Update(target);
+                });
             }
 
             // Not promoteToWordGranularity: a paste that brings subdivisions in has to reach
@@ -3538,7 +3534,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 end = line.EndTime;
             }
 
-            target.Line = new LyricLine
+            setLine(editorBeatmap, target, new LyricLine
             {
                 RawText = source.RawText!,
                 StartTime = start,
@@ -3549,8 +3545,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Estimated = source.Estimated ?? false,
                 // The copied line's ORIGINAL (backlog 330) comes with its words; the target's own goes.
                 Original = source.Original == source.RawText ? null : source.Original,
-            };
-            editorBeatmap.Update(target);
+            });
         }
 
         /// <summary>
@@ -3752,7 +3747,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             double windowEnd = Math.Max(line.EndTime, units[^1].EndTime);
 
             editorBeatmap.BeginChange();
-            hitObject.Line = new LyricLine
+            setLine(editorBeatmap, hitObject, new LyricLine
             {
                 RawText = string.Join(' ', newTokens),
                 StartTime = line.StartTime,
@@ -3765,8 +3760,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 UnromanisedWords = line.UnromanisedWords
                                        .Select(w => w.Position > insertAt || (w.Position == insertAt && w.StartTime >= from) ? w with { Position = w.Position + count } : w)
                                        .ToArray(),
-            };
-            editorBeatmap.Update(hitObject);
+            });
             // A pasted subdivision has to reach Syllable, as the word paste's does.
             syncGranularity(editorBeatmap, keepAuthoredWords: true);
             // A run at the tail gives the line a new last word, so its sung end follows.
@@ -3859,7 +3853,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             double wall = isLastLine(editorBeatmap, hitObject) ? lastLineCap(editorBeatmap, line) : line.EndTime;
 
             editorBeatmap.BeginChange();
-            hitObject.Line = new LyricLine
+            setLine(editorBeatmap, hitObject, new LyricLine
             {
                 RawText = line.RawText,
                 StartTime = line.StartTime,
@@ -3870,8 +3864,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Estimated = false,
                 Original = line.Original,
                 UnromanisedWords = line.UnromanisedWords,
-            };
-            editorBeatmap.Update(hitObject);
+            });
 
             promoteToWordGranularity(editorBeatmap);
             // A pasted subdivision has to reach Syllable (and one pasted over the map's last
@@ -4116,8 +4109,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 return;
 
             editorBeatmap.BeginChange();
-            hitObject.Line = rebuild(line, singEnd: singEnd, end: end);
-            editorBeatmap.Update(hitObject);
+            setLine(editorBeatmap, hitObject, rebuild(line, singEnd: singEnd, end: end));
             editorBeatmap.EndChange();
         }
 

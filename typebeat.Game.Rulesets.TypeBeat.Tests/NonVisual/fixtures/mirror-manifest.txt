@@ -1,0 +1,46 @@
+# Game files mirrored in typebeat-web, hashed by NonVisual/MirrorManifestTest.cs.
+# SHA-256 of each file with a leading UTF-8 BOM removed and CRLF turned into LF, then two spaces
+# and the path from the repo root. Edit one of these files and the test fails: make the matching
+# change in typebeat-web (see the mirror tables in both repos' orientation docs and the parity tests in
+# typebeat-web/tests), then regenerate this list from the repo root with
+#   python3 -c "import hashlib,sys;[print(hashlib.sha256(open(p,'rb').read().removeprefix(b'\xef\xbb\xbf').replace(b'\r\n',b'\n')).hexdigest()+'  '+p) for p in sys.argv[1:]]" <the paths below>
+# or paste the replacement lines the failing test prints.
+6bd3ad4b8862c44c3b1ac9b50ca8a9d3a2c28313abbe8a3342fbb5f73a6467f5  typebeat.Game.Rulesets.TypeBeat/Beatmaps/ChunkedEndurance.cs
+30051cb0249230fd4e96ddbe2d3565e9d67887c4c0ffeead1d7301e3ae718686  typebeat.Game.Rulesets.TypeBeat/Beatmaps/FreestyleColourKey.cs
+e03e7ea016ae5be4c6d08f9e0513c1671b691dc40eac245e0f9e39c7bfa1bc27  typebeat.Game.Rulesets.TypeBeat/Beatmaps/LyricBeatmap.cs
+1d54696d94944b9a2fd727d34cd7cf009580686643c79d49aa47fdb6739eeb90  typebeat.Game.Rulesets.TypeBeat/Beatmaps/LyricBeatmapDecoder.cs
+e2738975db7f6efc74ac6d9e1aba2ee812edb2967bc5d2ccd7fc03f2a6bfd50d  typebeat.Game.Rulesets.TypeBeat/Beatmaps/LyricDifficulty.cs
+78ed422b09dd3abdb329c405d4ce0ad5ec825d39fdc8157afb1ddc532cc8c23b  typebeat.Game.Rulesets.TypeBeat/Beatmaps/LyricPaceStatistics.cs
+acc25de820d1128dab084e4361f256c5cff376cf47d3655816584516bb8985a9  typebeat.Game.Rulesets.TypeBeat/Beatmaps/LyricWpmCurve.cs
+163d9096a4836e960a9a42e71a3af2c2647edf5c0d50e3ea211ed0affec5531a  typebeat.Game.Rulesets.TypeBeat/Beatmaps/Romaniser.cs
+e50112d7b92f19d42e725c509658e88870ba616660c69e2a05753380f1218f85  typebeat.Game.Rulesets.TypeBeat/Beatmaps/TimingJsonLoader.cs
+7164db8d0bcbf9a0ef50939608d17d787a2aa8c0ddc759b7d2a9f5f0c811c2de  typebeat.Game.Rulesets.TypeBeat/Beatmaps/TypabilityIndex.cs
+0a3c5af57c41944f75dfc8cdac5c8b49c70c04aec496162a7b166bfbeaf2a0ad  typebeat.Game.Rulesets.TypeBeat/Beatmaps/TypabilityModel.cs
+8b49007e12f1b3d80c105e42add5c14a88b5768b720650dde3e8b74324ee0736  typebeat.Game.Rulesets.TypeBeat/Gameplay/ComboLedger.cs
+fe1ec5d0c73fda1f07480e9b51d97fec40e5658ecf7363c0215973e72368fec5  typebeat.Game.Rulesets.TypeBeat/Gameplay/CountableStream.cs
+a7c02ab8a3bcf53c773b4ce1b6b9cf246e3fe31380178e57f5c6d546cd03cb30  typebeat.Game.Rulesets.TypeBeat/Gameplay/EraRules.cs
+8ddb71c10859d1336b9b71c9c9c1e7f0b882c4fba24d4913a63da75bf1c63e06  typebeat.Game.Rulesets.TypeBeat/Gameplay/InstrumentalGaps.cs
+b9847d7716bde010531ecb9fb8bc5495ebb7fe4a076237a031cb42b546498dc4  typebeat.Game.Rulesets.TypeBeat/Gameplay/LineLifecycle.cs
+c4695d6286ec12ec1f819736bf9ae1675669761b9c8c8e1a5da2ccaf0faf9d36  typebeat.Game.Rulesets.TypeBeat/Gameplay/PausedWord.cs
+f34f6db0933361ce8d9351ba90a6f8c0b5313a62ecbb25e9d33dd809edddc7c7  typebeat.Game.Rulesets.TypeBeat/Gameplay/Syllabifier.cs
+f4488706b225ddeef1f55b15203c3b82be862d8668591cdf54f8effe21b84081  typebeat.Game.Rulesets.TypeBeat/Gameplay/TextInputFold.cs
+3e276fd782bd39f50832c4aa29c479ca414596b7f063f5e95d957c54d179be59  typebeat.Game.Rulesets.TypeBeat/Gameplay/TypingEngine.Backspace.cs
+0983b90300245a3b07f5e18573be738ce27632a7cf9d3a353be70e66883fa817  typebeat.Game.Rulesets.TypeBeat/Gameplay/TypingEngine.Combo.cs
+ad2d2ad017ab05136383c1352dffd9ad0244552d62a3e2d5efa18425d84d225a  typebeat.Game.Rulesets.TypeBeat/Gameplay/TypingEngine.Japanese.cs
+d14a6fec78aff410c6dacb654dae75b6d667a8eb7d4b13631235a686c35e1146  typebeat.Game.Rulesets.TypeBeat/Gameplay/TypingEngine.Keys.cs
+750d8d7dd0bc868dc356a398c77d50dc001a63490d7618938f00ce86dbca916a  typebeat.Game.Rulesets.TypeBeat/Gameplay/TypingEngine.Lines.cs
+994f62abbcc0c513d1355fdccc66a0cafdffe35c59b6cbebc94a4a4cdc5c5d64  typebeat.Game.Rulesets.TypeBeat/Gameplay/TypingEngine.Pace.cs
+e1c009a2578bd0ddc373a1815be008962382fbf8d0916c203503e78ce16f7c41  typebeat.Game.Rulesets.TypeBeat/Gameplay/TypingEngine.Rules.cs
+782239e7ca38e1c1f8a5fb0310b6d10fb5a987023038f42d2744bc8551b47b52  typebeat.Game.Rulesets.TypeBeat/Gameplay/TypingEngine.RushCap.cs
+eb31b586b672f3b53fd90337672ec3a839e2e65342e7433c7e9568dcca3713a8  typebeat.Game.Rulesets.TypeBeat/Gameplay/TypingEngine.Windows.cs
+875d7144a8c7887d3102016bd2c63e106a8f73cc2cf4a6fbefbdfb1eb235408f  typebeat.Game.Rulesets.TypeBeat/Gameplay/TypingEngine.WordSkip.cs
+29c2e2a9cad0db900a99095c2d2e11d693a93959ec2f3471f01fdb807b1ed39c  typebeat.Game.Rulesets.TypeBeat/Gameplay/TypingEngine.cs
+64362d071c83495e405236a7ebf3950a3be8eca410040b8cf1d0f19863d64faa  typebeat.Game.Rulesets.TypeBeat/Gameplay/TypingLine.cs
+a3de62028600b14322710dc651dd76d766c4c1bcb472a1a64b573d335f225f1f  typebeat.Game.Rulesets.TypeBeat/Scoring/PerformancePoints.cs
+37f696dea2f1576706f7c87f6d3f6eb351429668b10f963034c3c0b2b2d8666e  typebeat.Game.Rulesets.TypeBeat/Scoring/TypeBeatHealthProcessor.cs
+0125fbe7595a1a798c88b2022f78ad0cc05aa9d0c914199c952d21f2649db311  typebeat.Game.Rulesets.TypeBeat/Scoring/TypeBeatScoreProcessor.cs
+4d7e0899a54c74ae6ea570a83b7875ffdc7a2694b960540b6a64024e89994753  typebeat.Game.Rulesets.TypeBeat/UI/TypeBeatKeyGate.cs
+1555f43c9754f4f02967ba7fbbddcbe55f61971577d25e35e9387ae668a82f75  typebeat.Game.Rulesets.TypeBeat/UI/TypeBeatPlayfield.KeyHandler.cs
+d2fa517e7b62f4a854c72ccc45e35ec283c2e76df5217e6b8b1c95b0c4cd5507  typebeat.Game.Rulesets.TypeBeat/UI/TypeBeatPlayfield.cs
+1e0bc262177929dbba256ae6462a0add725866a0f41b69177c5dfcdff7931cb4  typebeat.Game.Rulesets.TypeBeat/UI/TypingKeys.cs
+185813d09a9612abae05bc2228c51979113d56d3c5652e6e159dd023a9b9df4f  typebeat.Game.Rulesets.TypeBeat/UI/UnderlinePace.cs

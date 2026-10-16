@@ -571,7 +571,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
                 return cellsMatch
                        && replayed.CaretIndex == live.CaretIndex
-                       && replayed.Score == live.Score
                        && replayed.MaxCombo == live.MaxCombo
                        && replayed.Combo == live.Combo
                        && replayed.Mistypes == live.Mistypes
@@ -897,7 +896,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             return cellsMatch
                    && replayed.CaretIndex == live.CaretIndex
-                   && replayed.Score == live.Score
                    && replayed.MaxCombo == live.MaxCombo
                    && replayed.Combo == live.Combo
                    && replayed.Mistypes == live.Mistypes

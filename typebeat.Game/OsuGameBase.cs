@@ -108,8 +108,10 @@ namespace typebeat.Game
 
         public virtual EndpointConfiguration CreateEndpoints()
         {
-            // Every build — debug included — targets the production typebeat-web server by
-            // default. To develop against a local server instead, point the override at it:
+            // Every build (debug included) targets the production typebeat-web server by
+            // default, but a debug build never submits scores to it (ScoreSubmissionGate).
+            // To develop against a local server instead, submission included, point the
+            // override at it:
             //   TYPEBEAT_API_URL=http://localhost:5089 type!beat.exe
             string envOverride = Environment.GetEnvironmentVariable("TYPEBEAT_API_URL");
             if (!string.IsNullOrEmpty(envOverride))
@@ -118,7 +120,16 @@ namespace typebeat.Game
             return new TypebeatEndpointConfiguration();
         }
 
-        protected override OnlineStore CreateOnlineStore() => new TrustedDomainOnlineStore(CreateEndpoints());
+        private EndpointConfiguration sharedEndpoints;
+
+        /// <summary>
+        /// The one endpoint configuration this game runs on, created on first use. <see cref="APIAccess"/> and
+        /// the trusted-domain store both hold this instance, so when the API host failover rewrites
+        /// <see cref="EndpointConfiguration.APIUrl"/> on it, resource lookups trust the new host too.
+        /// </summary>
+        internal EndpointConfiguration Endpoints => sharedEndpoints ??= CreateEndpoints();
+
+        protected override OnlineStore CreateOnlineStore() => new TrustedDomainOnlineStore(Endpoints);
 
         public virtual Version AssemblyVersion => Assembly.GetEntryAssembly()?.GetName().Version ?? new Version();
 
@@ -344,7 +355,7 @@ namespace typebeat.Game
             dependencies.Cache(SkinManager = new SkinManager(Storage, realm, Host, Resources, Audio, Scheduler));
             dependencies.CacheAs<ISkinSource>(SkinManager);
 
-            EndpointConfiguration endpoints = CreateEndpoints();
+            EndpointConfiguration endpoints = Endpoints;
 
             MessageFormatter.WebsiteRootUrl = endpoints.WebsiteUrl;
 

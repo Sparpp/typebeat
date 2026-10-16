@@ -10,13 +10,17 @@ using System.Threading.Tasks;
 using osu.Framework.Allocation;
 using osu.Framework.Audio.Track;
 using osu.Framework.Bindables;
+using osu.Framework.Extensions;
 using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Localisation;
 using osu.Framework.Logging;
+using osu.Framework.Platform;
 using typebeat.Game.Audio.Effects;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Beatmaps.Formats;
+using typebeat.Game.Database;
+using typebeat.Game.Extensions;
 using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.IO;
 using typebeat.Game.Localisation;
@@ -90,6 +94,12 @@ namespace typebeat.Game.Screens.Edit.Setup
 
         [Resolved]
         private BeatmapManager beatmaps { get; set; } = null!;
+
+        [Resolved]
+        private RealmAccess realm { get; set; } = null!;
+
+        [Resolved]
+        private GameHost host { get; set; } = null!;
 
         [Resolved]
         private IBindable<WorkingBeatmap> currentWorkingBeatmap { get; set; } = null!;
@@ -332,9 +342,13 @@ namespace typebeat.Game.Screens.Edit.Setup
         /// left a set that disagreed with itself the moment the mapper discarded. Not undoable, by the
         /// same deliberate convention the rest of this section follows.</para>
         ///
-        /// <para>Every write goes to a DETACHED beatmap - the set graph the editor's own working beatmap
+        /// <para>ONLY THE OPEN DIFFICULTY SAVES HERE, on the update thread. Each sibling's save is a full
+        /// encode, write and difficulty calculation, so they go to the background (see
+        /// <see cref="saveSiblingGains"/>), one after another and after every earlier release's.</para>
+        ///
+        /// <para>The writes made here go to the DETACHED set graph the editor's own working beatmap
         /// carries, whose entry for the open difficulty is that working beatmap's own
-        /// <c>BeatmapInfo</c> - because a realm-managed object written outside a write transaction
+        /// <c>BeatmapInfo</c>, because a realm-managed object written outside a write transaction
         /// throws.</para>
         /// </remarks>
         private void applyAudioGain(double gain)
@@ -355,35 +369,165 @@ namespace typebeat.Game.Screens.Edit.Setup
             // slider.
             music.ReloadCurrentTrack();
 
-            foreach (var difficulty in working.BeatmapSetInfo.Beatmaps)
-            {
-                if (difficulty.Equals(Beatmap.BeatmapInfo))
-                    continue;
+            var siblings = working.BeatmapSetInfo.Beatmaps.Where(b => !b.Equals(Beatmap.BeatmapInfo)).ToArray();
 
+            // The editor's graph carries the gain for every difficulty at once, so its next save cannot
+            // write an old one back, and the save below already stores it on their rows.
+            foreach (var difficulty in siblings)
                 difficulty.Metadata.AudioGain = gain;
 
-                // Persisted here rather than left for the mapper's next save: these are OTHER files, and
-                // the editor's save below only ever writes the one it has open. Note that this triggers a
-                // full save flow per difficulty, including a difficulty calculation, which is why nothing
-                // upstream of here may fire per slider value.
-                try
-                {
-                    var target = beatmaps.GetWorkingBeatmap(difficulty);
-
-                    // The cached working beatmap may carry its own detached copy of the difficulty, and
-                    // that copy is the one a difficulty switch would build a track from. Both, or the two
-                    // disagree about how loud the song is until something invalidates the cache.
-                    target.Metadata.AudioGain = gain;
-
-                    beatmaps.Save(difficulty, target.GetPlayableBeatmap(difficulty.Ruleset), target.GetSkin(), target.Storyboard);
-                }
-                catch (Exception e)
-                {
-                    Logger.Error(e, $@"Failed to sync the audio gain to {difficulty.GetDisplayTitle()}");
-                }
-            }
-
             editor?.Save();
+
+            // The siblings' FILES are persisted here rather than left for the mapper's next save: the
+            // editor's save only ever writes the one it has open.
+            saveSiblingGains(gain, siblings, working.BeatmapSetInfo);
+        }
+
+        /// <summary>
+        /// The background sibling saves of every <see cref="ResourcesSection"/>, chained so that no two run
+        /// at once: a second release while the first is still writing waits for it, so the two never
+        /// interleave writes to one file and the last gain released is the one that stays.
+        /// </summary>
+        private static Task siblingGainSaves = Task.CompletedTask;
+
+        private static readonly object sibling_gain_saves_lock = new object();
+
+        /// <summary>
+        /// The task that finishes when this section's latest release has been written into every sibling
+        /// (and every earlier release before it), for tests.
+        /// </summary>
+        internal Task LastSiblingGainSave { get; private set; } = Task.CompletedTask;
+
+        /// <summary>
+        /// Writes <paramref name="gain"/> into each of <paramref name="siblings"/>' files, off the update thread.
+        /// </summary>
+        /// <remarks>
+        /// <para>Realm objects stay on their own threads: the background never touches the editor's
+        /// graph. Each sibling is re-read from realm by ID and detached there, and saved alone (its
+        /// copy of the set lists only itself), so the save cannot write a stale copy of the open
+        /// difficulty or any other sibling back over an edit made meanwhile.</para>
+        ///
+        /// <para>Each saved sibling's new identity (the file hash it now points at) is then carried into
+        /// the editor's graph on the update thread, which is what the editor's next save writes back.
+        /// If an editor save landed in between and wrote the old hash back, whose file is gone, the
+        /// row is put back on the file just written.</para>
+        ///
+        /// <para>A failure is logged as an error, which the game shows as a notification, and does not
+        /// stop the other siblings or a later release.</para>
+        /// </remarks>
+        private void saveSiblingGains(double gain, BeatmapInfo[] siblings, BeatmapSetInfo editorSet)
+        {
+            if (siblings.Length == 0)
+                return;
+
+            // Read here, on the update thread that owns the graph, for the background's messages.
+            var targets = siblings.Select(b => (b.ID, Title: b.GetDisplayTitle())).ToArray();
+
+            lock (sibling_gain_saves_lock)
+            {
+                var previous = siblingGainSaves;
+
+                // Queued through realm's own async runner so it counts as a pending operation: realm's
+                // disposal on exit waits for those, so quitting mid-queue does not leave later siblings'
+                // files on the old gain under rows the open difficulty's save has already stamped.
+                LastSiblingGainSave = siblingGainSaves = realm.RunAsync(_ =>
+                {
+                    try
+                    {
+                        previous.WaitSafely();
+                    }
+                    catch
+                    {
+                        // Each earlier release handles its own failures; this one only waits its turn.
+                    }
+
+                    foreach (var (id, title) in targets)
+                    {
+                        try
+                        {
+                            var saved = saveSiblingGain(id, gain);
+
+                            if (saved == null)
+                                continue;
+
+                            var identity = (saved.ID, saved.Hash, saved.MD5Hash);
+                            host.UpdateThread.Scheduler.Add(() => adoptSiblingIdentity(editorSet, identity));
+                        }
+                        catch (Exception e)
+                        {
+                            Logger.Error(e, $@"Failed to sync the audio gain to {title}");
+                        }
+                    }
+
+                    return true;
+                });
+            }
+        }
+
+        /// <summary>One sibling's background save. Returns the detached copy that was saved, or null when the difficulty no longer exists.</summary>
+        private BeatmapInfo? saveSiblingGain(Guid id, double gain)
+        {
+            var difficulty = realm.Run(r => r.Find<BeatmapInfo>(id)?.Detach());
+
+            if (difficulty?.BeatmapSet == null)
+                return null;
+
+            // A second copy for the working beatmap: the cache keeps whatever it is handed, and the copy
+            // saved below is cut down to a set of one.
+            var target = beatmaps.GetWorkingBeatmap(realm.Run(r => r.Find<BeatmapInfo>(id)!.Detach()));
+
+            // The cached working beatmap may carry its own detached copy of the difficulty, and that copy
+            // is the one a difficulty switch would build a track from. Both, or the two disagree about how
+            // loud the song is until something invalidates the cache.
+            target.Metadata.AudioGain = gain;
+            difficulty.Metadata.AudioGain = gain;
+
+            difficulty.BeatmapSet.Beatmaps.Clear();
+            difficulty.BeatmapSet.Beatmaps.Add(difficulty);
+
+            beatmaps.Save(difficulty, target.GetPlayableBeatmap(difficulty.Ruleset), target.GetSkin(), target.Storyboard);
+            return difficulty;
+        }
+
+        /// <summary>
+        /// On the update thread, after a background sibling save: the editor's graph takes the sibling's new
+        /// file identity and the set's new file list from realm, and a row an editor save has meanwhile put
+        /// back on the old, deleted file is pointed at the file the background just wrote.
+        /// </summary>
+        private void adoptSiblingIdentity(BeatmapSetInfo editorSet, (Guid ID, string Hash, string MD5Hash) saved)
+        {
+            realm.Run(r =>
+            {
+                // The background committed on its own realm; this one has to catch up to see it.
+                r.Refresh();
+
+                var live = r.Find<BeatmapInfo>(saved.ID);
+
+                if (live?.BeatmapSet == null)
+                    return;
+
+                if (live.File == null && live.BeatmapSet.Files.Any(f => f.File.Hash == saved.Hash))
+                {
+                    r.Write(_ =>
+                    {
+                        live.Hash = saved.Hash;
+                        live.MD5Hash = saved.MD5Hash;
+                    });
+                }
+
+                var mine = editorSet.Beatmaps.FirstOrDefault(b => b.ID == saved.ID);
+
+                if (mine != null)
+                {
+                    mine.Hash = live.Hash;
+                    mine.MD5Hash = live.MD5Hash;
+                    mine.Status = live.Status;
+                    mine.LastLocalUpdate = live.LastLocalUpdate;
+                }
+
+                editorSet.Files.Clear();
+                editorSet.Files.AddRange(live.BeatmapSet.Files.Detach());
+            });
         }
 
         /// <summary>

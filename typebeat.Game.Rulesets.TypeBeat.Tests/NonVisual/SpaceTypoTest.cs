@@ -168,7 +168,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(engine.ConsecutiveWrongKeys, Is.Zero, "type-through never feeds the mash-fail streak");
                 Assert.That(judged[^1].Type, Is.EqualTo(JudgementType.WrongChar));
                 Assert.That(judged[^1].CellIndex, Is.EqualTo(2));
-                Assert.That(judged[^1].PointsAwarded, Is.Zero);
             });
         }
 

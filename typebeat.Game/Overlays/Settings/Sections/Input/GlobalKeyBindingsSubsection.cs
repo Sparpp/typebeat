@@ -17,7 +17,7 @@ namespace typebeat.Game.Overlays.Settings.Sections.Input
         private readonly GlobalActionCategory category;
 
         // When non-null, only these actions are shown/rebindable in this subsection. The category's
-        // other actions stay registered and bound as normal — this filters the settings list only,
+        // other actions stay registered and bound as normal; this filters the settings list only,
         // so we can hide actions that are inert in a stripped ruleset without unbinding their keys.
         private readonly HashSet<GlobalAction>? allowedActions;
 

@@ -144,7 +144,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             char? rejected = null;
             engine.WrongKeyRejected += c => rejected = c;
 
-            Assert.IsTrue(engine.ProcessKey('c', 1000)); // delta 0 => Great, 300 * (1 + 0/50) = 300
+            Assert.IsTrue(engine.ProcessKey('c', 1000)); // delta 0 => Great
             Assert.IsTrue(engine.ProcessKey(' ', 2600)); // caret is on 'a': abandon "at"
 
             Assert.IsNull(rejected, "the space is consumed by the skip, not rejected");
@@ -177,8 +177,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // Great, whatever the clock said.
             Assert.AreEqual(0, results.Counts[JudgementType.Ok]);
             Assert.AreEqual(2, results.Counts[JudgementType.Great]);
-            // 300 ('c') + 300 (the space, at combo 0 after the break => x1.00).
-            Assert.AreEqual(600, results.Score);
             // The skip itself is not a keypress, so both presses that WERE judged were correct.
             Assert.AreEqual(1.0, results.Accuracy);
             Assert.AreEqual(1, results.MaxCombo); // 'c' made it 1, the skip broke it, the space rebuilt it to 1
@@ -218,7 +216,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(1, judged[0].CellIndex);
             Assert.AreEqual(JudgementType.Abandoned, judged[0].Type);
             Assert.AreEqual(2600 - a_target, judged[0].Delta, 1e-9);
-            Assert.AreEqual(0, judged[0].PointsAwarded);
             Assert.AreEqual(0, judged[0].ComboAfter);
 
             Assert.AreEqual(2, judged[1].CellIndex);
@@ -230,7 +227,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // with is the zeroed one it was judged on, not 2600 - 3000.
             Assert.AreEqual(JudgementType.Great, judged[2].Type);
             Assert.AreEqual(0, judged[2].Delta, 1e-9);
-            Assert.AreEqual(300, judged[2].PointsAwarded);
             Assert.AreEqual(1, judged[2].ComboAfter);
 
             // The seam the hand-mirrored break and the HP drain ride on: once per skip, carrying
@@ -320,9 +316,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var engine = started(abCd(), spaceSkipsWord: true);
 
-            Assert.IsTrue(engine.ProcessKey('a', 1000)); // Great, 300
-            Assert.IsTrue(engine.ProcessKey('b', 1500)); // Great, 300 * 1.02 = 306
-            Assert.IsTrue(engine.ProcessKey(' ', 2000)); // ON the gap: Great, 300 * 1.04 = 312
+            Assert.IsTrue(engine.ProcessKey('a', 1000)); // Great
+            Assert.IsTrue(engine.ProcessKey('b', 1500)); // Great
+            Assert.IsTrue(engine.ProcessKey(' ', 2000)); // ON the gap: Great
 
             var cells = engine.Lines[0].Cells;
             Assert.AreEqual(CellState.Correct, cells[2].State);
@@ -332,7 +328,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.AreEqual(0, results.Counts[JudgementType.Miss]);
             Assert.AreEqual(3, results.Counts[JudgementType.Great]);
-            Assert.AreEqual(918, results.Score);
             Assert.AreEqual(3, results.MaxCombo); // never broken
         }
 
@@ -547,8 +542,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// And the cells really are earnable again: re-typing them produces ordinary judgements with
-        /// ordinary points, not the scoring-inert retype an already-earned cell produces. That is the
+        /// And the cells really are earnable again: re-typing them produces ordinary judgements that
+        /// are tallied, not the scoring-inert retype an already-earned cell produces. That is the
         /// whole point of withholding the osu result at the skip.
         /// </summary>
         [Test]
@@ -575,9 +570,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.AreEqual(3, judged.Count);
             Assert.AreEqual(JudgementType.Great, judged[1].Type);
-            Assert.IsTrue(judged[1].PointsAwarded > 0, "a reclaimed cell scores; an inert retype would not");
             Assert.AreEqual(JudgementType.Great, judged[2].Type);
-            Assert.IsTrue(judged[2].PointsAwarded > 0);
 
             var results = engine.BuildResults();
 
@@ -589,8 +582,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// And the cells really are earnable again: re-typing them produces ordinary judgements with
-        /// ordinary points, not the scoring-inert retype an already-earned cell produces. That is the
+        /// And the cells really are earnable again: re-typing them produces ordinary judgements that
+        /// are tallied, not the scoring-inert retype an already-earned cell produces. That is the
         /// whole point of withholding the osu result at the skip.
         ///
         /// <para>The same behaviour in the SECOND INPUT ERA (<see cref="TypingEngine.InputEra2"/>, every
@@ -618,9 +611,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.AreEqual(2, judged.Count);
             Assert.AreEqual(JudgementType.Great, judged[0].Type);
-            Assert.IsTrue(judged[0].PointsAwarded > 0, "a reclaimed cell scores; an inert retype would not");
             Assert.AreEqual(JudgementType.Great, judged[1].Type);
-            Assert.IsTrue(judged[1].PointsAwarded > 0);
 
             var results = engine.BuildResults();
 
@@ -743,7 +734,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.IsTrue(engine.ProcessKey('c', 1000));
             Assert.AreEqual(CellState.Correct, cells[0].State);
-            Assert.IsTrue(engine.BuildResults().Score > 0);
+            Assert.Greater(engine.BuildResults().Counts[JudgementType.Great], 0);
         }
 
         /// <summary>
@@ -775,7 +766,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.IsTrue(engine.ProcessKey('c', 1000));
             Assert.AreEqual(CellState.Correct, cells[0].State);
-            Assert.IsTrue(engine.BuildResults().Score > 0);
+            Assert.Greater(engine.BuildResults().Counts[JudgementType.Great], 0);
         }
 
         /// <summary>
@@ -982,11 +973,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(2, stored.Counts[JudgementType.Miss]);
             Assert.AreEqual(stored.Counts[JudgementType.Miss], today.Counts[JudgementType.Miss]);
             Assert.AreEqual(stored.Counts[JudgementType.Great], today.Counts[JudgementType.Great]);
-            Assert.AreEqual(stored.Score, today.Score);
             Assert.AreEqual(stored.MaxCombo, today.MaxCombo);
             Assert.AreEqual(stored.Accuracy, today.Accuracy, 1e-12);
             Assert.AreEqual(stored.SyncPercent, today.SyncPercent, 1e-12);
-            Assert.AreEqual(stored.Grade, today.Grade);
         }
 
         /// <summary>

@@ -5,13 +5,14 @@ using System;
 using osu.Framework.Localisation;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.Mods;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Mods
 {
     /// <summary>
     /// Hard Rock: every character is graded on its OWN target time rather than on the syllable it
     /// belongs to, so a word has to be typed in step with the vocal instead of anywhere inside it.
-    /// One rule, applied in <c>DrawableTypeBeatRuleset.createEngine</c> and not here
+    /// One rule, applied in <see cref="ApplyToEngine"/>
     /// (<see cref="Gameplay.TypingEngine.SyllableTiming"/> = false under HR alone), and the mod owns
     /// no other live behaviour.
     ///
@@ -43,27 +44,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// mechanism: the run says which era it is, the score's mods say whether HR was on, and the
     /// engine multiplies the ladder itself.</para>
     /// </summary>
-    public class TypeBeatModHardRock : ModHardRock
+    public class TypeBeatModHardRock : ModHardRock, IApplicableToTypingEngine
     {
         /// <summary>
-        /// What Hard Rock multiplied every judgement window by from backlog 150 until backlog 264
-        /// retired the halving. NOT a live constant any more: no mod, and no engine factory, applies
-        /// it. It is the ERA constant, read only by
-        /// <see cref="Gameplay.TypingEngine"/>'s window-scale seam and only for a run whose CONFIG
-        /// frame says it was played before 264 (bit 13 clear) with HR on its score, so those stored
-        /// rows re-derive at the halving the era means.
-        ///
-        /// <para>What the halving multiplies is the ladder as it ships NOW, which is a tuning point
-        /// the game has retuned since: the three-tier Line/Word/Syllable ladder this era was written
-        /// against is gone, replaced by one symmetric ladder (Great 150 / Ok 300 / Meh 600). An era
-        /// pins a RULE, so it survives a retune of the constants under it, and every stored row is
-        /// re-derived on today's numbers.</para>
-        ///
-        /// <para>Its numeric relationship to <see cref="TypeBeatModEasy.WINDOW_SCALE"/> is now a
-        /// coincidence of history rather than a design: Easy's 2.0 is independent and was not
-        /// touched by 264.</para>
+        /// What Hard Rock multiplied every judgement window by until backlog 264 retired the
+        /// halving: the era constant, defined on <see cref="Gameplay.SyncWindows.HARD_ROCK_WINDOW_SCALE"/> with
+        /// the windows it scales, and kept here under the mod's own name.
         /// </summary>
-        public const double WINDOW_SCALE = 0.5;
+        public const double WINDOW_SCALE = Gameplay.SyncWindows.HARD_ROCK_WINDOW_SCALE;
 
         public override LocalisableString Description => "Every character is timed on its own, not on the syllable around it.";
 
@@ -100,6 +88,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// </summary>
         public override void ApplyToDifficulty(BeatmapDifficulty difficulty)
         {
+        }
+
+        /// <summary>
+        /// The point-target revert, and the MOD FACT the CONFIG frame cannot carry
+        /// (<see cref="Gameplay.TypingEngine.HardRockFromMod"/>): a score's mods travel on the score,
+        /// so the engine is told here whether Hard Rock is in the stack and the frame's bit 13
+        /// supplies the era half. <see cref="Gameplay.TypingEngine.SyllableTiming"/> is the live
+        /// rule only: a stored replay's CONFIG frame (bit 2) is fed afterwards and wins.
+        /// </summary>
+        public void ApplyToEngine(TypingEngine engine)
+        {
+            engine.SyllableTiming = false;
+            engine.HardRockFromMod = true;
         }
     }
 }

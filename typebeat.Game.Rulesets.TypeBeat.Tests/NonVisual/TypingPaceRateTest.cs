@@ -36,7 +36,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             TypingPaceProfile raw = beatmap.GetTypingPace()!;
             TypingPaceProfile again = beatmap.GetTypingPace(1)!;
 
-            double model = LyricDifficulty.ComputeDetail(lines, 1, false, LyricDifficulty.EnduranceAxis.Envelope).TargetWpm;
+            double model = LyricDifficulty.TargetWpm(lines);
 
             Assert.Multiple(() =>
             {
@@ -105,7 +105,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             // The SR algorithm's own target at 1.5x, floored at the map's own average exactly as the pace
             // figure is (see LyricPaceStatistics.pace_floor_target).
-            double model = LyricDifficulty.ComputeDetail(lines, 1.5, false, LyricDifficulty.EnduranceAxis.Envelope).TargetWpm;
+            double model = LyricDifficulty.TargetWpm(lines, 1.5);
 
             Assert.Multiple(() =>
             {

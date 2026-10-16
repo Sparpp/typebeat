@@ -33,6 +33,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// <para>Purely display. Nothing here is read by judgement, scoring, the replay, the wire or any
     /// anti-cheat gate; it consumes <see cref="TypingCell.TargetTime"/> and produces colours.</para>
     ///
+    /// <para>Mirrored in typebeat-web: typebeat-player.js buildPaceBands and the pace* helpers.</para>
+    ///
     /// <para><b>Segmentation: per authored subdivision within subdivided words.</b> An ordinary
     /// word remains one segment. An authored subdivision marker opens a new segment at the same
     /// cell edge the lyric display marks. The final segment of a word includes its trailing gap

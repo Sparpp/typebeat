@@ -4,11 +4,12 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Import;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Screens.Edit;
 
-namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
+namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
     public static partial class TypeBeatEditorOperations
     {
@@ -42,8 +43,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                     string?[] words = OriginalLyricGenerator.MatchWords(line, original, beatmap.Metadata.Language);
                     var units = line.Units.Select((u, w) => words[w] == null ? u : LrcParser.WithOriginal(u, words[w])).ToArray();
-                    targets[i].Line = rebuild(line, units: units, originals: (original, line.UnromanisedWords));
-                    beatmap.Update(targets[i]);
+                    setLine(beatmap, targets[i], rebuild(line, units: units, originals: (original, line.UnromanisedWords)));
                     changed++;
                 }
             }

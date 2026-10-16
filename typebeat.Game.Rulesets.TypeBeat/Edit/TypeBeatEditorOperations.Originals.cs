@@ -3,10 +3,11 @@
 
 using System.Collections.Generic;
 using System.Linq;
+using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Screens.Edit;
 
-namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
+namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
     /// <summary>
     /// THE WORD EDITOR for the original text (backlog 330): the two-row, per-word surface where a
@@ -207,8 +208,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 return false;
 
             editorBeatmap.BeginChange();
-            hitObject.Line = rebuild(line, originals: (value, line.UnromanisedWords));
-            editorBeatmap.Update(hitObject);
+            setLine(editorBeatmap, hitObject, rebuild(line, originals: (value, line.UnromanisedWords)));
             editorBeatmap.EndChange();
             return true;
         }
@@ -258,8 +258,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             string rawText = string.Join(' ', units.Select(u => u.Text));
 
             editorBeatmap.BeginChange();
-            hitObject.Line = rebuild(line, rawText: rawText, units: units, originals: (lineOriginal, pending));
-            editorBeatmap.Update(hitObject);
+            setLine(editorBeatmap, hitObject, rebuild(line, rawText: rawText, units: units, originals: (lineOriginal, pending)));
             syncGranularity(editorBeatmap, keepAuthoredWords: true);
 
             // A LINE-granularity map writes no words[], so its words' originals persist only through
@@ -267,8 +266,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // words here, or a word's new original would not survive the save.
             if (hitObject.Granularity == TimingGranularity.Line && hitObject.Line.Units.Any(u => u.Original != null))
             {
-                hitObject.Line = rebuild(hitObject.Line, originals: (JoinedOriginal(hitObject.Line.Units, hitObject.Line.UnromanisedWords), hitObject.Line.UnromanisedWords));
-                editorBeatmap.Update(hitObject);
+                setLine(editorBeatmap, hitObject, rebuild(hitObject.Line, originals: (JoinedOriginal(hitObject.Line.Units, hitObject.Line.UnromanisedWords), hitObject.Line.UnromanisedWords)));
             }
 
             syncSingEndToLastUnit(editorBeatmap, hitObject, lastUnitEnd(line));

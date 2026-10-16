@@ -78,8 +78,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
     public sealed class SyncWindows
     {
-        public const double LEAD_IN_MS = 2000;
         public const double FREESTYLE_WINDOW_SCALE = 2;
+
+        /// <summary>
+        /// What Hard Rock multiplied every judgement window by from backlog 150 until backlog 264
+        /// retired the halving. NOT a live constant any more: no mod, and no engine factory, applies
+        /// it. It is the ERA constant, read only by
+        /// <see cref="TypingEngine"/>'s window-scale seam and only for a run whose CONFIG
+        /// frame says it was played before 264 (bit 13 clear) with HR on its score, so those stored
+        /// rows re-derive at the halving the era means.
+        ///
+        /// <para>What the halving multiplies is the ladder as it ships NOW, which is a tuning point
+        /// the game has retuned since: the three-tier Line/Word/Syllable ladder this era was written
+        /// against is gone, replaced by one symmetric ladder (Great 150 / Ok 300 / Meh 600). An era
+        /// pins a RULE, so it survives a retune of the constants under it, and every stored row is
+        /// re-derived on today's numbers.</para>
+        ///
+        /// <para>Its numeric relationship to <see cref="Mods.TypeBeatModEasy.WINDOW_SCALE"/> is now a
+        /// coincidence of history rather than a design: Easy's 2.0 is independent and was not
+        /// touched by 264.</para>
+        /// </summary>
+        public const double HARD_ROCK_WINDOW_SCALE = 0.5;
 
         // ONE LADDER FOR EVERY CELL: the one tuning point. MILLISECONDS between the keypress and the
         // cell's TargetTime, SYMMETRIC around the target.
@@ -185,27 +204,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public double SyncQuality(double delta)
             => Math.Clamp(1 - (delta < 0 ? -delta / MehEarly : delta / MehLate), 0, 1);
-
-        public static int BasePoints(JudgementType type)
-        {
-            switch (type)
-            {
-                case JudgementType.Great:
-                    return 300;
-
-                case JudgementType.Ok:
-                    return 150;
-
-                case JudgementType.Meh:
-                    return 50;
-
-                default:
-                    return 0;
-            }
-        }
     }
 
-    public readonly record struct CharJudgement(int LineIndex, int CellIndex, JudgementType Type, double Delta, int PointsAwarded, int ComboAfter);
+    public readonly record struct CharJudgement(int LineIndex, int CellIndex, JudgementType Type, double Delta, int ComboAfter);
 
     /// <summary>
     /// One sealed line. <paramref name="ComboBroken"/> says the line ran out of time on at least one
@@ -223,16 +224,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
     public sealed class ResultsSummary
     {
-        public required long Score { get; init; }
-
         /// <summary>0..1.</summary>
         public required double Accuracy { get; init; }
 
         public required double Wpm { get; init; }
 
         /// <summary>
-        /// 0..100. DISPLAY ONLY since backlog 251: nothing derives from it, <see cref="Grade"/>
-        /// included, and it is only rendered where the player has asked for the sync metric
+        /// 0..100. DISPLAY ONLY since backlog 251: nothing derives from it (the rank is
+        /// <c>TypeBeatScoreProcessor</c>'s accuracy ladder), and it is only rendered where the
+        /// player has asked for the sync metric
         /// (<c>TypeBeatRulesetSetting.ShowSyncMetric</c>, off by default). Kept on the type, and
         /// kept computed, precisely so that toggle has something to show.
         /// </summary>
@@ -248,30 +248,5 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public required string Artist { get; init; }
 
         public required string Title { get; init; }
-
-        /// <summary>
-        /// ACCURACY alone: S >=0.95; A >=0.90; B >=0.80; C >=0.65; else D.
-        ///
-        /// <para>It used to require a matching <see cref="SyncPercent"/> floor at every tier (95 / 90
-        /// / 80 / 65) as well. That second gate is gone since backlog 251, and the tier floors on
-        /// accuracy are the ones the pair already used, so a play's grade can only ever come out the
-        /// same or higher than it did. Sync is now a DISPLAY figure and nothing else: it is still
-        /// computed and still shown to anyone who turns
-        /// <c>TypeBeatRulesetSetting.ShowSyncMetric</c> on, but with the metric off by default a
-        /// hidden number silently demoting a clean run was the whole objection, and no grade, score,
-        /// judgement or submission reads it any more.</para>
-        /// </summary>
-        public string Grade
-        {
-            get
-            {
-                if (Accuracy >= 0.95) return "S";
-                if (Accuracy >= 0.90) return "A";
-                if (Accuracy >= 0.80) return "B";
-                if (Accuracy >= 0.65) return "C";
-
-                return "D";
-            }
-        }
     }
 }

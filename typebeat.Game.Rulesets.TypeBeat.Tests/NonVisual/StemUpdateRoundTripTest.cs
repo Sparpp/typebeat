@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using NUnit.Framework;
 using osu.Framework.Platform;
 using Realms;
+using Realms.Schema;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Database;
 using typebeat.Game.Models;
@@ -25,12 +26,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// online version gains <c>vocals.ogg</c> offers UPDATE, the accepted update lands the stem, and the
     /// offer clears AND STAYS CLEARED across a simulated restart.
     ///
-    /// <para>The bug this pins was in the read, not the update: <see cref="BeatmapSetInfo.OnlineStemIsMissingLocally"/>
-    /// compared the online stem flag against <see cref="VocalsStem.FilenameIn"/>, i.e. the set's file list.
-    /// But song select's carousel holds DETACHED sets, and the detach mapper strips <c>Files</c> for weight,
-    /// so on the very object the button reads the file list is empty and the arm was true forever. The fix is
-    /// a scalar <see cref="BeatmapSetInfo.HasLocalVocalsStem"/> recorded at import/update (and backfilled at
-    /// realm schema 64), which the detach mapper copies.</para>
+    /// <para>The bug this pins was in the read, not the update: the stem arm compared the online stem flag
+    /// against <see cref="VocalsStem.FilenameIn"/>, i.e. the set's file list. But song select's carousel holds
+    /// DETACHED sets, and the detach mapper strips <c>Files</c> for weight, so on the very object the button
+    /// reads the file list is empty and the arm was true forever. The fix is a scalar recorded at
+    /// import/update, which the detach mapper copies: since realm schema 65 that is
+    /// <see cref="BeatmapSetInfo.LocalFileManifest"/> (backfilled by the 65 migration), read by
+    /// <see cref="BeatmapSetInfo.OnlineFilesMissingLocally"/>.</para>
     /// </summary>
     [TestFixture]
     public class StemUpdateRoundTripTest
@@ -86,7 +88,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(realm.Run(r => r.All<BeatmapSetInfo>().Single().HasLocalVocalsStem), Is.False);
+                Assert.That(realm.Run(r => r.All<BeatmapSetInfo>().Single().LocalFileManifest), Is.EqualTo(SetFileManifest.EMPTY));
                 Assert.That(realm.Run(r => r.All<BeatmapSetInfo>().Single().AllBeatmapsUpToDate), Is.True);
             });
 
@@ -106,7 +108,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Multiple(() =>
             {
                 Assert.That(realm.Run(r => VocalsStem.FilenameIn(r.All<BeatmapSetInfo>().Single())), Is.EqualTo(VocalsStem.OGG_FILENAME), "the stem landed in the file list");
-                Assert.That(realm.Run(r => r.All<BeatmapSetInfo>().Single().HasLocalVocalsStem), Is.True, "and its presence is recorded");
+                Assert.That(realm.Run(r => r.All<BeatmapSetInfo>().Single().LocalFileManifest), Is.EqualTo(SetFileManifest.VOCALS_STEM), "and its presence is recorded");
                 Assert.That(realm.Run(r => r.All<BeatmapSetInfo>().Single().AllBeatmapsUpToDate), Is.True, "so the offer cleared");
             });
 
@@ -121,29 +123,75 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void Schema64BackfillsTheLocalStemFromTheFileList()
+        public void Schema65CarriesTheStemFlagsOverToTheManifests()
         {
-            // A set installed before schema 64 (with the model already carrying HasLocalVocalsStem, so it
-            // writes false) that HAS a stem must be backfilled by the migration, or it would offer UPDATE
-            // forever. The presence IS recoverable here (the set's own Files backlink), unlike a decode-only fact.
+            // Three sets installed at schema 64, when the stem was a pair of flags: one whose online version was
+            // known to carry a stem it lacks locally (an UPDATE offer standing at the upgrade), one with the stem
+            // on both sides, and one never looked up. The local manifest IS recoverable (the set's own Files
+            // backlink); the online one is carried over from the old flag, and left unreported where it was unset,
+            // so the upgrade neither drops a standing offer nor raises a new one.
             using var context = new SynchronousRealmTestContext();
             var storage = new NativeStorage(Path.Combine(directory, "migration"));
             const string filename = "client.realm";
-            Guid id = Guid.Empty;
+            string path = storage.GetFullPath(filename, true);
 
-            using (var realm = Realm.GetInstance(new RealmConfiguration(storage.GetFullPath(filename, true)) { SchemaVersion = 63 }))
+            Guid offered = Guid.Empty, current = Guid.Empty, neverLookedUp = Guid.Empty;
+
+            using (var realm = Realm.GetInstance(new RealmConfiguration(path) { SchemaVersion = 63 }))
             {
                 realm.Write(() =>
                 {
                     var ruleset = realm.Add(new RulesetInfo("typebeat", "type!beat", "typebeat.Game.Rulesets.TypeBeat.TypeBeatRuleset, typebeat.Game.Rulesets.TypeBeat", 0));
-                    var set = new BeatmapSetInfo();
 
-                    var beatmap = new BeatmapInfo(ruleset, new BeatmapDifficulty(), new BeatmapMetadata()) { BeatmapSet = set, MD5Hash = "0123456789abcdef0123456789abcdef" };
-                    set.Beatmaps.Add(beatmap);
-                    set.Files.Add(new RealmNamedFileUsage(new RealmFile { Hash = "stem" }, VocalsStem.OGG_FILENAME));
+                    offered = addSet(realm, ruleset, withStem: false);
+                    current = addSet(realm, ruleset, withStem: true);
+                    neverLookedUp = addSet(realm, ruleset, withStem: true);
+                });
+            }
 
-                    realm.Add(set);
-                    id = set.ID;
+            LegacyRealmColumn.Add(path, 64, "BeatmapSet", Property.Primitive("OnlineVersionHasVocalsStem", RealmValueType.Bool), realm =>
+            {
+                foreach (var id in new[] { offered, current })
+                    realm.DynamicApi.Find("BeatmapSet", id)!.DynamicApi.Set("OnlineVersionHasVocalsStem", true);
+            });
+
+            using (var access = new RealmAccess(storage, filename))
+            {
+                BeatmapSetInfo read(Guid id) => access.Run(r => r.Find<BeatmapSetInfo>(id)!.Detach());
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(read(offered).LocalFileManifest, Is.EqualTo(SetFileManifest.EMPTY));
+                    Assert.That(read(offered).OnlineFileManifest, Is.EqualTo(SetFileManifest.VOCALS_STEM), "the old online flag is carried over");
+                    Assert.That(read(offered).OnlineFilesMissingLocally, Is.True, "so the offer standing at the upgrade still stands");
+
+                    Assert.That(read(current).LocalFileManifest, Is.EqualTo(SetFileManifest.VOCALS_STEM), "the migration read the stem off the file list");
+                    Assert.That(read(current).OnlineFileManifest, Is.EqualTo(SetFileManifest.VOCALS_STEM));
+                    Assert.That(read(current).OnlineFilesMissingLocally, Is.False);
+
+                    Assert.That(read(neverLookedUp).LocalFileManifest, Is.EqualTo(SetFileManifest.VOCALS_STEM));
+                    Assert.That(read(neverLookedUp).OnlineFileManifest, Is.Null, "an unset flag is left for the next lookup to fill");
+                    Assert.That(read(neverLookedUp).OnlineFilesMissingLocally, Is.False);
+                });
+            }
+        }
+
+        [Test]
+        public void Schema65FromARealmThatPredatesTheStemFlags()
+        {
+            // A realm from before schema 63 has no online stem flag at all: every online manifest stays unreported,
+            // and the local one is still read off the file list.
+            using var context = new SynchronousRealmTestContext();
+            var storage = new NativeStorage(Path.Combine(directory, "migration-old"));
+            const string filename = "client.realm";
+            Guid id = Guid.Empty;
+
+            using (var realm = Realm.GetInstance(new RealmConfiguration(storage.GetFullPath(filename, true)) { SchemaVersion = 62 }))
+            {
+                realm.Write(() =>
+                {
+                    var ruleset = realm.Add(new RulesetInfo("typebeat", "type!beat", "typebeat.Game.Rulesets.TypeBeat.TypeBeatRuleset, typebeat.Game.Rulesets.TypeBeat", 0));
+                    id = addSet(realm, ruleset, withStem: true);
                 });
             }
 
@@ -151,10 +199,62 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 Assert.Multiple(() =>
                 {
-                    Assert.That(access.Run(r => r.Find<BeatmapSetInfo>(id)!.HasLocalVocalsStem), Is.True, "the migration read the stem off the file list");
-                    Assert.That(access.Run(r => VocalsStem.FilenameIn(r.Find<BeatmapSetInfo>(id)!)), Is.EqualTo(VocalsStem.OGG_FILENAME));
+                    Assert.That(access.Run(r => r.Find<BeatmapSetInfo>(id)!.LocalFileManifest), Is.EqualTo(SetFileManifest.VOCALS_STEM));
+                    Assert.That(access.Run(r => r.Find<BeatmapSetInfo>(id)!.OnlineFileManifest), Is.Null);
+                    Assert.That(access.Run(r => r.Find<BeatmapSetInfo>(id)!.AllBeatmapsUpToDate), Is.True);
                 });
             }
+        }
+
+        [Test]
+        public void AnEditorSaveOfAStaleDetachedCopyKeepsTheManifests()
+        {
+            // The editor saves a set it detached earlier through the realm write mapper. A lookup or an update
+            // that ran in between wrote the manifests on the managed set, and the stale copy must not undo that.
+            using var context = new SynchronousRealmTestContext();
+            var storage = new NativeStorage(Path.Combine(directory, "save"));
+
+            using var realm = new RealmAccess(storage, realm_filename);
+            Guid id = Guid.Empty;
+
+            realm.Write(r =>
+            {
+                var ruleset = r.Add(new RulesetInfo("typebeat", "type!beat", "typebeat.Game.Rulesets.TypeBeat.TypeBeatRuleset, typebeat.Game.Rulesets.TypeBeat", 0) { Available = true });
+                id = addSet(r, ruleset, withStem: false);
+            });
+
+            var stale = realm.Run(r => r.Find<BeatmapSetInfo>(id)!.Detach());
+
+            realm.Write(r =>
+            {
+                var managed = r.Find<BeatmapSetInfo>(id)!;
+                managed.RecordOnlineFileManifest(SetFileManifest.VOCALS_STEM);
+                managed.RecordLocalFileManifest(SetFileManifest.VOCALS_STEM);
+            });
+
+            realm.Write(r => stale.CopyChangesToRealm(r.Find<BeatmapSetInfo>(id)!));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(stale.OnlineFileManifest, Is.Null, "the fixture's copy really is stale");
+                Assert.That(realm.Run(r => r.Find<BeatmapSetInfo>(id)!.OnlineFileManifest), Is.EqualTo(SetFileManifest.VOCALS_STEM));
+                Assert.That(realm.Run(r => r.Find<BeatmapSetInfo>(id)!.LocalFileManifest), Is.EqualTo(SetFileManifest.VOCALS_STEM));
+            });
+        }
+
+        private static Guid addSet(Realm realm, RulesetInfo ruleset, bool withStem)
+        {
+            var set = new BeatmapSetInfo();
+
+            var beatmap = new BeatmapInfo(ruleset, new BeatmapDifficulty(), new BeatmapMetadata()) { BeatmapSet = set, MD5Hash = "0123456789abcdef0123456789abcdef" };
+            set.Beatmaps.Add(beatmap);
+            set.Files.Add(new RealmNamedFileUsage(new RealmFile { Hash = "audio-" + set.ID }, "audio.mp3"));
+
+            if (withStem)
+                set.Files.Add(new RealmNamedFileUsage(new RealmFile { Hash = "stem-" + set.ID }, VocalsStem.OGG_FILENAME));
+
+            realm.Add(set);
+            return set.ID;
         }
 
         private static void lookUp(RealmAccess realm, MutableSource online)
@@ -243,7 +343,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     MD5Hash = beatmapInfo.MD5Hash,
                     LastUpdated = Version,
                     BeatmapStatus = BeatmapOnlineStatus.Ranked,
-                    HasVocalsStem = HasStem,
+                    FileManifest = HasStem ? SetFileManifest.VOCALS_STEM : SetFileManifest.EMPTY,
                 };
                 return true;
             }

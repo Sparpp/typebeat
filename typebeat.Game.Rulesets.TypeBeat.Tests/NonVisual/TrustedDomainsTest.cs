@@ -2,6 +2,7 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using NUnit.Framework;
+using osu.Framework.IO.Stores;
 using typebeat.Game.Online;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
@@ -13,7 +14,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// "https://typebeat.sh.evil.com" must not pass as trusted.
     /// </summary>
     [TestFixture]
-    public class TrustedDomainsTest
+    public partial class TrustedDomainsTest
     {
         [TestCase("https://typebeat.sh")]
         [TestCase("https://typebeat.sh/beatmapsets/123")]
@@ -80,6 +81,57 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var endpoints = new TypebeatEndpointConfiguration("http://localhost:5089");
 
             Assert.That(endpoints.BeatmapSubmissionServiceUrl, Is.EqualTo("http://localhost:5089/bss"));
+        }
+
+        /// <summary>
+        /// The API host failover rewrites <see cref="EndpointConfiguration.APIUrl"/> on the instance
+        /// <see cref="Game.Online.API.APIAccess"/> holds. The store reads that instance live, so once the flip lands
+        /// it trusts the new host. The hosts here deliberately share no apex: production's two do, which is the only
+        /// reason a snapshot used to be harmless.
+        /// </summary>
+        [Test]
+        public void StoreTrustsTheHostAFailoverMovedTo()
+        {
+            var endpoints = new TypebeatEndpointConfiguration("https://typebeat.example");
+            var store = new TrustedDomainOnlineStore(endpoints);
+
+            Assert.That(store.IsTrusted("https://fallback.test/covers/1.jpg"), Is.False);
+
+            // exactly what APIAccess does when its host selector pins the fallback.
+            endpoints.APIUrl = "https://fallback.test";
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(store.IsTrusted("https://fallback.test/covers/1.jpg"), Is.True);
+                Assert.That(store.IsTrusted("https://typebeat.example/covers/1.jpg"), Is.True, "the website host is unchanged by a failover");
+            });
+        }
+
+        /// <summary>
+        /// The game creates its endpoint configuration once and builds the trusted-domain store from that same
+        /// instance, the one it hands to <see cref="Game.Online.API.APIAccess"/>, so the two fail over together.
+        /// </summary>
+        [Test]
+        public void GameStoreSharesTheGameEndpointInstance()
+        {
+            var game = new StoreProbeGame();
+
+            Assert.That(game.Endpoints, Is.SameAs(game.Endpoints));
+
+            var store = game.CreateStore();
+            Assert.That(store, Is.TypeOf<TrustedDomainOnlineStore>());
+            Assert.That(((TrustedDomainOnlineStore)store).IsTrusted("https://fallback.test/covers/1.jpg"), Is.False);
+
+            game.Endpoints.APIUrl = "https://fallback.test";
+
+            Assert.That(((TrustedDomainOnlineStore)store).IsTrusted("https://fallback.test/covers/1.jpg"), Is.True);
+        }
+
+        private partial class StoreProbeGame : OsuGameBase
+        {
+            public override EndpointConfiguration CreateEndpoints() => new TypebeatEndpointConfiguration("https://typebeat.example");
+
+            public OnlineStore CreateStore() => CreateOnlineStore();
         }
     }
 }

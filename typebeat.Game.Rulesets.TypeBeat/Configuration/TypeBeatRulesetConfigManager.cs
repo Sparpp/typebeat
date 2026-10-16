@@ -16,14 +16,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// <summary>
         /// Positive = lyrics later relative to the music, negative = earlier. Applied at the
         /// playfield's single engine-feed seam (the lyric-offset clock the engine, stage, HUD
-        /// extras and key handler all read). Settings UI surfacing is deferred to M7.
+        /// extras and key handler all read). Has no settings UI today.
         /// </summary>
         LyricOffsetMs,
 
         /// <summary>
         /// Optional explicit path to the vendored lyriclab aligner directory (the folder holding
         /// align_lyrics.py). Empty = auto-discover by walking up from the game's runtime location.
-        /// Read by the import pipeline's directory resolution; UI surfacing is deferred to M7.
+        /// Read by the import pipeline's directory resolution, and set by the managed aligner install.
+        /// Has no settings control of its own.
         /// </summary>
         LyricLabPath,
 
@@ -181,8 +182,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         ///
         /// <para>The metric was removed from the game because it AFFECTED things, and the fix was to
         /// stop it affecting them rather than to delete it: since backlog 251 no grade, score,
-        /// judgement or submission reads sync anywhere (<see cref="Gameplay.ResultsSummary.Grade"/>
-        /// is accuracy alone), so this key decides nothing but whether the tint is drawn. The
+        /// judgement or submission reads sync anywhere (the rank, <c>TypeBeatScoreProcessor</c>'s
+        /// ladder, is accuracy plus a missed-cell limit), so this key decides nothing but whether the tint is drawn. The
         /// numbers behind it (<see cref="Gameplay.TypingEngine.LiveSyncPercent"/>,
         /// <see cref="Gameplay.ResultsSummary.SyncPercent"/>) are computed either way, which is what
         /// lets the toggle be a pure display switch with no mid-play consequence.</para>
@@ -226,7 +227,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// did not opt in to <see cref="UseServerAligner"/>, whose runs take the server's own default
         /// tier), and it never touches the install: the tier is a per-run flag of the same script, so both
         /// tiers work off one environment. An installed aligner older than version 6 has no tiers,
-        /// so the flag is then left out (see <c>LyricMapImporter.AlignerArguments</c>).</para>
+        /// so the flag is then left out (see <c>AlignerEnvironment.AlignerArguments</c>).</para>
         ///
         /// <para>Appended last, like every new member: Realm stores these rows by member name, so
         /// order does not matter to it, but appending keeps that true for anything that ever

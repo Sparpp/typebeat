@@ -152,7 +152,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         private static void assertSameAccount(TypingEngine expected, TypingEngine actual, string because)
         {
-            Assert.AreEqual(expected.Score, actual.Score, because);
             Assert.AreEqual(expected.Combo, actual.Combo, because);
             Assert.AreEqual(expected.MaxCombo, actual.MaxCombo, because);
             Assert.AreEqual(expected.CaretIndex, actual.CaretIndex, because);

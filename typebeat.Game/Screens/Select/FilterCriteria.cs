@@ -40,6 +40,9 @@ namespace typebeat.Game.Screens.Select
         public OptionalTextFilter Source;
         public List<OptionalTextFilter> UserTags = [];
 
+        /// <summary>The <c>lang:</c> filters: the map's language must be each one of them.</summary>
+        public List<BeatmapLanguage> Languages = [];
+
         public OptionalRange<double> UserStarDifficulty = new OptionalRange<double>
         {
             IsLowerInclusive = true,

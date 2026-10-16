@@ -97,15 +97,13 @@ namespace typebeat.Game.Beatmaps
             DateTimeOffset? onlineVersion = lookupResults.Where(r => r != null).Select(r => (DateTimeOffset?)r!.LastUpdated).Max();
             beatmapSet.AdoptOnlineVersion(onlineVersion);
 
-            // What the online version offers about the stem (backlog 396), reported on every difficulty of
-            // the set. Only recorded when a lookup actually succeeded: a failed or absent one must not blank a
-            // flag that is holding the UPDATE offer open. Same source as the version baseline, so a fresh
-            // import (which runs this lookup) seeds it too, and a plain lookup of an already-installed set
-            // refreshes it on first sight.
-            var successful = lookupResults.Where(r => r != null).ToList();
-
-            if (successful.Count > 0)
-                beatmapSet.RecordOnlineVocalsStem(successful.Any(r => r!.HasVocalsStem));
+            // What files the online version offers (backlog 396), reported on every difficulty of the set.
+            // Only recorded when a lookup actually reported a manifest: a failed or absent one (or a source
+            // that does not carry it) must not blank a value that is holding the UPDATE offer open. Same
+            // source as the version baseline, so a fresh import (which runs this lookup) seeds it too, and a
+            // plain lookup of an already-installed set refreshes it on first sight.
+            if (SetFileManifest.Union(lookupResults.Select(r => r?.FileManifest)) is string onlineManifest)
+                beatmapSet.RecordOnlineFileManifest(onlineManifest);
 
             if (beatmapSet.Beatmaps.All(b => b.MatchesOnlineVersion)
                 && lookupResults.All(r => r != null)

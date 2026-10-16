@@ -111,7 +111,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("a drawable per natural mark", () => display.SyllableMarkerCount, () => Is.EqualTo(natural_marks.Length));
             AddUntilStep("the natural marks are drawn", () => natural_marks.All(display.SyllableMarkerVisibleAt));
             AddAssert("the rail is cut at them", () => display.PaceTrackCount, () => Is.EqualTo(4));
-            AddUntilStep("only the sung 'ba' lights", () => lit(0) && lit(1) && !lit(3));
+            AddUntilStep("only the sung 'ba' lights", () => lit(1) && !lit(3));
 
             AddStep("detach", () => drawableRuleset.SetReplayScore(null!));
             AddUntilStep("the live era is back", () => engine.AuthoredSyllablesOnly);
@@ -123,7 +123,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert($"{when}: the display shows the authored grouping", () => display.Grouping, () => Is.SameAs(display.Line.AuthoredGrouping));
             AddUntilStep($"{when}: no mark", () => display.SyllableMarkerCount == 0);
             AddAssert($"{when}: the rail is cut at the word gap alone", () => display.PaceTrackCount, () => Is.EqualTo(2));
-            AddUntilStep($"{when}: the whole word lights", () => lit(0) && lit(3) && lit(5) && !lit(7));
+            // From the word's second cell on: the first is judged on the span's start alone
+            // (TypingEngine.FirstCharTiming), and the highlight follows the judge, so its own Great
+            // window closed long before the scene is up.
+            AddUntilStep($"{when}: the whole word lights", () => lit(1) && lit(3) && lit(5) && !lit(7));
         }
     }
 }

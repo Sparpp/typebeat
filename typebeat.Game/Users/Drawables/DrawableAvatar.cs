@@ -35,7 +35,7 @@ namespace typebeat.Game.Users.Drawables
         {
             // Only a server-provided avatar_url is ever fetched. The upstream fallback built a
             // ppy CDN URL from the user id, which our TrustedDomainOnlineStore rightly blocks
-            // (with a user-visible notification) — a payload missing avatar_url shows the local
+            // (with a user-visible notification); a payload missing avatar_url shows the local
             // guest avatar instead of generating doomed cross-domain lookups.
             if (user != null && user.OnlineID > 1 && (user as APIUser)?.AvatarUrl is string avatarUrl)
                 Texture = textures.Get(avatarUrl);

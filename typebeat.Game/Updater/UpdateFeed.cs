@@ -16,30 +16,43 @@ namespace typebeat.Game.Updater
     /// both resolve to the same origin, so a package served by either is the same package.
     /// </para>
     /// <para>
-    /// The primary rides the direct-origin host rather than the Cloudflare-proxied website root for
-    /// the reason documented on <see cref="TypebeatEndpointConfiguration.PRODUCTION_BSS_ROOT"/>:
-    /// sustained transfers over the CF path stall dead for some users while short requests to the
-    /// same host pass. An update package is exactly a sustained transfer, and the symptom was a user
-    /// sitting on "Downloading update..." for over half an hour. The origin's reverse proxy serves
-    /// the whole application on that host, so <c>/releases</c> is already there with no server change.
+    /// The primary is the Cloudflare-proxied website root, the same order the game API uses (see
+    /// <see cref="ApiHostSelector"/>) and for the same reason: DDoS absorption. Every client checks
+    /// this feed at startup and then every 30 minutes, so with the origin first every one of them hit
+    /// the origin directly at least twice an hour.
     /// </para>
     /// <para>
-    /// The fallback exists because the failure is not one-directional: a network that blocks or
-    /// mangles the bare origin host while the CF edge works for it would be locked out of updates
-    /// entirely if the direct host were the only option. Trying both costs one extra manifest fetch
-    /// on the rare path and nothing on the common one.
+    /// The fallback is the direct-origin host, for the failure documented on
+    /// <see cref="TypebeatEndpointConfiguration.PRODUCTION_BSS_ROOT"/>: a network whose CF path is
+    /// blocked or broken for it can still reach the origin. The origin's reverse proxy serves the whole
+    /// application on that host, so <c>/releases</c> is already there with no server change.
+    /// </para>
+    /// <para>
+    /// A failed manifest fetch is not the only way that path fails. The cohort it fails for passes
+    /// short requests and stalls on sustained ones, so the manifest arrives over Cloudflare and the
+    /// package download then stalls. A stalled download therefore pins the origin first for the rest of
+    /// the session (<see cref="InCheckOrder"/>), until a download completes.
     /// </para>
     /// </remarks>
     public static class UpdateFeed
     {
         /// <summary>
-        /// The feed tried first: the direct-origin host, which bypasses Cloudflare.
+        /// The feed tried first: the Cloudflare-proxied website root.
         /// </summary>
-        public const string PRIMARY_URL = TypebeatEndpointConfiguration.PRODUCTION_BSS_ROOT + "/releases";
+        public const string PRIMARY_URL = TypebeatEndpointConfiguration.PRODUCTION_ROOT + "/releases";
 
         /// <summary>
-        /// The feed tried if <see cref="PRIMARY_URL"/> fails: the Cloudflare-proxied website root.
+        /// The feed tried if <see cref="PRIMARY_URL"/> fails: the direct-origin host, which bypasses Cloudflare.
         /// </summary>
-        public const string FALLBACK_URL = TypebeatEndpointConfiguration.PRODUCTION_ROOT + "/releases";
+        public const string FALLBACK_URL = TypebeatEndpointConfiguration.PRODUCTION_BSS_ROOT + "/releases";
+
+        /// <summary>
+        /// The feeds an update check tries, first to last: <see cref="PRIMARY_URL"/> then
+        /// <see cref="FALLBACK_URL"/>, or the other way round once a download has stalled this session.
+        /// </summary>
+        public static string[] InCheckOrder(bool downloadStalledThisSession)
+            => downloadStalledThisSession
+                ? new[] { FALLBACK_URL, PRIMARY_URL }
+                : new[] { PRIMARY_URL, FALLBACK_URL };
     }
 }

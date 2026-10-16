@@ -107,6 +107,7 @@ namespace typebeat.Game.Screens.Select
 
             match &= !criteria.DifficultyName.HasFilter || criteria.DifficultyName.Matches(beatmap.DifficultyName);
             match &= !criteria.Source.HasFilter || criteria.Source.Matches(beatmap.Metadata.Source);
+            match &= criteria.Languages.All(language => beatmap.Metadata.Language == language);
 
             if (criteria.UserTags.Any())
             {

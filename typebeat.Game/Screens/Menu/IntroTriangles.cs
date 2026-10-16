@@ -161,7 +161,7 @@ namespace typebeat.Game.Screens.Menu
             private const double logo_2 = logo_1 + logo_scale_duration;
 
             /// <summary>
-            /// Time (ms from sequence start) at which <see cref="LoadMenu"/> fires — the menu
+            /// Time (ms from sequence start) at which <see cref="LoadMenu"/> fires, the menu
             /// reveal. The intro beatdrop is timed to land exactly here.
             /// </summary>
             public const double MENU_LOAD_TIME = logo_2;

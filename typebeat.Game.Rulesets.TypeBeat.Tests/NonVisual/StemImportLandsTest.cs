@@ -87,7 +87,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var filenames = realm.Run(r => r.All<BeatmapSetInfo>().Single().Files.Select(f => f.Filename).ToList());
             string? stem = realm.Run(r => VocalsStem.FilenameIn(r.All<BeatmapSetInfo>().Single()));
-            bool recorded = realm.Run(r => r.All<BeatmapSetInfo>().Single().HasLocalVocalsStem);
+            bool recorded = realm.Run(r => r.All<BeatmapSetInfo>().Single().LocalFileManifest) == SetFileManifest.VOCALS_STEM;
 
             Assert.Multiple(() =>
             {

@@ -5,8 +5,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json;
+using osu.Framework.Logging;
+using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 
-namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
+namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
     /// <summary>
     /// The lyric editor's clipboard payloads, serialized as JSON into the editor's string clipboard
@@ -238,18 +240,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 {
                     case line_type:
                         var lines = JsonConvert.DeserializeObject<LineTimingsPayload>(content);
-                        return lines?.Lines.Count > 0 ? (lines, null) : (null, null);
+                        return lines?.Lines?.Count > 0 ? (lines, null) : (null, null);
 
                     case unit_type:
                         var units = JsonConvert.DeserializeObject<UnitTimingsPayload>(content);
-                        return units?.Units.Count > 0 ? (null, units) : (null, null);
+                        return units?.Units?.Count > 0 ? (null, units) : (null, null);
 
                     default:
                         return (null, null);
                 }
             }
-            catch (Exception)
+            catch (JsonException)
             {
+                // Foreign or malformed clipboard text. This runs on every clipboard change, so it
+                // stays silent: copying something JSON-like in another application is not an error.
+                return (null, null);
+            }
+            catch (Exception e)
+            {
+                Logger.Error(e, "Failed to read lyric timings from the clipboard");
                 return (null, null);
             }
         }

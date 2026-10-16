@@ -18,7 +18,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         public const string GENERATE_LYRICS_TOOLTIP = "Generate original script lyrics for non-English languages. English lyrics already use their original script.";
 
         private FormButton generateLyricsButton = null!;
-        private readonly OrderedLinesCache generationLines = new OrderedLinesCache();
         private CancellationTokenSource? lyricsCancellation;
         private bool generatingLyrics;
         private int generationRevision = -1;
@@ -28,12 +27,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         {
             base.UpdateAfterChildren();
 
-            var lines = generationLines.Get(Beatmap);
+            var snapshot = EditorLineSnapshot.For(Beatmap);
+            var lines = snapshot.Lines;
 
-            if (generationRevision != generationLines.Version)
+            if (generationRevision != snapshot.Revision)
             {
                 missingOriginals = lines.Any(h => h.Line.RawText.Length > 0 && !LyricOriginals.HasOriginals(new[] { h.Line }));
-                generationRevision = generationLines.Version;
+                generationRevision = snapshot.Revision;
             }
 
             BeatmapLanguage language = Beatmap.Metadata.Language;
