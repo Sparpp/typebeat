@@ -86,7 +86,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
         ///
         /// <para>The combo break the mistype costs therefore has no result to travel on, and is
         /// mirrored into the score processor by hand on <see cref="TypingEngine.Mistyped"/> instead
-        /// (see <c>TypeBeatPlayfield.onMistyped</c>). That is the seam a REJECTED key has always
+        /// (see <c>TypeBeatComboFeed.OnMistyped</c>). That is the seam a REJECTED key has always
         /// used, so the two input models now account for a wrong keypress identically. That break is
         /// the cell's whole combo consequence, which is why the seal applies the unfixed typo's hit
         /// combo-neutral (<see cref="Scoring.TypeBeatScoreProcessor.MarkComboNeutral"/>).</para>

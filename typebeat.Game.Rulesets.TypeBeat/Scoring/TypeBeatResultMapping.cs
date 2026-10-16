@@ -487,7 +487,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// unfixed typo now costs completion, and therefore rank, exactly as a miss does.</item>
         /// <item>It <see cref="HitResultExtensions.IncreasesCombo"/>, and the cell's combo
         /// consequence was already taken at the keypress
-        /// (<c>TypeBeatPlayfield.onMistyped</c>). So the result is applied COMBO-NEUTRAL, see
+        /// (<c>TypeBeatComboFeed.OnMistyped</c>). So the result is applied COMBO-NEUTRAL, see
         /// <see cref="TypeBeatScoreProcessor.MarkComboNeutral"/>.</item>
         /// <item>Its stock base score is 200 of the cell's 300, which would make a typo cost LESS
         /// accuracy than a correct-but-late character.

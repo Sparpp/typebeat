@@ -37,7 +37,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
     /// maintained incrementally off judgement RESULTS, so removing the wrong char's result without
     /// replacing the break would leave <c>HighestCombo</c> counting straight on through the rest of
     /// the line after a break the engine has already taken. The break is mirrored by hand on
-    /// <c>TypingEngine.Mistyped</c> instead (<c>TypeBeatPlayfield.onMistyped</c>), which is the seam
+    /// <c>TypingEngine.Mistyped</c> instead (<c>TypeBeatComboFeed.OnMistyped</c>), which is the seam
     /// a Gatekeeper-rejected key has always used.</para>
     /// </summary>
     public partial class TestSceneTypeBeatTypoDeferral : PlayerTestScene

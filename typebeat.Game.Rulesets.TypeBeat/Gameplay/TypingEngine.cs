@@ -1812,7 +1812,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <para>It therefore carries BOTH consequences a wrong keypress has on the submitted
         /// account, identically in both models: the mistype COUNT, and the COMBO BREAK, which is
         /// mirrored into osu's incrementally-maintained combo by hand because no result exists to
-        /// carry it (see <c>TypeBeatPlayfield.onMistyped</c>). Sudden Death fails the play from here
+        /// carry it (see <c>TypeBeatComboFeed.OnMistyped</c>). Sudden Death fails the play from here
         /// for the same reason.</para>
         ///
         /// Raised BEFORE <see cref="ComboBroken"/> / <see cref="WrongKeyRejected"/> /
@@ -1831,7 +1831,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// pays for the fix, not only the accuracy does. osu's own combo is maintained
         /// incrementally off results and no result carries this, so the playfield mirrors it by hand
         /// exactly as it mirrors the break on <see cref="Mistyped"/> (see
-        /// <c>TypeBeatPlayfield.onComboRestored</c> and
+        /// <c>TypeBeatComboFeed.OnComboRestored</c> and
         /// <see cref="Scoring.TypeBeatScoreProcessor.RestoreCombo"/>).</para>
         ///
         /// <para><b>What is restorable, and for how long.</b> A wrong keypress SNAPSHOTS the streak
@@ -3509,7 +3509,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                     // The keypress was wrong, so it is a mistype exactly as it would be in strict
                     // mode, and since backlog 109 it ACCOUNTS exactly as strict mode does too: the
-                    // mistype carries the combo break by hand (TypeBeatPlayfield.onMistyped) and the
+                    // mistype carries the combo break by hand (TypeBeatComboFeed.OnMistyped) and the
                     // cell hands the score processor nothing at all.
                     raise(Mistyped);
                     raise(ComboBroken);
@@ -3937,7 +3937,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // to the seal would let osu's combo count on past a break the engine had already taken.
             // That argument survives backlog 167 intact, because the BREAK is still taken here; only
             // the RESULTS moved. What moved with them is the obligation: with no Miss result left to
-            // carry the break, WordAbandoned carries it by hand (TypeBeatPlayfield.onWordAbandoned),
+            // carry the break, WordAbandoned carries it by hand (TypeBeatComboFeed.OnWordAbandoned),
             // and the seal marks the deferred misses combo-neutral so they cannot take it a second
             // time (see AbandonSealed).
             if (reclaimable)
