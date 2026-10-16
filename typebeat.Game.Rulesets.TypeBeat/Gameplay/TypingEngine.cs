@@ -4394,15 +4394,45 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <para>WHICH groups (and therefore which stretch runs) is <see cref="AuthoredSyllablesOnly"/>'s
         /// answer (backlog 363): the line's authored grouping on every live run, the natural one a
         /// stored replay without the era bit was played against.</para>
+        ///
+        /// <para>The arms pick the span and live in <see cref="JudgedSpanOf"/>; this is only the
+        /// distance from it, so the highlight that reads the span and the grade cannot disagree.</para>
         /// </summary>
         private double judgedDeltaFor(TypingLine line, int cellIndex, double time)
+        {
+            var (start, end) = JudgedSpanOf(line, cellIndex);
+
+            if (time < start)
+                return time - start;
+
+            if (time > end)
+                return time - end;
+
+            return 0;
+        }
+
+        /// <summary>
+        /// The span <see cref="judgedDeltaFor"/> measures a press on cell
+        /// <paramref name="cellIndex"/> from: a press inside [Start, End] (edge-inclusive) is judged
+        /// on a delta of 0, one outside it on the signed distance to the nearer edge. Every arm
+        /// <see cref="judgedDeltaFor"/> documents is decided here, against the engine's CURRENT
+        /// flags and grouping, so this is the one answer to "when is this cell judged": a point
+        /// target comes back as Start == End == the cell's target, and so does the
+        /// <see cref="FirstCharTiming"/> first cell, on the span's start.
+        ///
+        /// <para>Public so the press-now highlight can ask the judge rather than re-derive it: a
+        /// cell is lit exactly while <see cref="judgedDeltaFor"/> would grade it inside
+        /// <see cref="WindowsFor"/>'s Great window, through every era flag a replay header flips
+        /// mid-run.</para>
+        /// </summary>
+        public (double Start, double End) JudgedSpanOf(TypingLine line, int cellIndex)
         {
             SyllableGrouping grouping = GroupingOf(line);
 
             if (SyllableTiming && !(CharTimedStretch && grouping.IsCharTimedStretch(cellIndex)))
             {
                 // The shelter's span: the WORD under Easy's arm, the syllable otherwise. Both arms
-                // are the same four lines below, deliberately: one rule, two spans.
+                // are the same lines below, deliberately: one rule, two spans.
                 int startCell;
                 double startTime, endTime;
 
@@ -4411,7 +4441,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     int word = line.WordIndexOf(cellIndex);
 
                     if (word < 0)
-                        return time - line.Cells[cellIndex].TargetTime;
+                        return pointOf(line, cellIndex);
 
                     WordGroup group = line.Words[word];
                     startCell = group.StartCell;
@@ -4423,7 +4453,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     int syllable = grouping.IndexOf(cellIndex);
 
                     if (syllable < 0)
-                        return time - line.Cells[cellIndex].TargetTime;
+                        return pointOf(line, cellIndex);
 
                     SyllableGroup group = grouping.Groups[syllable];
                     startCell = group.StartCell;
@@ -4432,18 +4462,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 }
 
                 if (FirstCharTiming && cellIndex == startCell)
-                    return time - startTime;
+                    return (startTime, startTime);
 
-                if (time < startTime)
-                    return time - startTime;
-
-                if (time > endTime)
-                    return time - endTime;
-
-                return 0;
+                return (startTime, endTime);
             }
 
-            return time - line.Cells[cellIndex].TargetTime;
+            return pointOf(line, cellIndex);
+        }
+
+        private static (double Start, double End) pointOf(TypingLine line, int cellIndex)
+        {
+            double target = line.Cells[cellIndex].TargetTime;
+            return (target, target);
         }
 
         /// <summary>

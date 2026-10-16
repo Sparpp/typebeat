@@ -322,11 +322,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private bool textPopInEnabled;
         private float textPopInAmount = TypeBeatRulesetConfigManager.DEFAULT_TEXT_POP_IN_AMOUNT;
         private double sungTime = double.NaN;
-        private double sungGreatEarly;
-        private double sungGreatLate;
-        private double sungOkEarly;
-        private bool characterTiming;
-        private bool charTimedStretch;
         private Box layoutBounds = null!;
 
         public const float TEXT_POP_IN_MIN_SCALE = 1 - TypeBeatRulesetConfigManager.DEFAULT_TEXT_POP_IN_AMOUNT / 100f;
@@ -341,16 +336,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private IReadOnlyList<PaceBand>? selectedPaceBands;
 
         /// <summary>
-        /// The syllable grouping the marks, the sung highlight and the stretch reading follow
+        /// The syllable grouping the marks and <see cref="SungSyllable"/> follow
         /// (backlog 363): <see cref="TypingLine.AuthoredGrouping"/> until the stage says otherwise.
         /// </summary>
         private SyllableGrouping grouping;
 
-        public LyricLineDisplay(TypingLine line, float fontSize = TypeBeatStyle.LYRIC_FONT_SIZE, string? fontFamily = null,
+        /// <summary>
+        /// The engine that grades this line. The press-now highlight asks it for every cell's judged
+        /// span and windows on each feed instead of re-deriving them, so a cell is lit exactly while
+        /// a press on it would grade Great, under whatever flags the engine currently judges with.
+        /// </summary>
+        private readonly TypingEngine judge;
+
+        public LyricLineDisplay(TypingLine line, TypingEngine judge, float fontSize = TypeBeatStyle.LYRIC_FONT_SIZE, string? fontFamily = null,
                                 IReadOnlyList<PaceBand>? paceBands = null, Color4? freestyleColour = null)
         {
             FreestyleColour = freestyleColour ?? TypeBeatStyle.FreestyleChar;
             Line = line;
+            this.judge = judge;
             litCells = new bool[line.Cells.Count];
             litAmounts = new float[line.Cells.Count];
             indicatorProgress = new float[line.Cells.Count];
@@ -1812,30 +1815,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             }
         }
 
-        /// <summary>Absolute song-time indicators; pauses, rates and seeks cannot accumulate animation drift.</summary>
-        public void SetSungWindow(double time, double greatEarly, double greatLate, bool characterTiming = false, bool charTimedStretch = false,
-                                  double? okEarly = null, double freestyleWindowMultiplier = SyncWindows.FREESTYLE_WINDOW_SCALE)
+        /// <summary>Absolute song-time indicators; pauses, rates and seeks cannot accumulate animation drift.
+        /// Each cell's span and Great window are the judge's own, read on every feed.</summary>
+        public void SetSungWindow(double time)
         {
             sungTime = time;
-            sungGreatEarly = greatEarly;
-            sungGreatLate = greatLate;
-            sungOkEarly = Math.Max(greatEarly, okEarly ?? greatEarly);
-            this.freestyleWindowMultiplier = freestyleWindowMultiplier;
-            this.characterTiming = characterTiming;
-            this.charTimedStretch = charTimedStretch;
             int primary = -1;
 
             for (int i = 0; i < litCells.Length; i++)
             {
                 var (start, end) = sungSpan(i);
-                double multiplier = windowMultiplier(i);
+                var windows = windowsFor(i);
                 // The bottom-to-top fill rises letter by letter on each cell's own target, kept inside its
-                // syllable's span. Its release stays on the syllable's end, since the whole syllable is
-                // judgeable until then. Fade-in, None, pop-in and approach bars keep the syllable's start.
+                // judged span. Its release stays on the span's end, since the cell grades Great until
+                // then. Fade-in, None, pop-in and approach bars keep the span's start.
                 double fillStart = glyphFillMode ? Math.Clamp(Line.Cells[i].TargetTime, start, end) : start;
-                double completion = SyllableFadeInCompletion(fillStart, greatEarly * multiplier, syllableFadeInEnd);
-                double approachStart = judgementIndicator == JudgementIndicatorMode.None ? start - greatEarly * multiplier : completion - syllableFadeInDuration;
-                float release = IndicatorRelease(time, end + greatLate * multiplier);
+                double completion = SyllableFadeInCompletion(fillStart, windows.GreatEarly, syllableFadeInEnd);
+                double approachStart = judgementIndicator == JudgementIndicatorMode.None ? start - windows.GreatEarly : completion - syllableFadeInDuration;
+                float release = IndicatorRelease(time, end + windows.GreatLate);
                 bool lit = Line.Cells[i].IsCountable && time >= approachStart && release > 0;
                 float progress = lit ? judgementIndicator == JudgementIndicatorMode.None ? 1 : SyllableFadeInProgress(time, completion, syllableFadeInDuration) : 0;
                 indicatorProgress[i] = progress;
@@ -1851,8 +1848,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             updatePaceRail(time);
         }
 
-        private double freestyleWindowMultiplier = SyncWindows.FREESTYLE_WINDOW_SCALE;
-        private double windowMultiplier(int index) => Line.Cells[index].IsFreestyle ? freestyleWindowMultiplier : 1;
+        private SyncWindows windowsFor(int index) => judge.WindowsFor(Line.Cells[index]);
 
         public static float ExponentialIndicatorProgress(float progress) =>
             (float)((Math.Pow(2, 10 * Math.Clamp(progress, 0, 1)) - 1) / 1023);
@@ -1864,31 +1860,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         private float textHighlightAmount(int index) => glyphFillMode && indicatorProgress[index] < 1 ? 0 : litAmounts[index];
 
-        private (double start, double end) sungSpan(int index)
-        {
-            int group = grouping.IndexOf(index);
-            if (!characterTiming && !(charTimedStretch && grouping.IsCharTimedStretch(index)) && group >= 0)
-            {
-                var span = grouping.Groups[group];
-                double start = span.StartTime;
-                if (charTimedStretch)
-                {
-                    // A syllable-timed suffix must wait for the character-timed run before it.
-                    // It shares the final character's opening, while keeping the syllable's end.
-                    for (int i = index - 1; i >= span.StartCell; i--)
-                    {
-                        if (grouping.IndexOf(i) == group && grouping.IsCharTimedStretch(i))
-                        {
-                            start = Math.Max(start, Line.Cells[i].TargetTime);
-                            break;
-                        }
-                    }
-                }
-                return (start, Math.Max(start, span.EndTime));
-            }
-            double target = Line.Cells[index].TargetTime;
-            return (target, target);
-        }
+        private (double start, double end) sungSpan(int index) => judge.JudgedSpanOf(Line, index);
 
         private void setCellLit(int index, bool lit, float amount = 1f)
         {
@@ -2036,7 +2008,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private void refreshApproach()
         {
             if (!double.IsNaN(sungTime))
-                SetSungWindow(sungTime, sungGreatEarly, sungGreatLate, characterTiming, charTimedStretch, sungOkEarly, freestyleWindowMultiplier);
+                SetSungWindow(sungTime);
             for (int i = 0; i < cells.Length; i++)
                 RefreshCell(i);
         }
@@ -2144,23 +2116,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 if (!owner.approachBarsEnabled || index >= owner.cells.Length || !owner.Line.Cells[index].IsCountable)
                     return;
                 var span = owner.sungSpan(index);
+                var windows = owner.windowsFor(index);
                 // Bars always land on the sung target, independently of text indicator alignment.
                 double time = owner.sungTime;
-                float release = IndicatorRelease(time, span.end + owner.sungGreatLate * owner.windowMultiplier(index));
+                float release = IndicatorRelease(time, span.end + windows.GreatLate);
                 if (double.IsNaN(time) || time < span.start - owner.syllableFadeInDuration || release <= 0)
                     return;
                 float progress = SyllableFadeInProgress(time, span.start, owner.syllableFadeInDuration);
                 float fadeIn = SyllableFadeInProgress(time, span.start - owner.syllableFadeInDuration + approach_bar_fade_in_duration_ms,
                     approach_bar_fade_in_duration_ms);
-                bool charTimed = owner.characterTiming || owner.grouping.IndexOf(index) < 0
-                                 || owner.charTimedStretch && owner.grouping.IsCharTimedStretch(index);
+                // A point-judged cell keeps a bar of its own; cells judged on one shared span draw one.
+                bool charTimed = span.start == span.end;
                 if (!charTimed && index > 0 && owner.Line.Cells[index - 1].IsCountable
-                    && owner.sungSpan(index - 1) == span && owner.windowMultiplier(index - 1) == owner.windowMultiplier(index))
+                    && owner.sungSpan(index - 1) == span && owner.windowsFor(index - 1) == windows)
                     return;
                 int end = index + 1;
                 if (!charTimed)
                     while (end < owner.cells.Length && owner.Line.Cells[end].IsCountable && owner.sungSpan(end) == span
-                           && owner.windowMultiplier(end) == owner.windowMultiplier(index))
+                           && owner.windowsFor(end) == windows)
                         end++;
                 float visible = 1;
                 for (int i = index; i < end; i++)
@@ -2300,7 +2273,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             if (apply)
             {
                 cells[index].Scale = new Vector2(TextPopInScale(sungTime,
-                    SyllableFadeInCompletion(sungSpan(index).start, sungGreatEarly * windowMultiplier(index), syllableFadeInEnd), textPopInAmount));
+                    SyllableFadeInCompletion(sungSpan(index).start, windowsFor(index).GreatEarly, syllableFadeInEnd), textPopInAmount));
                 popInApplied[index] = true;
             }
             else if (popInApplied[index])

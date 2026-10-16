@@ -93,6 +93,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         public void BottomToTopFillRisesPerCharacterUnderSyllableTiming()
         {
             loadPerCharacterProbe(false, JudgementIndicatorMode.BottomToTopFill);
+            // The first letter is judged on the syllable's start alone (FirstCharTiming), so probe
+            // inside its own Great window, where every letter is still lit.
+            at("inside the first letter's Great window", () => display.Line.Cells[0].TargetTime + engine.Windows.GreatLate / 2);
             AddUntilStep("each letter is further along than the next", () => display.CellSungHighlightAmount(0) > display.CellSungHighlightAmount(1)
                 && display.CellSungHighlightAmount(1) > display.CellSungHighlightAmount(2) && display.CellSungHighlightAmount(2) > 0);
             AddAssert("each letter fills on its own target", () => Enumerable.Range(0, 3).All(i =>
@@ -101,9 +104,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 && Math.Abs(display.CellColourFillFraction(1) - display.CellSungHighlightAmount(1)) < 0.0001
                 && Math.Abs(display.CellColourFillFraction(2) - display.CellSungHighlightAmount(2)) < 0.0001);
             at("after the last letter's target, inside the syllable", () => display.Line.Cells[2].TargetTime + 1);
-            AddUntilStep("the whole syllable is filled", () => Enumerable.Range(0, 3).All(i => display.CellSungHighlightAmount(i) == 1));
+            AddUntilStep("the rest of the syllable is filled", () => Enumerable.Range(1, 2).All(i => display.CellSungHighlightAmount(i) == 1));
+            AddAssert("the first letter released on its own window", () => display.CellSungHighlightAmount(0) == 0);
             at("halfway through the syllable's release", () => display.Line.Syllables[0].EndTime + engine.Windows.GreatLate + LyricLineDisplay.INDICATOR_RELEASE_DURATION_MS / 2);
-            AddUntilStep("release stays on the syllable end", () => Enumerable.Range(0, 3).All(i => Math.Abs(display.CellSungHighlightAmount(i) - 0.5f) < 0.0001));
+            AddUntilStep("release stays on the syllable end", () => Enumerable.Range(1, 2).All(i => Math.Abs(display.CellSungHighlightAmount(i) - 0.5f) < 0.0001));
         }
 
         [Test]
@@ -117,10 +121,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 && display.CellSungHighlightAmount(0) < 1 && display.CellSungHighlightAmount(1) > display.CellSungHighlightAmount(2));
         }
 
+        /// <summary>
+        /// Easy judges a grouped cell on its WORD's span (TypingEngine.WordShelter) with doubled
+        /// windows, so the highlight lights the whole word from the word's start and holds every
+        /// cell after the first until the word's end, not the syllable's.
+        /// </summary>
+        [Test]
+        public void EasyLightsTheWholeWordItShelters()
+        {
+            load("hello", source: twoSyllableHello, easy: true);
+            AddAssert("Easy is live", () => engine.WordShelter && engine.Windows.GreatEarly == 2 * SyncWindows.Default.GreatEarly
+                && display.Line.SyllableIndexOf(3) == 1 && display.Line.Syllables[1].StartTime == 2000);
+            at("just before the word's Great window", () => 1000 - engine.Windows.GreatEarly - 1);
+            AddUntilStep("the second syllable is still grey", () => colourIs(3, TypeBeatStyle.UntypedChar));
+            at("the word's Great window opens", () => 1000 - engine.Windows.GreatEarly);
+            AddUntilStep("the second syllable lights with the word", () => colourIs(3, TypeBeatStyle.SungCharForBrightness(50))
+                && colourIs(4, TypeBeatStyle.SungCharForBrightness(50)));
+            at("past the first syllable's own release", () => 2000 + engine.Windows.GreatLate + LyricLineDisplay.INDICATOR_RELEASE_DURATION_MS + 1);
+            AddUntilStep("the first syllable stays lit on the word's span", () => colourIs(1, TypeBeatStyle.SungCharForBrightness(50)));
+            at("past the word's release", () => 3000 + engine.Windows.GreatLate + LyricLineDisplay.INDICATOR_RELEASE_DURATION_MS);
+            AddUntilStep("the word releases together", () => Enumerable.Range(1, 4).All(i => colourIs(i, TypeBeatStyle.UntypedChar)));
+        }
+
         [Test]
         public void FadeInUnderSyllableTimingStillLightsTheSyllableTogether()
         {
             loadPerCharacterProbe(false, JudgementIndicatorMode.FadeIn);
+            at("inside the first letter's Great window", () => display.Line.Cells[0].TargetTime + engine.Windows.GreatLate / 2);
             AddUntilStep("every letter shares the syllable's progress", () => Enumerable.Range(0, 3).All(i =>
                 Math.Abs(display.CellSungHighlightAmount(i) - LyricLineDisplay.ExponentialIndicatorProgress(expectedProgress(display.Line.Syllables[0].StartTime))) < 0.0001));
         }
@@ -204,8 +231,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             if (hardRock)
                 AddAssert("letter bar spans its own cell", () => Math.Abs(display.FloatingBarScreenQuad(0).Width - display.CellScreenQuad(0).Width / display.CellVisualScale(0)) < 0.01);
             else
-                AddAssert("one bar spans the syllable", () => display.FloatingBarAlpha(1) == 0 && display.FloatingBarAlpha(2) == 0
-                    && display.FloatingBarScreenQuad(0).Width > display.CellScreenQuad(0).Width * 2);
+                // The first letter is judged on the syllable's start alone (FirstCharTiming), so it
+                // keeps a bar of its own and the rest of the syllable shares one.
+                AddAssert("one bar spans the rest of the syllable", () => display.FloatingBarAlpha(2) == 0
+                    && Math.Abs(display.FloatingBarScreenQuad(0).Width - display.CellScreenQuad(0).Width / display.CellVisualScale(0)) < 0.01
+                    && display.FloatingBarScreenQuad(1).Width > display.CellScreenQuad(1).Width / display.CellVisualScale(1) + 0.01);
             at("bar alignment", () => 1000);
             AddUntilStep("bar reaches the speed underline", () => Math.Abs(display.FloatingBarScreenQuad(0).TopLeft.Y - display.RailScreenQuad.TopLeft.Y) < 0.01);
             at("bar holds inside Great", () => 1050);
@@ -213,10 +243,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("animation does not move glyphs or enlarge layout", () => Math.Abs(display.FullOnScreenWidth - lineWidth) < 0.01 && Vector2.Distance(display.CellScreenPosition(0), glyphPosition) < 0.01);
             AddStep("turn pace colours off", () => display.SetPaceColours(null));
             AddUntilStep("floating bar becomes neutral", () => display.FloatingBarColour(0).Equals((ColourInfo)UnderlinePace.NeutralColour));
-            at("bar release midpoint", () => (hardRock ? display.Line.Cells[0].TargetTime : 1800) + engine.Windows.GreatLate + 50);
+            at("bar release midpoint", () => display.Line.Cells[0].TargetTime + engine.Windows.GreatLate + 50);
             AddUntilStep("bar fades after Great closes", () => Math.Abs(display.FloatingBarAlpha(0) - 0.5f) < 0.0001);
-            at("bar release complete", () => (hardRock ? display.Line.Cells[0].TargetTime : 1800) + engine.Windows.GreatLate + 100);
+            at("bar release complete", () => display.Line.Cells[0].TargetTime + engine.Windows.GreatLate + 100);
             AddUntilStep("bar disappears in 100ms", () => display.FloatingBarAlpha(0) == 0);
+            if (!hardRock)
+            {
+                at("shared bar release midpoint", () => 1800 + engine.Windows.GreatLate + 50);
+                AddUntilStep("the shared bar fades after the syllable's Great closes", () => Math.Abs(display.FloatingBarAlpha(1) - 0.5f) < 0.0001);
+            }
             at("seek back into bar fade-in", () => 650);
             AddUntilStep("seeking reconstructs bar opacity", () => Math.Abs(display.FloatingBarAlpha(0) - 0.5f) < 0.0001);
             at("seek to midpoint again", () => 800);

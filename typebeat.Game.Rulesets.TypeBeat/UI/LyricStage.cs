@@ -295,7 +295,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             for (int i = 0; i < lines.Count; i++)
             {
 
-                var d = new LyricLineDisplay(lines[i], FontSize, lyricFont, paceBands[i], freestyleColour)
+                var d = new LyricLineDisplay(lines[i], engine, FontSize, lyricFont, paceBands[i], freestyleColour)
 
                 {
                     Anchor = Anchor.Centre,
@@ -1483,9 +1483,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             for (int candidate = lo; candidate <= hi; candidate++)
             {
-                displays[candidate].SetSungWindow(time, engine.Windows.GreatEarly, engine.Windows.GreatLate,
-                    characterTiming: engine.HardRockFromMod || !engine.SyllableTiming, charTimedStretch: engine.CharTimedStretch, okEarly: engine.Windows.OkEarly,
-                    freestyleWindowMultiplier: SyncWindows.FREESTYLE_WINDOW_SCALE);
+                displays[candidate].SetSungWindow(time);
                 syllableLitLines.Add(candidate);
             }
         }

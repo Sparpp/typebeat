@@ -254,9 +254,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // the ERA arm every stored replay needs (TypeBeatReplayScorer re-derives on the
                 // CONFIG frame's bit 2, and a replay written before backlog 179, or any HR replay,
                 // re-derives on point targets forever, with no mod inspection in the scorer).
-                // JUDGEMENT ONLY, since backlog 175: the lit-syllable look is unconditional
-                // rendering off TypingLine.Syllables (backlog 177) and this flag does not gate it,
-                // so an HR run still SEES the sung syllable light up while being graded per char.
+                // The syllable marks are unconditional rendering off TypingLine.Syllables (backlog
+                // 177) and this flag does not gate them. The press-now highlight asks the engine for
+                // each cell's judged span (TypingEngine.JudgedSpanOf), so under HR it lights each
+                // character on its own target, exactly as it is graded.
                 SyllableTiming = !hardRock,
 
                 // THE MOD FACT the CONFIG frame cannot carry, the same shape FlexibleCaretFromMod
