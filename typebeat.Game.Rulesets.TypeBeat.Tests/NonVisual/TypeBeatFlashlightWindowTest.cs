@@ -11,8 +11,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
     /// <summary>
     /// Pure math for the Flashlight mod's character window (see
-    /// <see cref="LyricLineDisplay.ComputeWindowAlphas(System.Collections.Generic.IReadOnlyList{TypingCell}, int, int, float)"/>
-    /// and <see cref="LyricLineDisplay.ComputeStreamWindows"/>): a fixed number of COUNTABLE chars
+    /// <see cref="FlashlightWindow.ComputeWindowAlphas(System.Collections.Generic.IReadOnlyList{TypingCell}, int, int, float)"/>
+    /// and <see cref="FlashlightWindow.ComputeStreamWindows"/>): a fixed number of COUNTABLE chars
     /// (typeable, non-space) reach each side of the caret head, spaces and punctuation do not spend
     /// the budget, the outermost lit char softens only when hidden line lies beyond it, and the budget
     /// spills across line boundaries when the stack is read as one continuous stream.
@@ -37,7 +37,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         private static float[] window(string text, int caretCellIndex, int radius, bool literate = false)
-            => LyricLineDisplay.ComputeWindowAlphas(line(text, literate).Cells, caretCellIndex, radius, soft);
+            => FlashlightWindow.ComputeWindowAlphas(line(text, literate).Cells, caretCellIndex, radius, soft);
 
         private static void assertWindow(float[] actual, params float[] expected)
         {
@@ -123,7 +123,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             // Caret sitting just before the 'q' of "quick" (cell index 4).
             int caret = text.IndexOf('q');
-            float[] w = LyricLineDisplay.ComputeWindowAlphas(t.Cells, caret, radius: 5, soft);
+            float[] w = FlashlightWindow.ComputeWindowAlphas(t.Cells, caret, radius: 5, soft);
 
             int litLettersLeft = 0, litLettersRight = 0;
 
@@ -165,7 +165,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // 5th letter). Radius 5, no right cap (the cue-in / line-complete path): the right budget
             // cannot fit in line 0, so it spills into line 1's head. Left of the caret only 4 letters
             // exist (hard start edge, no soften).
-            var win = LyricLineDisplay.ComputeStreamWindows(new[] { 5, 5 }, caretStreamSlot: 4, radius: 5);
+            var win = FlashlightWindow.ComputeStreamWindows(new[] { 5, 5 }, caretStreamSlot: 4, radius: 5);
 
             // Line 0: all five lit, no soft edge either side (start is hard, right continues into line 1).
             assertWin(win[0], lo: 0, hi: 4, softLeft: false, softRight: false);
@@ -182,7 +182,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // line 0, so the stage caps the forward reach at line 0's last countable slot (4). The right
             // budget that would have spilled into line 1 is thrown away: line 1 stays fully dark, and
             // line 0's own last char (the one you must still type) stays a HARD, full-alpha edge.
-            var win = LyricLineDisplay.ComputeStreamWindows(new[] { 5, 5 }, caretStreamSlot: 4, radius: 5, maxRightSlot: 4);
+            var win = FlashlightWindow.ComputeStreamWindows(new[] { 5, 5 }, caretStreamSlot: 4, radius: 5, maxRightSlot: 4);
 
             assertWin(win[0], lo: 0, hi: 4, softLeft: false, softRight: false);
             Assert.That(win[1].IsHidden, Is.True, "next line stays dark while the active line is still being typed");
@@ -196,7 +196,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // leftover right budget spills into line 1's head as the early-finish reward, while line 0's
             // whole tail stays lit. Contrast with the mid-line case above, where the same nearness lit
             // nothing in line 1.
-            var win = LyricLineDisplay.ComputeStreamWindows(new[] { 5, 5 }, caretStreamSlot: 5, radius: 5);
+            var win = FlashlightWindow.ComputeStreamWindows(new[] { 5, 5 }, caretStreamSlot: 5, radius: 5);
 
             assertWin(win[0], lo: 0, hi: 4, softLeft: false, softRight: false);
             assertWin(win[1], lo: 0, hi: 4, softLeft: false, softRight: false);
@@ -208,8 +208,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // The cap only limits the FORWARD (right) budget; the left/backward tail spill is untouched.
             // Caret one char into line 1 with the cap set at line 1's last slot (9): the window still
             // reaches back into line 0's tail exactly as when uncapped.
-            var capped = LyricLineDisplay.ComputeStreamWindows(new[] { 5, 5 }, caretStreamSlot: 6, radius: 5, maxRightSlot: 9);
-            var uncapped = LyricLineDisplay.ComputeStreamWindows(new[] { 5, 5 }, caretStreamSlot: 6, radius: 5);
+            var capped = FlashlightWindow.ComputeStreamWindows(new[] { 5, 5 }, caretStreamSlot: 6, radius: 5, maxRightSlot: 9);
+            var uncapped = FlashlightWindow.ComputeStreamWindows(new[] { 5, 5 }, caretStreamSlot: 6, radius: 5);
 
             assertWin(capped[0], lo: uncapped[0].Lo, hi: uncapped[0].Hi, softLeft: uncapped[0].SoftLeft, softRight: uncapped[0].SoftRight);
             assertWin(capped[0], lo: 1, hi: 4, softLeft: true, softRight: false);
@@ -220,7 +220,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             // Caret near the start of line 1 (one countable before it). Stream slot = 5 (line 0) + 1.
             // Radius 5: the left budget spills back into line 0's tail; the right fits inside line 1.
-            var win = LyricLineDisplay.ComputeStreamWindows(new[] { 5, 5 }, caretStreamSlot: 6, radius: 5);
+            var win = FlashlightWindow.ComputeStreamWindows(new[] { 5, 5 }, caretStreamSlot: 6, radius: 5);
 
             // Line 0: last four letters lit (slots 1..4); slot 1 is the window's outer-left edge with a
             // hidden letter (slot 0) beyond, so it softens; the tail continues into line 1 (hard).
@@ -236,7 +236,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             // Caret exactly on the boundary between two lines (line 0 fully typed): stream slot 5.
             // Radius 5 lights line 0's whole tail and line 1's whole head, joined hard at the boundary.
-            var win = LyricLineDisplay.ComputeStreamWindows(new[] { 5, 5 }, caretStreamSlot: 5, radius: 5);
+            var win = FlashlightWindow.ComputeStreamWindows(new[] { 5, 5 }, caretStreamSlot: 5, radius: 5);
 
             assertWin(win[0], lo: 0, hi: 4, softLeft: false, softRight: false);
             assertWin(win[1], lo: 0, hi: 4, softLeft: false, softRight: false);
@@ -248,7 +248,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // Caret at the very start of the first line (cue-in anchor for line 0). Radius 5 lights the
             // first five countable chars; left is the stream start (hard), a hidden char lies to the
             // right so the outermost-right char softens.
-            var win = LyricLineDisplay.ComputeStreamWindows(new[] { 10, 10 }, caretStreamSlot: 0, radius: 5);
+            var win = FlashlightWindow.ComputeStreamWindows(new[] { 10, 10 }, caretStreamSlot: 0, radius: 5);
 
             assertWin(win[0], lo: 0, hi: 4, softLeft: false, softRight: true);
             Assert.That(win[1].IsHidden, Is.True, "second line untouched when the caret is at the stream start");
@@ -260,7 +260,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // Caret past the last char of the final line: stream slot = total (20). Radius 5 lights the
             // final line's last five chars; the outer-right is the stream end (hard), a hidden char lies
             // to the left so the outermost-left softens. The earlier line is untouched.
-            var win = LyricLineDisplay.ComputeStreamWindows(new[] { 10, 10 }, caretStreamSlot: 20, radius: 5);
+            var win = FlashlightWindow.ComputeStreamWindows(new[] { 10, 10 }, caretStreamSlot: 20, radius: 5);
 
             Assert.That(win[0].IsHidden, Is.True, "first line untouched when the caret is at the stream end");
             assertWin(win[1], lo: 5, hi: 9, softLeft: true, softRight: false);
@@ -272,7 +272,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // Three lines; the middle one is being cued in with the caret anchored at its first char
             // (stream slot = 10). Radius 5 lights the previous line's last five and the cued line's
             // first five, so the player reads the letters they are about to type. Line 2 is untouched.
-            var win = LyricLineDisplay.ComputeStreamWindows(new[] { 10, 10, 10 }, caretStreamSlot: 10, radius: 5);
+            var win = FlashlightWindow.ComputeStreamWindows(new[] { 10, 10, 10 }, caretStreamSlot: 10, radius: 5);
 
             assertWin(win[0], lo: 5, hi: 9, softLeft: true, softRight: false);
             assertWin(win[1], lo: 0, hi: 4, softLeft: false, softRight: true);
@@ -286,14 +286,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // the letters light where expected across the boundary (line 0 "hello", line 1 "world").
             var l0 = line("hello");
             var l1 = line("world");
-            var win = LyricLineDisplay.ComputeStreamWindows(new[] { 5, 5 }, caretStreamSlot: 4, radius: 5);
+            var win = FlashlightWindow.ComputeStreamWindows(new[] { 5, 5 }, caretStreamSlot: 4, radius: 5);
 
             // Line 0 all lit, no soft edge.
-            assertWindow(LyricLineDisplay.ComputeWindowAlphas(l0.Cells, win[0], soft),
+            assertWindow(FlashlightWindow.ComputeWindowAlphas(l0.Cells, win[0], soft),
                 1f, 1f, 1f, 1f, 1f);
 
             // Line 1: w,o,r lit; l soft (outer-right edge, d hidden beyond); d dark.
-            assertWindow(LyricLineDisplay.ComputeWindowAlphas(l1.Cells, win[1], soft),
+            assertWindow(FlashlightWindow.ComputeWindowAlphas(l1.Cells, win[1], soft),
                 1f, 1f, 1f, soft, 0f);
         }
     }
