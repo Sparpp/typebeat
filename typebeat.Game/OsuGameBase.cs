@@ -290,6 +290,9 @@ namespace typebeat.Game
         {
             Name = GAME_NAME;
 
+            // Before any texture loads: no TIFF decoding (see ImageDecodingGuard).
+            ImageDecodingGuard.Apply();
+
             allowableExceptions = UnhandledExceptionsBeforeCrash;
         }
 

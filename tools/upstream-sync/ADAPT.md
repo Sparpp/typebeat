@@ -37,3 +37,14 @@ When `sync/vendor` moves on, rebase this branch onto it.
   `/api/v2/screenshots`. The type!beat server has no screenshot uploads, so
   it could only fail. Its default binding is left out, which also keeps it
   out of the key binding settings; F12 still saves a screenshot locally.
+- **No TIFF decoding, and the ImageSharp advisories recorded as reviewed**
+  (2026-10-17). Since the move to .NET 10 (step 103) NuGet's audit also
+  checks indirect packages, and reports five advisories for the
+  SixLabors.ImageSharp 3.1.11 that osu-framework pins (40 build warnings,
+  over main's CI limit of 26). No 3.x release fixes them; the only fixed
+  version is 4.1.2, a major version osu-framework does not use. TIFF
+  decoding is switched off at startup (`ImageDecodingGuard`), which closes
+  the BigTIFF endless loop a crafted beatmap image could cause. The five are
+  suppressed in Directory.Build.props, each with its reason; the colour
+  profile one stays open. Drop the suppressions once osu-framework moves to
+  a fixed ImageSharp.
