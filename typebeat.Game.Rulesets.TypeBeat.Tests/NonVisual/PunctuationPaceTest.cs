@@ -111,8 +111,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var plain = new[] { line(string.Join(' ', Enumerable.Repeat("word", 12))) };
             var spelledEnvelope = LyricDifficulty.ComputeDetail(spelled, enduranceAxis: LyricDifficulty.EnduranceAxis.Envelope);
             var plainEnvelope = LyricDifficulty.ComputeDetail(plain, enduranceAxis: LyricDifficulty.EnduranceAxis.Envelope);
-            var spelledRating = LyricDifficulty.RateChunked(spelled, 1, false, LyricDifficulty.NoScores, ChunkedEndurance.Live);
-            var plainRating = LyricDifficulty.RateChunked(plain, 1, false, LyricDifficulty.NoScores, ChunkedEndurance.Live);
+            var spelledRating = LyricDifficulty.RateChunked(spelled, 1, false, LyricDifficulty.NoScores, ChunkedEndurance.Active);
+            var plainRating = LyricDifficulty.RateChunked(plain, 1, false, LyricDifficulty.NoScores, ChunkedEndurance.Active);
 
             Assert.That(spelledEnvelope.Cells, Is.EqualTo(95).Within(1e-9));
             Assert.That(plainEnvelope.Cells, Is.EqualTo(59).Within(1e-9));

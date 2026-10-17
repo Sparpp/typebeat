@@ -16,6 +16,7 @@ using osu.Framework.Graphics.Containers;
 using osu.Framework.Logging;
 using osu.Framework.Utils;
 using typebeat.Game.Beatmaps;
+using typebeat.Game.Configuration;
 using typebeat.Game.Database;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Localisation;
@@ -69,6 +70,7 @@ namespace typebeat.Game.Screens.Select
         private RealmAccess realm { get; set; } = null!;
 
         private IBindable<APIState> apiState = null!;
+        private ModSettingChangeTracker? settingChangeTracker;
 
         [Resolved]
         private ILinkHandler? linkHandler { get; set; }
@@ -270,7 +272,14 @@ namespace typebeat.Game.Screens.Select
             // mod is a re-reading of the same converted map (see GetTypingPace), which is why the
             // converted beatmap is kept and only the profile is recomputed. The cache below is keyed
             // on both, so a toggle that changes neither is still free.
-            mods.BindValueChanged(_ => Scheduler.AddOnce(updateTypingPace), true);
+            mods.BindValueChanged(change =>
+            {
+                settingChangeTracker?.Dispose();
+                settingChangeTracker = new ModSettingChangeTracker(change.NewValue);
+                // A rate slider mutates the selected mod without replacing the mod list.
+                settingChangeTracker.SettingChanged += _ => Scheduler.AddOnce(updateTypingPace);
+                Scheduler.AddOnce(updateTypingPace);
+            }, true);
 
             apiState = api.State.GetBoundCopy();
             apiState.BindValueChanged(_ => Scheduler.AddOnce(updateDisplay), true);
@@ -414,11 +423,11 @@ namespace typebeat.Game.Screens.Select
         private WorkingBeatmap? typingPaceBeatmap;
 
         /// <summary>
-        /// Whether <see cref="typingPaceBeatmap"/> was last converted with a mod that shapes the
-        /// beatmap (Literate). The pace readouts follow those mods, so a toggle has to convert
-        /// again even though the selection itself has not moved.
+        /// The shaping mod combination used to convert <see cref="typingPaceBeatmap"/>. Adding
+        /// Polyglot alongside Literate changes the input stream even while both selections contain
+        /// shaping mods, so the exact combination determines when to convert again.
         /// </summary>
-        private bool typingPaceLiterate;
+        private string typingPaceConversionKey = string.Empty;
 
         /// <summary>
         /// The clock <see cref="typingPacePlayable"/>'s last profile was read at, so a rate toggle
@@ -452,21 +461,21 @@ namespace typebeat.Game.Screens.Select
         {
             var working = beatmap.Value;
             var conversionMods = ModUtils.BeatmapShapingMods(mods.Value);
-            bool literate = conversionMods.Count > 0;
+            string conversionKey = string.Join(",", conversionMods.Select(m => m.GetType().FullName).OrderBy(name => name, StringComparer.Ordinal));
             double rate = typingPaceClockRate();
 
             // updateDisplay also fires on online-lookup and api-state changes, neither of which can
             // move a local pace figure; re-reading the map for those would be pure waste.
-            if (ReferenceEquals(typingPaceBeatmap, working) && typingPaceLiterate == literate && typingPaceRate == rate)
+            if (ReferenceEquals(typingPaceBeatmap, working) && typingPaceConversionKey == conversionKey && typingPaceRate == rate)
                 return;
 
             // The map has to be converted again only when the CELLS can have moved. A rate change is a
             // re-reading of the map already held, so it takes the conversion it was handed.
-            bool needsConversion = !ReferenceEquals(typingPaceBeatmap, working) || typingPaceLiterate != literate;
+            bool needsConversion = !ReferenceEquals(typingPaceBeatmap, working) || typingPaceConversionKey != conversionKey;
             IHasTypingPace? previous = typingPacePlayable;
 
             typingPaceBeatmap = working;
-            typingPaceLiterate = literate;
+            typingPaceConversionKey = conversionKey;
             typingPaceRate = rate;
 
             int requestId = ++typingPaceRequestId;
@@ -593,6 +602,7 @@ namespace typebeat.Game.Screens.Select
         {
             userTagsCancellationSource?.Cancel();
             userTagsCancellationSource = null;
+            settingChangeTracker?.Dispose();
             base.Dispose(isDisposing);
         }
     }

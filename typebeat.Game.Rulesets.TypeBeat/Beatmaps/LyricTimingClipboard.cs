@@ -113,6 +113,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             [JsonProperty("original", NullValueHandling = NullValueHandling.Ignore)]
             public string? Original;
 
+            [JsonProperty("original_splits", NullValueHandling = NullValueHandling.Ignore)]
+            public IReadOnlyList<OriginalLyricSplit>? OriginalSplits;
+
             /// <summary>
             /// <see cref="TimedUnit.SyllableBoundaries"/> as offsets from the payload's reference
             /// point, or null for an undivided word (and for any payload predating the field).

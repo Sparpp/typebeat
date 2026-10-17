@@ -184,7 +184,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void TheOriginalKeySitsAfterTheTextAndOnlyWhereItDiffers()
+        public void TheOriginalKeySitsAfterTheTextAndKeepsExplicitWordFields()
         {
             string encoded = Encode(BuildBeatmap(linesWithOriginals()));
 
@@ -192,7 +192,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(encoded, Does.Contain("{\"text\":\"\",\"original\":\""), "the unromanised word: an empty text beside its original");
             Assert.That(encoded, Does.Contain("{\"text\":\"hello world\",\"start_ms\":3000"), "the English line carries none");
 
-            // A unit whose "original" says what its text says writes nothing.
+            // Explicit word fields are retained, even if the spelling matches the romanized text.
             var same = new List<LyricLine>
             {
                 new LyricLine
@@ -206,7 +206,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 },
             };
 
-            Assert.That(Encode(BuildBeatmap(same)), Does.Not.Contain("original"));
+            Assert.That(Encode(BuildBeatmap(same)), Does.Contain("\"original\":\"hello\""));
+            Assert.That(Decode(Encode(BuildBeatmap(same))).HitObjects.OfType<TypeBeatHitObject>().Single().Line.Units.Single().Original, Is.EqualTo("hello"));
         }
 
         /// <summary>

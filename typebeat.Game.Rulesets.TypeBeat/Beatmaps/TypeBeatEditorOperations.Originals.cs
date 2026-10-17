@@ -86,7 +86,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (slot < 0 || slot >= slots.Count)
                 return false;
 
-            string normalized = string.Concat(Typeability.Normalize(text, keepFreestyleMarkers: true).Split(' '));
+            var (normalized, wordPipes) = SplitMarkers.Strip(string.Concat(Typeability.Normalize(text, keepFreestyleMarkers: true, keepSplitMarkers: true).Split(' ')));
             bool empty = Typeability.ToDefaultStream(normalized).Length == 0;
             var target = slots[slot];
             var entries = entriesOf(line);
@@ -104,10 +104,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 }
                 else
                 {
-                    if (normalized == unit.Text)
+                    var changed = applyPipes(new[] { unit }, new[] { normalized }, wordPipes, out _)[0];
+                    if (sameOriginalWord(unit, changed))
                         return false;
-
-                    entries[slot] = (respelled(unit, normalized), null);
+                    entries[slot] = (changed, null);
                 }
             }
             else
@@ -117,6 +117,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 var pending = line.UnromanisedWords[target.PendingIndex!.Value];
                 var placed = placedWord(normalized, pending.StartTime, System.Math.Max(pending.EndTime, pending.StartTime));
+                placed = applyPipes(new[] { placed }, new[] { normalized }, wordPipes, out _)[0];
                 entries[slot] = (LrcParser.WithOriginal(placed, pending.Original), null);
             }
 
@@ -140,31 +141,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (slot < 0 || slot >= slots.Count)
                 return false;
 
-            string collapsed = LyricOriginals.CollapseWhitespace(original);
+            var (collapsed, originalPipes) = originalMarkers(NormalizeOriginalInput(editorBeatmap, line, original));
             var target = slots[slot];
             var entries = entriesOf(line);
 
             LyricOriginals.RomanisedWord? proposal = null;
 
-            if (proposeRomanisation && collapsed.Length > 0)
+            if (proposeRomanisation && collapsed.Length > 0 && collapsed != target.Original)
             {
                 string? language = LyricOriginals.RomanisationLanguage(editorBeatmap.BeatmapInfo.Metadata.Language, new[] { collapsed });
-                proposal = LyricOriginals.RomaniseWord(string.Concat(collapsed.Split(' ')), language);
+                bool keepJapaneseReading = JapaneseReading.IsJapanese(language) && OriginalLyricAlignment.Matches(collapsed, target.Text, language);
+                if (!keepJapaneseReading)
+                    proposal = LyricOriginals.RomaniseWord(string.Concat(collapsed.Split(' ')), language);
 
-                if (proposal.Flagged || proposal.Text.Length == 0 || Typeability.ToDefaultStream(proposal.Text).Length == 0)
+                if (proposal != null && (proposal.Flagged || proposal.Text.Length == 0 || Typeability.ToDefaultStream(proposal.Text).Length == 0))
                     proposal = null;
             }
 
             if (target.UnitIndex is int unitIndex)
             {
                 var unit = line.Units[unitIndex];
-                string? newOriginal = collapsed.Length == 0 || collapsed == (proposal?.Text ?? unit.Text) ? null : collapsed;
+                string? newOriginal = collapsed.Length == 0 ? unit.Original == null ? null : string.Empty
+                    : collapsed;
                 var changed = proposal != null && proposal.Text != unit.Text ? respelled(unit, proposal.Text) : unit;
+                changed = string.IsNullOrEmpty(newOriginal) ? LrcParser.WithOriginal(changed, newOriginal)
+                    : applyOriginalPipes(changed, newOriginal, originalPipes, OriginalSubdivisionLanguage(editorBeatmap, line)
+                        ?? LyricOriginals.DetectLanguage(new[] { newOriginal }));
 
-                if (newOriginal == unit.Original && ReferenceEquals(changed, unit))
+                if (sameOriginalWord(unit, changed))
                     return false;
 
-                entries[slot] = (LrcParser.WithOriginal(changed, newOriginal), null);
+                entries[slot] = (changed, null);
             }
             else
             {
@@ -177,7 +184,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 else if (proposal != null)
                 {
                     var placed = placedWord(proposal.Text, pending.StartTime, System.Math.Max(pending.EndTime, pending.StartTime));
-                    entries[slot] = (LrcParser.WithOriginal(placed, collapsed == proposal.Text ? null : collapsed), null);
+                    entries[slot] = (applyOriginalPipes(placed, collapsed, originalPipes,
+                        LyricOriginals.RomanisationLanguage(editorBeatmap.Metadata.Language, new[] { collapsed })), null);
                 }
                 else
                 {
@@ -200,15 +208,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         public static bool SetLineOriginal(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string original)
         {
             var line = hitObject.Line;
-            string collapsed = LyricOriginals.CollapseWhitespace(original);
+            var (collapsed, pipes) = originalMarkers(NormalizeOriginalInput(editorBeatmap, line, original));
             string? value = collapsed.Length == 0 || collapsed == line.RawText ? null : collapsed;
+            var units = line.Units.ToArray();
+            if (value != null)
+            {
+                var matched = value == OriginalCaption(line) && line.Units.All(u => u.Original != null)
+                              && string.Concat(line.Units.Select(u => string.Concat(u.Original!.Where(c => !char.IsWhiteSpace(c)))))
+                              == string.Concat(value.Where(c => !char.IsWhiteSpace(c)))
+                    ? line.Units.Select(u => u.Original).ToArray()
+                    : Import.OriginalLyricGenerator.MatchWords(line, value, editorBeatmap.Metadata.Language);
+                string? language = LyricOriginals.RomanisationLanguage(editorBeatmap.Metadata.Language, new[] { value });
+                int cursor = 0;
+                for (int i = 0; i < units.Length; i++)
+                {
+                    string? word = matched[i];
+                    if (word == null)
+                        continue;
+                    int start = value.IndexOf(word, cursor, System.StringComparison.Ordinal);
+                    if (start < 0)
+                        continue;
+                    var cuts = pipes.Where(p => p > start && p < start + word.Length).Select(p => p - start).ToArray();
+                    units[i] = applyOriginalPipes(units[i], word, cuts, language);
+                    cursor = start + word.Length;
+                }
+            }
 
-            if (value == line.Original)
+            if (value == line.Original && units.Where((u, i) => !sameOriginalWord(u, line.Units[i])).Any() == false)
                 return false;
 
             editorBeatmap.BeginChange();
-            hitObject.Line = rebuild(line, originals: (value, line.UnromanisedWords));
+            hitObject.Line = rebuild(line, units: units, originals: (value, line.UnromanisedWords));
             editorBeatmap.Update(hitObject);
+            syncGranularity(editorBeatmap, keepAuthoredWords: true);
             editorBeatmap.EndChange();
             return true;
         }
@@ -226,7 +258,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 ? unit.SyllableSplits
                 : System.Array.Empty<int>(),
             Pauses = carryPausesAcrossText(unit, text),
-            Original = unit.Original,
+            Original = unit.Original, OriginalSplits = unit.OriginalSplits,
         };
 
         /// <summary>The line's words in slot order, each either a unit or an unromanised word.</summary>
@@ -258,14 +290,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             string rawText = string.Join(' ', units.Select(u => u.Text));
 
             editorBeatmap.BeginChange();
-            hitObject.Line = rebuild(line, rawText: rawText, units: units, originals: (lineOriginal, pending));
+            if (lineOriginal == JoinedOriginal(line.Units, line.UnromanisedWords))
+                lineOriginal = JoinedOriginal(units, pending);
+            else if (lineOriginal != null)
+                lineOriginal = updatedOriginalCaption(line, entries, lineOriginal);
+            hitObject.Line = normalizeOriginalSubdivisions(editorBeatmap, rebuild(line, rawText: rawText, units: units, originals: (lineOriginal, pending)));
             editorBeatmap.Update(hitObject);
             syncGranularity(editorBeatmap, keepAuthoredWords: true);
 
-            // A LINE-granularity map writes no words[], so its words' originals persist only through
-            // the line's own original, which the decode splits back over the words. Rebuilt from the
-            // words here, or a word's new original would not survive the save.
-            if (hitObject.Granularity == TimingGranularity.Line && hitObject.Line.Units.Any(u => u.Original != null))
+            // A LINE-granularity map writes no words[]. Supply a caption when absent, but retain
+            // an updated caption's authored spacing and punctuation (Japanese need not have spaces).
+            if (hitObject.Granularity == TimingGranularity.Line && hitObject.Line.Original == null && hitObject.Line.Units.Any(u => u.Original != null))
             {
                 hitObject.Line = rebuild(hitObject.Line, originals: (JoinedOriginal(hitObject.Line.Units, hitObject.Line.UnromanisedWords), hitObject.Line.UnromanisedWords));
                 editorBeatmap.Update(hitObject);

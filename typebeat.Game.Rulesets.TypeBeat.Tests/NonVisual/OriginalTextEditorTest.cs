@@ -102,7 +102,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// the ROMANISED word.
         /// </summary>
         [Test]
-        public void LatinTypedOverTheProposalKeepsTheOriginalsAndThePipesCutTheRomanisedRow()
+        public void LatinTypedOverTheProposalKeepsTheOriginalsAndRomajiCuts()
         {
             var editorBeatmap = createBeatmap();
             var line = lineAt(editorBeatmap, 0);
@@ -114,7 +114,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(line.Line.Original, Is.EqualTo("Привет мир"));
             Assert.That(line.Line.Units.Select(u => u.Original), Is.EqualTo(new[] { "Привет", "мир" }));
             Assert.That(line.Line.Units[0].SyllableSplits, Is.EqualTo(new[] { 3 }));
-            Assert.That(line.Line.Units[0].SyllableBoundaries.Count, Is.EqualTo(1));
+            Assert.That(line.Line.Units[0].SyllableBoundaries, Has.Count.EqualTo(1));
+            Assert.That(TypeBeatEditorOperations.OriginalPipeDisplayText(line.Line), Is.EqualTo("Привет мир"));
         }
 
         [Test]

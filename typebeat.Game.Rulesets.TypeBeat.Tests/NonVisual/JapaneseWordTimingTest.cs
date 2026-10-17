@@ -238,6 +238,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 SyllableTiming = true, AuthoredSyllablesOnly = true, FirstCharTiming = true, CharTimedStretch = true, AlignSubdivisionTargets = true,
             };
+            engine.JapaneseCharacterTiming = false;
             engine.Update(1000);
             return engine;
         }

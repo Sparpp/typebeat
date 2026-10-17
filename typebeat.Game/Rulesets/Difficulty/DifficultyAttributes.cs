@@ -47,6 +47,9 @@ namespace typebeat.Game.Rulesets.Difficulty
         [JsonProperty("star_rating", Order = -3)]
         public double StarRating { get; set; }
 
+        /// <summary>Whether a performance model exists for this played input stream.</summary>
+        public virtual bool CanCalculatePerformance => true;
+
         /// <summary>
         /// The maximum achievable combo.
         /// </summary>

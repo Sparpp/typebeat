@@ -211,6 +211,7 @@ namespace typebeat.Game.Screens.ImportLyrics
                                 languageDropdown = new FormEnumDropdown<BeatmapLanguage>
                                 {
                                     Caption = "language",
+                                    Items = BeatmapLanguageExtensions.DisplayOrder,
                                     HintText = "Choose the song's language for map metadata and lyric romanisation. Japanese kanji use dictionary readings; check unusual names and sung pronunciations in the editor.",
                                     Current = { Value = BeatmapLanguage.Unspecified },
                                 },

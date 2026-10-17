@@ -23,6 +23,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private bool generatingLyrics;
         private int generationRevision = -1;
         private bool missingOriginals;
+        private string? providedLyrics;
 
         protected override void UpdateAfterChildren()
         {
@@ -37,11 +38,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             }
 
             BeatmapLanguage language = Beatmap.Metadata.Language;
-            generateLyricsButton.Enabled.Value = OriginalLyricGenerator.CanGenerate(language) && missingOriginals && !generatingLyrics;
+            bool hasProvided = providedLyrics != null && OriginalLyricGenerator.HasOriginalScript(providedLyrics, language);
+            generateLyricsButton.Enabled.Value = OriginalLyricGenerator.CanGenerate(language) && (missingOriginals || hasProvided) && !generatingLyrics;
             generateLyricsButton.TooltipText = language == BeatmapLanguage.English ? GENERATE_LYRICS_TOOLTIP
                 : language == BeatmapLanguage.Unspecified ? "Select the song's language to generate original script lyrics."
                 : language == BeatmapLanguage.Instrumental ? "Instrumental maps have no sung lyrics to generate."
                 : generatingLyrics ? "Generating original lyrics…"
+                : hasProvided ? "Align the selected lyrics file to this map and replace its original lyrics."
                 : !missingOriginals ? "This map already has original lyrics, or has no romanized lyrics to convert."
                 : language == BeatmapLanguage.Japanese ? "Convert romaji to Japanese using the bundled dictionary. Works offline; review the suggested spellings in the lyric editor."
                 : "Look up this song's original script lyrics using its artist and title. Requires an internet connection.";
@@ -52,6 +55,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (!generateLyricsButton.Enabled.Value || generatingLyrics)
                 return;
 
+            string? provided = null;
+            if (lyricsSelector.Current.Value is { } file)
+            {
+                if (!tryReadLyrics(file, out string content))
+                    return;
+                if (OriginalLyricGenerator.HasOriginalScript(content, Beatmap.Metadata.Language))
+                    provided = content;
+            }
             var targets = TypeBeatEditorOperations.OrderedLines(Beatmap);
             var snapshot = targets.Select(h => h.Line).ToArray();
             BeatmapLanguage language = Beatmap.Metadata.Language;
@@ -69,7 +80,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             var progress = new ProgressNotification
             {
-                Text = language == BeatmapLanguage.Japanese ? "Generating Japanese lyrics from the dictionary…" : "Looking up original lyrics…",
+                Text = provided != null ? "Aligning the selected original lyrics…" : language == BeatmapLanguage.Japanese ? "Generating Japanese lyrics from the dictionary…" : "Looking up original lyrics…",
                 State = ProgressNotificationState.Active,
             };
             notifications?.Post(progress);
@@ -83,9 +94,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             {
                 try
                 {
-                    var originals = await OriginalLyricGenerator.GenerateAsync(artist, title, language, snapshot, cancellation.Token).ConfigureAwait(false);
+                    var originals = provided != null
+                        ? OriginalLyricGenerator.MatchLines(snapshot, provided, language, cancellation.Token)
+                        : await OriginalLyricGenerator.GenerateAsync(artist, title, language, snapshot, cancellation.Token).ConfigureAwait(false);
 
-                    if (language != BeatmapLanguage.Japanese && originals.All(o => o == null) && (artist != romanizedArtist || title != romanizedTitle)
+                    if (provided == null && language != BeatmapLanguage.Japanese && originals.All(o => o == null) && (artist != romanizedArtist || title != romanizedTitle)
                         && !string.IsNullOrWhiteSpace(romanizedArtist) && !string.IsNullOrWhiteSpace(romanizedTitle))
                         originals = await OriginalLyricGenerator.GenerateAsync(romanizedArtist, romanizedTitle, language, snapshot, cancellation.Token).ConfigureAwait(false);
 
@@ -100,11 +113,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                         || Beatmap.Metadata.Artist == romanizedArtist && Beatmap.Metadata.Title == romanizedTitle
                                         && Beatmap.Metadata.ArtistUnicode == unicodeArtist && Beatmap.Metadata.TitleUnicode == unicodeTitle);
                         int added = sameSong
-                            ? TypeBeatEditorOperations.AddGeneratedOriginals(Beatmap, targets, snapshot, originals)
+                            ? TypeBeatEditorOperations.AddGeneratedOriginals(Beatmap, targets, snapshot, originals, replaceExisting: provided != null)
                             : 0;
 
                         progress.State = added > 0 ? ProgressNotificationState.Completed : ProgressNotificationState.Cancelled;
                         progress.Text = added > 0 ? $"Added original lyrics to {added} lines."
+                            : provided != null ? "No supplied lyrics matched the romanized map. Check the lyrics file and selected language."
                             : language == BeatmapLanguage.Japanese ? "No romaji could be converted. Check the lyric text, or enter original lyrics manually."
                             : "No matching original lyrics could be added. Check the song's artist, title and language, or import original lyrics manually.";
                     });

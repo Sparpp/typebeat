@@ -170,10 +170,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             public readonly double Z;
             public readonly bool Scored;
+            public readonly double ExtraInputs;
 
             public double End => Start + Span;
 
-            public Word(double start, double span, double cells, int lineIndex, string token, double[]? groups, double z, bool scored, double[]? groupEnds = null)
+            public Word(double start, double span, double cells, int lineIndex, string token, double[]? groups, double z, bool scored, double[]? groupEnds = null, double extraInputs = 0)
             {
                 Start = start;
                 Span = span;
@@ -184,6 +185,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 GroupEnds = groupEnds;
                 Z = z;
                 Scored = scored;
+                ExtraInputs = extraInputs;
             }
         }
 
@@ -397,7 +399,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             {
                 // The arm is a DIAL OF THE RHYTHM AXIS rather than a filter over the finished rating,
                 // exactly as it is in the sandbox where it rides in the complexity settings.
-                ChunkedEndurance.Settings armSettings = ChunkedEndurance.Live with
+                ChunkedEndurance.Settings armSettings = ChunkedEndurance.Active with
                 {
                     complexity_mod = judgementArm switch
                     {
@@ -874,6 +876,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             double TypabilityScoredFraction,
             bool TypabilityApplied);
 
+        /// <summary>One percent of final SR per negative whole-map typability z-score.</summary>
+        internal static double WholeMapTypabilityMultiplier(double meanZ)
+            => double.IsFinite(meanZ) ? 1 + Math.Max(0, -meanZ) / 100 : 1;
+
         /// <summary>
         /// Rates a map on the chunked endurance axis. Read through <see cref="ComputeDetail"/> with
         /// <see cref="EnduranceAxis.Chunked"/>; the fixture pin calls it directly so it can hand the
@@ -977,6 +983,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             ChunkedEndurance.Report report = ChunkedEndurance.Compute(timeline, load, Window, settings, literate, baseRuns);
 
+            // Apply once, after window weighting and length credit. Use the same character-weighted
+            // mean and coverage gate as local typability; Literate scores its authored input stream.
+            double wholeMapMultiplier = applies ? WholeMapTypabilityMultiplier(meanZ) : 1;
+            report = report with
+            {
+                Stars = report.Stars * wholeMapMultiplier,
+                WholeMapTypabilityMultiplier = wholeMapMultiplier,
+            };
+
             return new ChunkedRating(report, pre[nb], durationSeconds, meanZ, scoredFraction, applies);
         }
 
@@ -1034,6 +1049,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         internal static List<Word> BuildWords(IReadOnlyList<LyricLine> lines, double rate, bool literate, LyricScoreSource scores, double spanFloorMs)
         {
             var words = new List<Word>();
+            var inputSegments = new Dictionary<int, IReadOnlyList<PolyglotDifficulty.InputSegment>>();
 
             for (int li = 0; li < lines.Count; li++)
             {
@@ -1122,6 +1138,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     bool scored = scores(typedText, out double z);
 
                     wordIndices[j] = words.Count;
+                    if (j < line.Units.Count && PolyglotDifficulty.SegmentsFor(line.Units[j]) is { Count: > 0 } segments)
+                        inputSegments[words.Count] = segments;
                     words.Add(new Word(
                         unitStart / rate,
                         Math.Max(unitEnd - unitStart, spanFloorMs) / rate,
@@ -1131,7 +1149,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         groups,
                         z,
                         scored,
-                        groupEnds));
+                        groupEnds, j < line.Units.Count ? PolyglotDifficulty.ExtraInputs(line.Units[j]) : 0));
                 }
 
                 if (!literate)
@@ -1148,8 +1166,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 if (literate && i + 1 < words.Count && words[i + 1].LineIndex == words[i].LineIndex)
                 {
                     Word w = words[i];
-                    words[i] = new Word(w.Start, w.Span, w.Cells + 1, w.LineIndex, w.Token, w.Groups, w.Z, w.Scored, w.GroupEnds);
+                    words[i] = new Word(w.Start, w.Span, w.Cells + 1, w.LineIndex, w.Token, w.Groups, w.Z, w.Scored, w.GroupEnds, w.ExtraInputs);
                 }
+            }
+
+            // Japanese character windows have different input lengths. Spread each character's
+            // shortest spelling over its own sung window, retaining only the real trailing spaces
+            // already counted above. These windows are subdivisions, not extra word breaks.
+            if (inputSegments.Count > 0)
+            {
+                var expanded = new List<Word>();
+                for (int i = 0; i < words.Count; i++)
+                {
+                    Word word = words[i];
+                    if (!inputSegments.TryGetValue(i, out var segments))
+                    {
+                        expanded.Add(word);
+                        continue;
+                    }
+                    double trailing = word.Cells - segments.Sum(s => s.Text.Length);
+                    for (int j = 0; j < segments.Count; j++)
+                    {
+                        var segment = segments[j];
+                        expanded.Add(new Word(segment.Start / rate, Math.Max(segment.End - segment.Start, spanFloorMs) / rate,
+                            segment.Text.Length + (j == segments.Count - 1 ? trailing : 0), word.LineIndex, segment.Text,
+                            segment.Targets.Select(t => t / rate).ToArray(), word.Z, word.Scored));
+                    }
+                }
+                return expanded;
             }
 
             return words;
@@ -1191,7 +1235,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 Word word = words[index];
                 words[index] = new Word(word.Start, word.Span, word.Cells + 1, word.LineIndex,
-                    word.Token, word.Groups, word.Z, word.Scored, word.GroupEnds);
+                    word.Token, word.Groups, word.Z, word.Scored, word.GroupEnds, word.ExtraInputs);
             }
         }
 
@@ -1240,7 +1284,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Word timed = pause != 0
                     ? new Word(word.Start - pause, word.Span, word.Cells, word.LineIndex, word.Token,
                         word.Groups?.Select(g => g - pause).ToArray(), word.Z, word.Scored,
-                        word.GroupEnds?.Select(g => g - pause).ToArray())
+                        word.GroupEnds?.Select(g => g - pause).ToArray(), word.ExtraInputs)
                     : word;
 
                 // Each keypress carries its OWN weight, fixed BEFORE the search: an easy keypress

@@ -84,6 +84,78 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
+        public void SelectionMergeKeepsGapsTouchingSeamsOriginalsAndUnselectedWords()
+        {
+            var words = new[]
+            {
+                unit("before", 0, 500), unit("we", 1000, 1500, "私"),
+                unit("sing", 1600, 3000, "歌う"), unit("now", 3000, 4000, "今"), unit("after", 4500, 5000),
+            };
+            var map = create(words);
+            var hitObject = first(map);
+            var before = hitObject.Line;
+            var targets = words.Skip(1).Take(3).SelectMany(u => TypingLine.CellTargetsFor(u, u.Text.Length)).ToArray();
+
+            Assert.That(TypeBeatEditorOperations.MergeSelectedWords(map, hitObject, new[] { 3, 2, 1, 2 }), Is.EqualTo(new[] { 1 }));
+
+            var merged = hitObject.Line.Units[1];
+            Assert.Multiple(() =>
+            {
+                Assert.That(hitObject.Line.RawText, Is.EqualTo("before wesingnow after"));
+                Assert.That(hitObject.Line.Units[0], Is.SameAs(words[0]));
+                Assert.That(hitObject.Line.Units[2], Is.SameAs(words[4]));
+                Assert.That(merged.Pauses, Is.EqualTo(new[] { new WordPause(1500, 1600, 2) }));
+                Assert.That(merged.SyllableBoundaries, Is.EqualTo(new[] { 3000d }));
+                Assert.That(merged.SyllableSplits, Is.EqualTo(new[] { 6 }));
+                Assert.That(merged.Original, Is.EqualTo("私歌う今"));
+                Assert.That(hitObject.Line.Original, Is.EqualTo("before 私歌う今 after"));
+                Assert.That((hitObject.Line.StartTime, hitObject.Line.SingEndTime, hitObject.Line.EndTime),
+                    Is.EqualTo((before.StartTime, before.SingEndTime, before.EndTime)));
+                Assert.That(TypingLine.CellTargetsFor(merged, 9), Is.EqualTo(targets).Within(0.000001));
+            });
+
+            var loaded = OriginalTextFormatTest.Decode(OriginalTextFormatTest.Encode(map)).HitObjects.OfType<TypeBeatHitObject>().Single();
+            Assert.That(loaded.Line.Units[1].Pauses, Is.EqualTo(merged.Pauses));
+            Assert.That(loaded.Line.Units[1].SyllableSplits, Is.EqualTo(merged.SyllableSplits));
+            Assert.That(TypingLine.CellTargetsFor(loaded.Line.Units[1], 9), Is.EqualTo(targets).Within(0.000001));
+        }
+
+        [Test]
+        public void DisjointSelectedRunsLeaveInterveningAndIsolatedWordsAlone()
+        {
+            var words = Enumerable.Range(0, 7).Select(i => unit("word" + i, i * 1000, (i + 1) * 1000)).ToArray();
+            var map = create(words);
+
+            Assert.That(TypeBeatEditorOperations.MergeSelectedWords(map, first(map), new[] { 0, 1, 3, 4, 6 }), Is.EqualTo(new[] { 0, 2, 4 }));
+            Assert.That(first(map).Line.RawText, Is.EqualTo("word0word1 word2 word3word4 word5 word6"));
+            Assert.That(first(map).Line.Units[1], Is.SameAs(words[2]));
+            Assert.That(first(map).Line.Units[3], Is.SameAs(words[5]));
+            Assert.That(first(map).Line.Units[4], Is.SameAs(words[6]));
+        }
+
+        [Test]
+        public void ARefusedSeamLeavesTheEntireSelectionUnchanged()
+        {
+            var map = create(unit("hello", 1000, 2500), unit("world", 2000, 3000), unit("now", 3000, 4000));
+            var before = first(map).Line;
+
+            Assert.That(TypeBeatEditorOperations.MergeSelectedWords(map, first(map), new[] { 0, 1, 2 }), Is.Empty);
+            Assert.That(first(map).Line, Is.SameAs(before), "the valid right join is not committed when the left join overlaps");
+        }
+
+        [Test]
+        public void ASelectionWithNoAdjacentPairDoesNotChangeTheMap()
+        {
+            var map = create(unit("hello", 1000, 2000), unit("world", 2000, 3000), unit("now", 3000, 4000));
+            var before = first(map).Line;
+
+            foreach (var selection in new[] { Array.Empty<int>(), new[] { 1 }, new[] { 0, 2 }, new[] { -1, 0 }, new[] { 0, 3 } })
+                Assert.That(TypeBeatEditorOperations.MergeSelectedWords(map, first(map), selection), Is.Empty);
+
+            Assert.That(first(map).Line, Is.SameAs(before));
+        }
+
+        [Test]
         public void OverlappingWordsAreNotMergedIntoAmbiguousTiming()
         {
             var map = create(unit("hello", 1000, 2500), unit("world", 2000, 4000));

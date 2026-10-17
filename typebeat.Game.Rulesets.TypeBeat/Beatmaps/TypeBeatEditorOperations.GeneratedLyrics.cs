@@ -17,7 +17,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// never overwrite edits made while it was running. Romanized text and all timings survive.
         /// </summary>
         public static int AddGeneratedOriginals(EditorBeatmap beatmap, IReadOnlyList<TypeBeatHitObject> targets,
-                                               IReadOnlyList<LyricLine> snapshot, IReadOnlyList<string?> originals)
+                                               IReadOnlyList<LyricLine> snapshot, IReadOnlyList<string?> originals, bool replaceExisting = false)
         {
             if (targets.Count != snapshot.Count || targets.Count != originals.Count)
                 throw new ArgumentException("Generated lyrics must correspond to the requested lines.");
@@ -37,12 +37,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     var line = snapshot[i];
                     string? original = LyricOriginals.OriginalFor(originals[i], line.RawText);
 
-                    if (original == null || LyricOriginals.HasOriginals(new[] { line }))
+                    if (original == null || (!replaceExisting && LyricOriginals.HasOriginals(new[] { line })))
                         continue;
 
                     string?[] words = OriginalLyricGenerator.MatchWords(line, original, beatmap.Metadata.Language);
-                    var units = line.Units.Select((u, w) => words[w] == null ? u : LrcParser.WithOriginal(u, words[w])).ToArray();
-                    targets[i].Line = rebuild(line, units: units, originals: (original, line.UnromanisedWords));
+                    var units = line.Units.Select((u, w) => words[w] == null && !replaceExisting ? u : LrcParser.WithOriginal(u, words[w])).ToArray();
+                    targets[i].Line = normalizeOriginalSubdivisions(beatmap, rebuild(line, units: units, originals: (original, replaceExisting ? Array.Empty<UnromanisedWord>() : line.UnromanisedWords)));
                     beatmap.Update(targets[i]);
                     changed++;
                 }

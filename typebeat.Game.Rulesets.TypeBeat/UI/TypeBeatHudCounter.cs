@@ -78,7 +78,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         protected override void Update()
         {
             base.Update();
-            // The engine owns rate handling, including the editor preview tempo.
+            // The engine owns rate handling, including the build-specific editor preview tempo.
             // Applying the editor tempo again here would scale the counter twice.
             if (playfield != null)
                 Text = playfield.Engine.LiveRollingWpm.ToString("0");
@@ -109,13 +109,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             double statisticsRate = editorPlayback?.StatisticsRate ?? 1;
             var difficulty = PerformancePointsDisplay.DifficultyFor(playableBeatmap, gameplayMods, requireRankedMap: false, playbackRate: statisticsRate);
             difficultCharacters = difficulty?.DifficultCharacters ?? 0;
-            starRating = difficulty?.Stars;
-
-            // The short-map factor reads the played span, so it takes the same editor preview rate the
-            // rating above was computed at (PlayedDurationFor divides by the mod rate alone).
             playedDurationSeconds = playableBeatmap == null
                 ? 0
                 : PerformancePoints.PlayedDurationFor(playableBeatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line), gameplayMods) / statisticsRate;
+            starRating = difficulty?.Stars;
             Text = PerformancePointsDisplay.Format(starRating == null ? null : 0d);
         }
 
@@ -134,7 +131,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             lastCounts = counts;
             lastMaxCombo = maxCombo;
-            Text = PerformancePointsDisplay.Format(PerformancePoints.ForPlay(stars, counts, scoreProcessor.Accuracy.Value, maxCombo, mods, playedDurationSeconds));
+            Text = PerformancePointsDisplay.Format(PerformancePoints.ForPlay(stars, counts, scoreProcessor.Accuracy.Value, maxCombo, mods, playedDurationSeconds,
+                scoreProcessor is TypeBeatScoreProcessor { HasJapaneseInputScoring: true } japanese ? japanese.ComboNotesJudged : null));
         }
     }
 }

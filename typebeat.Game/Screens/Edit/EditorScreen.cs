@@ -25,6 +25,8 @@ namespace typebeat.Game.Screens.Edit
 
         public readonly EditorScreenMode Type;
 
+        public virtual Rulesets.Mods.Mod[] TestGameplayMods => System.Array.Empty<Rulesets.Mods.Mod>();
+
         protected EditorScreen(EditorScreenMode type)
         {
             Type = type;

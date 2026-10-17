@@ -27,9 +27,9 @@ namespace typebeat.Game.Screens.Edit
         // Whole and half notes span multiple quarter-note beats.
         public readonly BindableInt BeatMultiplier = new BindableInt(1) { MinValue = 1, MaxValue = 4 };
 
-        public double Snap(double time, ControlPointInfo points, int divisor)
+        public double Snap(double time, ControlPointInfo points, int divisor, bool force = false)
         {
-            if (!SnapToGrid.Value || points.TimingPoints.Count == 0)
+            if ((!force && !SnapToGrid.Value) || points.TimingPoints.Count == 0)
                 return time;
             if (BeatMultiplier.Value == 1)
                 return points.GetClosestSnappedTime(time, divisor);

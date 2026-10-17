@@ -189,6 +189,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 engine.JapaneseWordTiming = frame.JapaneseWordTiming;
                 engine.JapaneseInputEra2 = frame.JapaneseInputEra2;
                 engine.JapaneseInputEra3 = frame.JapaneseInputEra3;
+                engine.JapaneseCharacterTiming = frame.JapaneseCharacterTiming;
+                engine.JapaneseInputScoring = frame.JapaneseInputScoring;
+                engine.JapaneseKanaInput = frame.JapaneseKanaInput;
+                engine.BestRetypeJudgement = frame.BestRetypeJudgement;
                 return;
             }
 
@@ -230,6 +234,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             engine.AlignSubdivisionTargets = false;
             engine.EarlyFinish = false;
             engine.JapaneseRomajiInput = false;
+            engine.JapaneseCharacterTiming = false;
+            engine.JapaneseInputScoring = false;
+            engine.JapaneseKanaInput = false;
+            engine.BestRetypeJudgement = false;
             engine.JapaneseWordTiming = false;
             engine.JapaneseInputEra2 = false;
             engine.JapaneseInputEra3 = false;

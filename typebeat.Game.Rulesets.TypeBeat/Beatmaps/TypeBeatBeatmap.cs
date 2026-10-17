@@ -3,16 +3,20 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using osu.Framework.Graphics.Sprites;
 using typebeat.Game.Beatmaps;
+using typebeat.Game.Rulesets.Mods;
+using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
+using typebeat.Game.Rulesets.TypeBeat.Scoring;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 {
     /// <summary>
     /// The playable typebeat beatmap: exposes typing-pace statistics (word count, boundary-window
-    /// WPM/CPM, average word length) which song select's statistics display computes live from the
+    /// WPM, text complexity and rhythm) which song select's statistics display computes live from the
     /// hit objects, always correct, never stale realm data.
     /// </summary>
     public class TypeBeatBeatmap : Beatmap<TypeBeatHitObject>, IHasTypingPace
@@ -29,35 +33,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         private const float max_display_words = 600;
 
         /// <summary>
-        /// Bar cap for the average word length. English typing-test text sits at 5 cells per word
-        /// (the constant WPM is defined on) and lyrics sit under it: the shipped maps measure 4.1
-        /// to 4.6. A cap of 10 puts them a little under half a bar, which reads as "short words"
-        /// at a glance and still leaves the top half for the long-worded outliers instead of
-        /// pinning every map full.
-        /// </summary>
-        private const float max_display_chars_per_word = 10;
-
-        /// <summary>
         /// Peak (rolling-window) and target/average (per-line) pace for song select's metadata
         /// wedge, all derived from ONE materialised pass over the lyric lines: the curve sweep and
         /// the pace statistics read the same list rather than enumerating the hit objects twice.
         ///
-        /// <para>The TARGET and AVERAGE follow the mods this beatmap was converted with: a line the
-        /// Literate mod stamped has its authored marks counted (see
-        /// <see cref="LyricPaceStatistics.Compute"/>). The curve does NOT, deliberately: it is
-        /// <see cref="LyricWpmCurve"/>, which is mirrored byte for byte on the website, and a map's
-        /// published peak has to stay one figure across both. The peak therefore answers "how fast
-        /// does this shared map ask" while the two figures beside it answer the same question about
-        /// the stream this particular conversion produced.</para>
+        /// <para>Polyglot projects supported originals to their required input stream, including
+        /// the shortest accepted romaji for Japanese, for all three figures. Target and average
+        /// count Literate punctuation; the shared curve retains its published nomod behavior.
+        /// Polyglot represents required punctuation and composition inputs as ordinary curve cells.
+        /// The displayed peak is floored at this
+        /// conversion's average (see <see cref="TypingPaceProfile.ApplyPeakFloor"/>), so it never reports a peak
+        /// slower than the map's average typing pace.</para>
         /// </summary>
         public TypingPaceProfile? GetTypingPace(double rate = 1)
         {
             if (HitObjects.Count == 0)
                 return null;
 
-            var lines = HitObjects.Select(h => h.Line).ToList();
+            bool literate = HitObjects.Any(h => h.Literate);
+            var lines = paceLinesFor(HitObjects.Select(h => h.Line).ToList(), literate);
             var curve = LyricWpmCurve.Compute(lines, rate: rate);
-            var pace = LyricPaceStatistics.Compute(lines, HitObjects.Any(h => h.Literate), rate);
+            var pace = LyricPaceStatistics.Compute(lines, literate, rate);
 
             // Nothing to draw (no typeable cell at all, or fewer than 16 cells)
             // reports null so the wedge hides the section instead of showing a flat empty graph.
@@ -69,10 +65,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 // The curve is recomputed at the playback rate because its minimum window is in
                 // seconds. Target WPM is likewise recomputed by LyricPaceStatistics.Compute.
                 WpmCurve = curve.Curve,
-                PeakWpm = curve.PeakWpm,
+                PeakWpm = TypingPaceProfile.ApplyPeakFloor(curve.PeakWpm, pace.AverageWpm),
                 TargetWpm = pace.TargetWpm,
                 AverageWpm = pace.AverageWpm,
             };
+        }
+
+        private IReadOnlyList<LyricLine> paceLinesFor(IReadOnlyList<LyricLine> lines, bool literate)
+        {
+            var polyglot = HitObjects.FirstOrDefault(h => h.Polyglot);
+            if (polyglot == null)
+                return lines;
+            Mod[] mods = literate
+                ? new Mod[] { new TypeBeatModPolyglot(), new TypeBeatModLiterate() }
+                : new Mod[] { new TypeBeatModPolyglot() };
+            return PolyglotDifficulty.LinesFor(lines, mods, polyglot.PolyglotLanguage, forPace: true);
         }
 
         public override IEnumerable<BeatmapStatistic> GetStatistics()
@@ -83,7 +90,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // The statistics are figures of THIS beatmap, so a cell the mod added to it counts:
             // under Literate every authored mark is a typed cell (see LyricPaceStatistics.Compute),
             // and the caller converts with the selected mods for exactly this reason.
-            var pace = LyricPaceStatistics.Compute(HitObjects.Select(h => h.Line), HitObjects.Any(h => h.Literate));
+            var lines = HitObjects.Select(h => h.Line).ToList();
+            bool literate = HitObjects.Any(h => h.Literate);
+            var paceLines = paceLinesFor(lines, literate);
+            var pace = LyricPaceStatistics.Compute(paceLines, literate);
 
             // How much typing the map is, in the unit the player thinks in. The total comes from the
             // same pass that produces Average WPM below, so the two can never disagree: a word is a
@@ -136,7 +146,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         return cached;
                 }
 
-                var value = LyricPaceStatistics.Compute(HitObjects.Select(h => h.Line), HitObjects.Any(h => h.Literate), rate);
+                var value = LyricPaceStatistics.Compute(paceLines, literate, rate);
 
                 lock (pacedByRate)
                     pacedByRate[rate] = value;
@@ -172,25 +182,59 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 },
             };
 
-            // Still here, and still worth a column, now that the CPM it used to explain has left the
-            // strip: both rates to its left are cells/5 flat, so this says how far the map's own
-            // words are from the 5 the unit assumes. It is the ratio the old real-word WPM used to
-            // encode implicitly (CPM:WPM), now printed rather than left to be divided out.
-            //
-            // One decimal is not decoration: the five shipped maps measure 4.13, 4.31, 4.57, 4.11
-            // and 4.47 cells per word, so rounding to whole characters would print "4" for every
-            // single one of them and the statistic would carry no information at all.
-            //
-            // Rate-independent, exactly like the word count: a speed mod changes when the
-            // characters arrive, not how many of them make up a word. Hence no RateAdjusted.
-            double baseCharsPerWord = pace.AverageCharsPerWord;
+            // These display scales use the same text and timing model as SR, with fixed catalogue
+            // anchors. Cache only the rhythm scalar, keyed by both clock and judgement arm.
+            var baseRating = LyricDifficulty.RateChunked(lines, 1, literate, LyricDifficulty.ShippedScores, ChunkedEndurance.Active);
+            var rhythmLoads = new Dictionary<(double Rate, LyricDifficulty.JudgementArm Arm), double>
+            {
+                [(1, LyricDifficulty.JudgementArm.None)] = rhythmLoad(baseRating.Report),
+            };
 
+            double complexity = DifficultyMetricScale.Complexity(baseRating.TypabilityMeanZ);
             yield return new BeatmapStatistic
             {
-                Name = "Chars/word",
-                Content = baseCharsPerWord.ToString("0.0"),
-                CreateIcon = () => new SpriteIcon { Icon = FontAwesome.Solid.TextWidth },
-                BarDisplayLength = (float)Math.Min(1, baseCharsPerWord / max_display_chars_per_word),
+                Name = "Complexity",
+                Content = baseRating.TypabilityApplied ? complexity.ToString("0.00", CultureInfo.InvariantCulture) : "N/A",
+                CreateIcon = () => new SpriteIcon { Icon = FontAwesome.Solid.Font },
+                BarDisplayLength = baseRating.TypabilityApplied ? DifficultyMetricScale.BarLength(complexity) : 0,
+            };
+
+            static double rhythmLoad(ChunkedEndurance.Report report)
+                => Math.Max(report.WholeMapRhythmLoadPerSecond, report.HardestWindowRhythmLoadPerSecond);
+
+            (string Content, float? BarDisplayLength) rhythmAt(double rate, LyricDifficulty.JudgementArm arm)
+            {
+                double load;
+                lock (rhythmLoads)
+                {
+                    if (!rhythmLoads.TryGetValue((rate, arm), out load))
+                    {
+                        var settings = ChunkedEndurance.Active with
+                        {
+                            complexity_mod = arm switch
+                            {
+                                LyricDifficulty.JudgementArm.HardRock => ChunkedEndurance.mod_hardrock,
+                                LyricDifficulty.JudgementArm.Easy => ChunkedEndurance.mod_easy,
+                                _ => ChunkedEndurance.mod_none,
+                            },
+                        };
+                        var report = LyricDifficulty.RateChunked(lines, rate, literate, LyricDifficulty.ShippedScores, settings).Report;
+                        rhythmLoads[(rate, arm)] = load = rhythmLoad(report);
+                    }
+                }
+                double rhythm = DifficultyMetricScale.Rhythm(load);
+                return (rhythm.ToString("0.00", CultureInfo.InvariantCulture), DifficultyMetricScale.BarLength(rhythm));
+            }
+
+            var baseRhythm = rhythmAt(1, LyricDifficulty.JudgementArm.None);
+            yield return new BeatmapStatistic
+            {
+                Name = "Rhythm",
+                Content = baseRhythm.Content,
+                CreateIcon = () => new SpriteIcon { Icon = FontAwesome.Solid.Music },
+                BarDisplayLength = baseRhythm.BarDisplayLength,
+                RateAdjusted = rate => rhythmAt(rate, LyricDifficulty.JudgementArm.None),
+                ModAdjusted = (rate, mods) => rhythmAt(rate, PerformancePoints.JudgementArmFor(mods)),
             };
         }
     }

@@ -8,6 +8,7 @@ using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Cursor;
+using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Localisation;
 using typebeat.Game.Beatmaps;
@@ -68,6 +69,7 @@ namespace typebeat.Game.Screens.Ranking.Expanded.Statistics
         private readonly CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
 
         private RollingCounter<int>? counter;
+        private OsuSpriteText? unavailableText;
 
         public PerformanceStatistic(ScoreInfo score)
             : base(BeatmapsetsStrings.ShowScoreboardHeaderspp)
@@ -96,7 +98,8 @@ namespace typebeat.Game.Screens.Ranking.Expanded.Statistics
             // The null-conditional covers a hand-built score carrying no ruleset reference, which
             // degrades to the dash. Showing nothing for a score we cannot ask about is the safe
             // direction; the old fallback was a hardcoded 0, which asserted something false.
-            => score.PP.HasValue || score.Ruleset?.CreateInstance().ScoreEarnsPerformancePoints(score) == true;
+            => score.Ruleset?.CreateInstance().ScoreSupportsPerformancePoints(score) != false
+               && (score.PP.HasValue || score.Ruleset?.CreateInstance().ScoreCanDisplayPerformancePoints(score) == true);
 
         [BackgroundDependencyLoader]
         private void load(BeatmapDifficultyCache difficultyCache, CancellationToken? cancellationToken)
@@ -112,7 +115,7 @@ namespace typebeat.Game.Screens.Ranking.Expanded.Statistics
             // gate is asked rather than ScoreEarnsPerformancePoints, because a stored value makes THAT
             // true even for a play the local gates refuse - and those are exactly the plays whose
             // archived number this surface must keep showing.
-            if (score.Ruleset?.CreateInstance().ScoreEarnsPerformancePoints(score) != true)
+            if (score.Ruleset?.CreateInstance().ScoreCanDisplayPerformancePoints(score) != true)
             {
                 if (score.PP is double archived)
                     performance.Value = toDisplayValue(archived);
@@ -133,6 +136,18 @@ namespace typebeat.Game.Screens.Ranking.Expanded.Statistics
                     if (score.PP is double archived)
                         Schedule(() => performance.Value = toDisplayValue(archived));
 
+                    return;
+                }
+
+                if (!attributes.Value.DifficultyAttributes.CanCalculatePerformance)
+                {
+                    Schedule(() =>
+                    {
+                        counter?.Hide();
+                        unavailableText?.Show();
+                        Alpha = 0.5f;
+                        TooltipText = "Performance calculation is not supported for this original script.";
+                    });
                     return;
                 }
 
@@ -170,10 +185,19 @@ namespace typebeat.Game.Screens.Ranking.Expanded.Statistics
                 };
             }
 
-            return counter = new StatisticCounter
+            return new Container
             {
-                Anchor = Anchor.TopCentre,
-                Origin = Anchor.TopCentre
+                AutoSizeAxes = Axes.Both,
+                Children = new Drawable[]
+                {
+                    counter = new StatisticCounter { Anchor = Anchor.TopCentre, Origin = Anchor.TopCentre },
+                    unavailableText = new OsuSpriteText
+                    {
+                        Anchor = Anchor.TopCentre, Origin = Anchor.TopCentre,
+                        Font = OsuFont.Torus.With(size: 20, weight: FontWeight.SemiBold),
+                        Text = INELIGIBLE_TEXT, Alpha = 0,
+                    },
+                },
             };
         }
     }

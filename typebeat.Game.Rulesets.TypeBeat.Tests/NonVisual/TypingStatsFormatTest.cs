@@ -51,6 +51,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 Assert.That(TypingStatsFormat.PaceLine(95.2, 70.4, 61.6), Is.EqualTo("Peak 95 · Target 70 · Avg 62"));
                 Assert.That(TypingStatsFormat.PaceLine(95, null, null), Is.EqualTo("Peak 95 · Target - · Avg -"));
+                Assert.That(TypingStatsFormat.PaceLine(40, 80, 70), Is.EqualTo("Peak 70 · Target 80 · Avg 70"), "the online peak shares the average floor");
+                Assert.That(TypingStatsFormat.PaceLine(70, 80, 70), Is.EqualTo("Peak 70 · Target 80 · Avg 70"));
+                Assert.That(TypingStatsFormat.PaceLine(null, 80, 70), Is.EqualTo("Peak - · Target 80 · Avg 70"), "a missing peak stays unknown");
             });
         }
 

@@ -178,6 +178,8 @@ namespace typebeat.Game.Screens.Play
         /// Whether failing should be allowed.
         /// By default, this checks whether all selected mods allow failing.
         /// </summary>
+        protected virtual System.Collections.Generic.IEnumerable<Mod> GetGameplayMods() => Mods.Value;
+
         protected virtual bool CheckModsAllowFailure() => GameplayState.Mods.OfType<IApplicableFailOverride>().All(m => m.PerformFail());
 
         public readonly PlayerConfiguration Configuration;
@@ -229,7 +231,7 @@ namespace typebeat.Game.Screens.Play
         [BackgroundDependencyLoader(true)]
         private void load(OsuConfigManager config, OsuGameBase game, CancellationToken cancellationToken)
         {
-            var gameplayMods = Mods.Value.Select(m => m.DeepClone()).ToArray();
+            var gameplayMods = GetGameplayMods().Select(m => m.DeepClone()).ToArray();
 
             if (gameplayMods.Any(m => m is UnknownMod))
             {

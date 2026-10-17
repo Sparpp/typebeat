@@ -13,8 +13,7 @@
 //     of "the value the SERVER stores" is the two implementations agreeing, which is pinned in
 //     typebeat-web/tests/Typebeat.WireCompat/PerformancePointsParityTest.cs.)
 //
-//  2. THE ELIGIBILITY GATE. A play that can never earn pp must show no number at all, never a
-//     number it cannot keep.
+//  2. THE DISPLAY GATE. Unranked mods show local estimates without changing ranked eligibility.
 
 using System.Collections.Generic;
 using System.Linq;
@@ -242,7 +241,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void AnUnrankedModPlayIsPricedAtNothingAtAll()
+        public void AnUnrankedModPlayShowsItsLocalPrice()
         {
             // Mashing is Mod.Ranked = false, which is exactly what makes the submission path store
             // the score ranked = false, which is what makes the server pay it nothing.
@@ -251,8 +250,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Multiple(() =>
             {
                 Assert.That(new TypeBeatModMashing().Ranked, Is.False, "the premise of the gate");
-                Assert.That(TypeBeatHudOverlay.StarRatingFor(beatmap, mods(new TypeBeatModMashing())), Is.Null);
-                Assert.That(TypeBeatHudOverlay.StarRatingFor(beatmap, mods(new TypeBeatModLiterate(), new TypeBeatModMashing())), Is.Null);
+                Assert.That(TypeBeatHudOverlay.StarRatingFor(beatmap, mods(new TypeBeatModMashing())), Is.GreaterThan(0));
+                Assert.That(TypeBeatHudOverlay.StarRatingFor(beatmap, mods(new TypeBeatModLiterate(), new TypeBeatModMashing())), Is.GreaterThan(0));
             });
         }
 
@@ -291,11 +290,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void TheLiveCounterStillDashesAnUnrankedModOnAnUnrankedMap()
+        public void TheLiveCounterPricesUnrankedModsOnUnrankedMaps()
         {
             // Dropping the map gate must not drop the mod gate with it: an unranked mod makes the
             // play worthless wherever it is set.
-            Assert.That(TypeBeatHudOverlay.StarRatingFor(playable(BeatmapOnlineStatus.Pending), mods(new TypeBeatModMashing())), Is.Null);
+            Assert.That(TypeBeatHudOverlay.StarRatingFor(playable(BeatmapOnlineStatus.Pending), mods(new TypeBeatModMashing())), Is.GreaterThan(0));
         }
 
         [TestCase(BeatmapOnlineStatus.Ranked)]

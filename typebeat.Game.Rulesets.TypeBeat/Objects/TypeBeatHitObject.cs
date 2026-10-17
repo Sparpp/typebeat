@@ -74,7 +74,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects
             // The engine's flattening (TypingLine.FromLyricLine) is the single source of truth for
             // per-cell target times; the nested objects mirror its typeable cells.
 
-            var typingLine = TypingLine.ForMods(Line, Literate, Polyglot, PolyglotLanguage);
+            var typingLine = TypingLine.ForMods(Line, Literate, Polyglot, PolyglotLanguage, japaneseCharacterTiming: true);
 
 
             for (int i = 0; i < typingLine.Cells.Count; i++)
@@ -92,7 +92,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects
                     LineIndex = LineIndex,
                     CellIndex = i,
                     Expected = cell.Expected,
+                    MinimumRomajiInputs = cell.MinimumRomajiInputs,
+                    JapaneseInputScoring = cell.MinimumRomajiInputs > 0,
                 });
+                if (cell.EndTargetTime is double endTarget)
+                    AddNested(new TypeBeatCharObject
+                    {
+                        StartTime = endTarget, LineIndex = LineIndex, CellIndex = i, Expected = cell.Expected, Phase = 1,
+                        ScoringEnabled = false,
+                    });
             }
         }
     }

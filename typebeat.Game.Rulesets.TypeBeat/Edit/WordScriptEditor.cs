@@ -35,8 +35,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// <item>The first column is the LINE's own original, the caption shown over the line
     /// (<see cref="TypeBeatEditorOperations.SetLineOriginal"/>).</item>
     /// </list>
-    /// <para>The '|' split and '&amp;' freestyle gestures stay on the line box, which edits the
-    /// romanised row as a whole.</para>
+    /// <para>Both script rows edit the same timed subdivisions with '|'.</para>
     /// </summary>
     public partial class WordScriptEditor : CompositeDrawable
     {
@@ -135,22 +134,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 },
             });
 
-            columns.Add(new ScriptColumn(hitObject.Line.Original ?? string.Empty, "line original", null, false,
-                upper => TypeBeatEditorOperations.SetLineOriginal(editorBeatmap, hitObject, upper), null, 180, resolvedLyricFont));
+            string? language = TypeBeatEditorOperations.OriginalSubdivisionLanguage(editorBeatmap, hitObject.Line);
+            columns.Add(new ScriptColumn(TypeBeatEditorOperations.OriginalPipeDisplayText(hitObject.Line, language) ?? string.Empty, "line original", null, false,
+                upper => TypeBeatEditorOperations.SetLineOriginal(editorBeatmap, hitObject, upper), null, 180, resolvedLyricFont, JapaneseReading.IsJapanese(language)));
 
             for (int i = 0; i < slots.Count; i++)
             {
                 int slot = i;
 
-                columns.Add(new ScriptColumn(slots[i].Original ?? string.Empty, "original", slots[i].Text, slots[i].Unromanised,
+                var unit = slots[i].UnitIndex is int index ? hitObject.Line.Units[index] : null;
+                columns.Add(new ScriptColumn(unit?.Original == null ? slots[i].Original ?? string.Empty : OriginalLyricSubdivisions.PipeText(unit, language, true), "original",
+                    unit == null ? slots[i].Text : OriginalLyricSubdivisions.PipeText(unit, language, false), slots[i].Unromanised,
                     upper => TypeBeatEditorOperations.SetWordOriginal(editorBeatmap, hitObject, slot, upper),
-                    lower => TypeBeatEditorOperations.SetWordText(editorBeatmap, hitObject, slot, lower), fontFamily: resolvedLyricFont));
+                    lower => TypeBeatEditorOperations.SetWordText(editorBeatmap, hitObject, slot, lower), fontFamily: resolvedLyricFont, japanese: JapaneseReading.IsJapanese(language)));
             }
         }
 
         private static string signatureOf(LyricLine line)
             => string.Join('\u0001', new[] { line.Original ?? string.Empty }
-                .Concat(TypeBeatEditorOperations.WordSlots(line).Select(s => $"{s.Original}\u0002{s.Text}\u0002{s.Unromanised}")));
+                .Concat(TypeBeatEditorOperations.WordSlots(line).Select(s => $"{s.Original != null}:{s.Original}\u0002{s.Text}\u0002{s.Unromanised}"))
+                .Concat(line.Units.Select(u => $"{string.Join(',', u.SyllableBoundaries)}:{string.Join(',', u.SyllableSplits)}:{string.Join(',', u.Pauses)}")));
 
         /// <summary>One column: an upper (original) box and, for a word, a lower (romanised) box.</summary>
         private partial class ScriptColumn : FillFlowContainer
@@ -161,7 +164,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             public bool HasFocusedBox => boxes.Any(b => b.HasFocus);
 
             public ScriptColumn(string upper, string upperPlaceholder, string? lower, bool unromanised,
-                                Func<string, bool> commitUpper, Func<string, bool>? commitLower, float? width = null, string? fontFamily = null)
+                                Func<string, bool> commitUpper, Func<string, bool>? commitLower, float? width = null, string? fontFamily = null, bool japanese = false)
             {
                 this.fontFamily = fontFamily;
                 Direction = FillDirection.Vertical;
@@ -169,7 +172,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 Width = width ?? Math.Clamp(Math.Max(upper.Length * 16, (lower ?? string.Empty).Length * 9) + 24, 70, 220);
                 Spacing = new Vector2(0, 2);
 
-                Add(box(upper, upperPlaceholder, commitUpper));
+                Add(box(upper, upperPlaceholder, commitUpper, japanese: japanese));
 
                 if (commitLower == null)
                     return;
@@ -190,7 +193,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     textBox.FontFamily = family;
             }
 
-            private OsuTextBox box(string text, string placeholder, Func<string, bool> commit, bool marked = false)
+            private OsuTextBox box(string text, string placeholder, Func<string, bool> commit, bool marked = false, bool japanese = false)
             {
                 var textBox = new ScriptTextBox(marked)
                 {
@@ -198,6 +201,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     Height = 26,
                     FontSize = 14,
                     FontFamily = fontFamily,
+                    IsJapaneseOriginal = () => japanese,
                     Text = text,
                     PlaceholderText = placeholder,
                     CommitOnFocusLost = true,
@@ -219,7 +223,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             }
         }
 
-        private partial class ScriptTextBox : OsuTextBox
+        private partial class ScriptTextBox : OriginalLyricTextBox
         {
             private readonly bool marked;
 

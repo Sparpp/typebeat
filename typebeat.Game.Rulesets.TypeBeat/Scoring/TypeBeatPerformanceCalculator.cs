@@ -1,56 +1,18 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System.Linq;
+using typebeat.Game.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.Difficulty;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Scoring;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 {
-    /// <summary>
-    /// The ruleset's osu-native pp entry point: prices a finished score from the difficulty
-    /// attributes the game already computed for it.
-    ///
-    /// <para>
-    /// It exists so the SHARED results-screen components work for type!beat instead of falling back
-    /// to a hardcoded 0: the score panel's pp readout
-    /// (<see cref="Screens.Ranking.Expanded.Statistics.PerformanceStatistic"/>) and the performance
-    /// breakdown chart both reach pp through <c>Ruleset.CreatePerformanceCalculator</c>, and both
-    /// showed nothing meaningful while it returned null.
-    /// </para>
-    ///
-    /// <para>
-    /// THE ARITHMETIC IS NOT DUPLICATED: this is a thin adapter over
-    /// <see cref="PerformancePoints"/>, the calculator that is pinned byte-for-byte against the
-    /// server's. The one thing it contributes is the star rating, and it takes that from
-    /// <see cref="DifficultyAttributes.StarRating"/>, which <see cref="TypeBeatDifficultyCalculator"/>
-    /// already produces by running <see cref="LyricDifficulty"/> at the play's clock rate. For every
-    /// play that can earn pp that is the same rating <see cref="PerformancePointsDisplay"/> computes
-    /// and the same one the server stores, because all three are the same pass over the same lines
-    /// at the same rate.
-    /// </para>
-    ///
-    /// <para>
-    /// RATE ELIGIBILITY is re-applied here rather than trusted from the attributes, and this is the
-    /// one place the two rating sources can differ. The difficulty calculator rates a play at
-    /// WHATEVER rate it was played at, including a custom 1.75x; docs/pp.md prices only the base
-    /// rates (DT/NC 1.50x, HT 0.75x) and pays a custom rate nothing at all. Pricing off the
-    /// attributes blindly would therefore invent pp for a play the server refuses to pay for, so a
-    /// rate-ineligible play returns 0 here. Display surfaces do not show that 0: they gate on
-    /// <see cref="TypeBeatRuleset.ScoreEarnsPerformancePoints"/> first and print a dash instead. The
-    /// 0 is what an unguarded consumer (the performance breakdown chart) gets, and it is the honest
-    /// answer for one: this play earns nothing.
-    /// </para>
-    ///
-    /// <para>
-    /// HALF TIME NEEDS NOTHING EXTRA out of the attributes since backlog 265. From backlog 90 until
-    /// then a base-rate HT play was also priced by a mirror multiplier, a function of the map at
-    /// three rates where this method is handed exactly one, so the rating travelled in a
-    /// <c>TypeBeatDifficultyAttributes</c> subclass that carried the multiplier beside it. That
-    /// term is gone and so is the subclass: the rating IS the price, and the score panel and the
-    /// results table cannot disagree about a number neither of them applies.
-    /// </para>
-    /// </summary>
+    /// <summary>Prices a score from its current difficulty attributes, including local estimates
+    /// for unranked mods. The difficulty calculator supplies the played input stream's SR,
+    /// difficult-character count and duration; ranked eligibility is handled separately.</summary>
     public class TypeBeatPerformanceCalculator : PerformanceCalculator
     {
         public TypeBeatPerformanceCalculator(Ruleset ruleset)
@@ -60,7 +22,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
         protected override PerformanceAttributes CreatePerformanceAttributes(ScoreInfo score, DifficultyAttributes attributes)
         {
-            double stars = PerformancePoints.EligibleRate(score.Mods) == null ? 0 : attributes.StarRating;
+            double stars = PerformancePointsDisplay.RateFor(score.Mods) == null
+                           || !attributes.CanCalculatePerformance
+                           || !PolyglotRatingSupport.SupportsDeclaredLanguage(score.BeatmapInfo?.Metadata.Language ?? Game.Beatmaps.BeatmapLanguage.Unspecified, score.Mods) ? 0 : attributes.StarRating;
 
             // The difficult-character count rides on the attributes because only the difficulty pass
             // can see the map's lyric lines; a stack that is not the ruleset's own (a test harness
@@ -72,7 +36,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             return new PerformanceAttributes
             {
                 Total = PerformancePoints.ForPlay(stars, counts, score.Accuracy, score.MaxCombo, score.Mods,
-                    attributes is TypeBeatDifficultyAttributes durationAttributes ? durationAttributes.PlayedDurationSeconds : double.PositiveInfinity),
+                    attributes is TypeBeatDifficultyAttributes durationAttributes ? durationAttributes.PlayedDurationSeconds : double.PositiveInfinity,
+                    attributes.MaxCombo > 0 && score.BeatmapInfo?.Metadata.Language == BeatmapLanguage.Japanese && score.Mods.OfType<TypeBeatModPolyglot>().Any()
+                        ? attributes.MaxCombo : null),
             };
         }
     }

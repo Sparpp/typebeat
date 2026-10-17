@@ -44,9 +44,9 @@ namespace typebeat.Game.Screens.Select
                         return;
 
                     // The curve is raw WPM; normalising it for display is this end's job. Scaling by
-                    // the peak (which is by construction the curve's own maximum) keeps the tallest
-                    // bar full height whatever the map's absolute speed.
-                    double peak = value.PeakWpm;
+                    // its own maximum keeps the tallest bar full height even when the displayed
+                    // peak is raised to the average.
+                    double peak = value.WpmCurve.DefaultIfEmpty(0).Max();
 
                     wpmGraph.Data = value.WpmCurve.Select(v => peak <= 0 ? 0 : (float)(v / peak)).ToArray();
 

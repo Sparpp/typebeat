@@ -86,7 +86,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
         [TestCase(0.5)]
         [TestCase(1.5)]
-        public void EditorCountersUseTheSelectedPlaybackRate(double editorRate)
+        public void EditorCountersUseTheBuildSpecificPlaybackRate(double editorRate)
         {
             AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
             AddStep("choose editor playback speed", () =>
@@ -104,7 +104,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                     new KeyBindingPressEvent<GlobalAction>(new InputState(), GlobalAction.EditorTestPlayToggleAutoplay)));
             AddUntilStep("every cell typed", () =>
                 playfield()!.Engine.Lines[0].Cells.Where(c => c.IsTypeable).All(c => c.State == CellState.Correct));
+#if DEBUG
+            const double expectedRate = 1;
+#else
             double expectedRate = editorRate;
+#endif
             string expectedPp = "", expectedWpm = "";
             AddStep("calculate expected counters at the selected rate", () =>
             {

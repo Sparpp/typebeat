@@ -305,6 +305,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// it ticked under local automatic alignment never writes it.
         /// </summary>
         IsolateVocalsOnImport,
+
+        /// <summary>Fade or fill each character at its Autoplay hit time. Display only.</summary>
+        CharacterIndicatorTiming,
     }
 
     /// <summary>
@@ -416,6 +419,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         // in the constructor body, after the base constructor has finished virtual initialization.
         private readonly Bindable<bool> approachBarsBindable;
         private readonly Bindable<float> paceColourGradientBindable;
+        private readonly Bindable<bool> characterIndicatorTimingBindable;
+        private readonly Bindable<float> indicatorAlignmentBindable;
 
         /// <summary>
         /// The caret style a NEW install starts on. Changing this cannot disturb an existing player, and the reason is
@@ -467,6 +472,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
 
                 paceColourGradientBindable.Disabled = change.NewValue;
             }, true);
+
+            characterIndicatorTimingBindable = GetBindable<bool>(TypeBeatRulesetSetting.CharacterIndicatorTiming);
+            indicatorAlignmentBindable = GetBindable<float>(TypeBeatRulesetSetting.SyllableFadeInEnd);
+            characterIndicatorTimingBindable.BindValueChanged(change => indicatorAlignmentBindable.Disabled = change.NewValue, true);
         }
 
         // Run before the base constructor loads and parses any stored setting. A default alone
@@ -619,6 +628,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.PaceBarReveal, PaceBarRevealMode.Off);
             SetDefault(TypeBeatRulesetSetting.JudgementColouredBars, false);
             SetDefault(TypeBeatRulesetSetting.LinePushWarningEdges, false);
+            SetDefault(TypeBeatRulesetSetting.CharacterIndicatorTiming, false);
             SetDefault(TypeBeatRulesetSetting.IndicatorDefaultsApplied, true);
             SetDefault(TypeBeatRulesetSetting.UseServerAligner, false);
             SetDefault(TypeBeatRulesetSetting.IsolateVocalsOnImport, true);

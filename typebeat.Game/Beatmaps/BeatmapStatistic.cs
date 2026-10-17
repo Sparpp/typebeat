@@ -4,8 +4,10 @@
 #nullable disable
 
 using System;
+using System.Collections.Generic;
 using osu.Framework.Graphics;
 using osu.Framework.Localisation;
+using typebeat.Game.Rulesets.Mods;
 
 namespace typebeat.Game.Beatmaps
 {
@@ -38,5 +40,12 @@ namespace typebeat.Game.Beatmaps
         /// as mods are toggled. Leave null for rate-independent statistics (they stay as authored).
         /// </summary>
         public Func<double, (string Content, float? BarDisplayLength)> RateAdjusted;
+
+        /// <summary>Optional display calculation for mods that change timing without changing the clock.</summary>
+        public Func<double, IReadOnlyList<Mod>, (string Content, float? BarDisplayLength)> ModAdjusted;
+
+        public (string Content, float? BarDisplayLength) GetDisplayValue(double rate, IReadOnlyList<Mod> mods)
+            => ModAdjusted != null ? ModAdjusted(rate, mods)
+                : RateAdjusted != null ? RateAdjusted(rate) : (Content, BarDisplayLength);
     }
 }

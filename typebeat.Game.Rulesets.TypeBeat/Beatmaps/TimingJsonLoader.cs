@@ -216,6 +216,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             var wordSplits = new List<List<int>>();
             var wordPauses = new List<List<(double Start, double End, int Split)>>();
             var wordOriginals = new List<string?>();
+            var wordOriginalSplits = new List<List<OriginalLyricSplit>>();
 
             if (lineElement.TryGetProperty("words", out JsonElement wordsElement)
                 && wordsElement.ValueKind == JsonValueKind.Array)
@@ -272,6 +273,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     words.Add((wordText, ws, we, score, syllables));
                     wordSplits.Add(splitChars);
                     wordOriginals.Add(readOriginal(wordElement));
+                    var originalSplits = new List<OriginalLyricSplit>();
+                    if (wordElement.TryGetProperty("original_splits", out var links) && links.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var link in links.EnumerateArray())
+                        {
+                            if (link.ValueKind == JsonValueKind.Array && link.GetArrayLength() == 2
+                                && tryGetInt(link[0], out int textIndex) && tryGetInt(link[1], out int originalIndex))
+                                originalSplits.Add(new OriginalLyricSplit(textIndex, originalIndex));
+                        }
+                    }
+                    wordOriginalSplits.Add(originalSplits);
 
                     // THE AUTHORED PAUSES (type!beat editor extension): the rests inside the word, read
                     // RAW here and validated against the CLAMPED word in buildExplicitUnits, exactly as
@@ -323,7 +335,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 wordSplits.Exists(s => s.Count > 0) ? wordSplits : null,
                 wordPauses.Exists(p => p.Count > 0) ? wordPauses : null,
                 lineOriginal,
-                wordOriginals.Exists(o => o != null) ? wordOriginals : null);
+                wordOriginals.Exists(o => o != null) ? wordOriginals : null,
+                wordOriginalSplits.Exists(o => o.Count > 0) ? wordOriginalSplits : null);
             return true;
         }
 
@@ -347,11 +360,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             return false;
         }
 
-        /// <summary>The object's optional <c>original</c> string (backlog 330), or null when absent, empty or not a string.</summary>
+        /// <summary>The object's optional <c>original</c> string (backlog 330), including an empty editor placeholder, or null when absent or not a string.</summary>
         private static string? readOriginal(JsonElement element)
             => element.TryGetProperty("original", out JsonElement originalElement)
                && originalElement.ValueKind == JsonValueKind.String
-               && originalElement.GetString() is { Length: > 0 } original
+               && originalElement.GetString() is string original
                 ? original
                 : null;
 
@@ -428,6 +441,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 if (tokens.Length == paired.Words.Count && tokens.Length > 0)
                 {
                     units = buildExplicitUnits(tokens, paired.Words, paired.WordSplits, paired.WordPauses, pipes, start, end, paired.WordOriginals);
+                    if (line.WordOriginalSplits != null)
+                    {
+                        var links = line.WordOriginalSplits.Where((_, index) => !IsUnromanisedWord(line, index)).ToArray();
+                        units = units.Select((unit, index) => index < links.Length
+                            ? OriginalLyricSubdivisions.WithExplicit(unit, links[index]) : unit).ToArray();
+                    }
                 }
                 else
                 {
@@ -633,7 +652,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     SyllableSplits = keptSplits,
                     Pauses = keptPauses,
                     // Display data only (backlog 330); kept exactly as written.
-                    Original = wordOriginals != null && m < wordOriginals.Count && wordOriginals[m] != tokens[m] ? wordOriginals[m] : null,
+                    Original = wordOriginals != null && m < wordOriginals.Count ? wordOriginals[m] : null,
                 });
 
                 prevEnd = we;
@@ -688,6 +707,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             List<List<int>>? WordSplits = null,
             List<List<(double Start, double End, int Split)>>? WordPauses = null,
             string? Original = null,
-            List<string?>? WordOriginals = null);
+            List<string?>? WordOriginals = null,
+            List<List<OriginalLyricSplit>>? WordOriginalSplits = null);
     }
 }

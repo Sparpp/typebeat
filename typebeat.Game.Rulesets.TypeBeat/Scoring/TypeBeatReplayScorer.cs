@@ -281,6 +281,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // Mods BEFORE the beatmap: ApplyBeatmap stores MaximumTotalScore, which is computed
             // through the score multiplier (ScoreProcessor.ApplyBeatmap's own note).
             scoreProcessor.Mods.Value = mods;
+            bool japaneseCharacterTiming = replay.Frames.OfType<TypeBeatReplayFrame>().FirstOrDefault(f => f.IsConfigExtended)?.JapaneseCharacterTiming == true;
+            bool japaneseInputScoring = replay.Frames.OfType<TypeBeatReplayFrame>().FirstOrDefault(f => f.IsConfigExtended)?.JapaneseInputScoring == true;
+            foreach (var cell in lineObjects.SelectMany(l => l.NestedHitObjects.OfType<TypeBeatCharObject>()))
+                cell.ConfigureJapaneseScoring(japaneseCharacterTiming, japaneseInputScoring);
             scoreProcessor.ApplyBeatmap(playable);
 
             var cells = new CellRegistry(lineObjects);
@@ -288,7 +292,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             void onCharJudged(CharJudgement judgement)
             {
                 if (TypeBeatResultMapping.CellResult(judgement.Type, rule, offTimeRule) is HitResult result)
-                    cells.Resolve(scoreProcessor, judgement.LineIndex, judgement.CellIndex, result);
+                    cells.Resolve(scoreProcessor, judgement.LineIndex, judgement.CellIndex, result, judgement.Phase,
+                        judgement.Inputs?.Select(i => TypeBeatResultMapping.CellResult(i.Type, rule, offTimeRule) ?? HitResult.Miss).ToArray(), judgement.Upgraded, judgement.Delta);
 
                 // The pre-347 rush cap's hand-mirrored break (TypeBeatPlayfield.onCharJudged). Under
                 // RushCapCostsAccuracy an over-cap press is an ordinary Meh that credits combo on
@@ -688,18 +693,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                     var line = new LineCells(lineObject);
 
                     foreach (var nested in lineObject.NestedHitObjects.OfType<TypeBeatCharObject>())
-                        line.Cells[nested.CellIndex] = new Cell(nested);
+                        line.Cells[(nested.CellIndex, nested.Phase)] = new Cell(nested);
 
                     lines[lineObject.LineIndex] = line;
                 }
             }
 
-            public void Resolve(ScoreProcessor scoreProcessor, int lineIndex, int cellIndex, HitResult result)
+            public void Resolve(ScoreProcessor scoreProcessor, int lineIndex, int cellIndex, HitResult result, int phase = 0, IReadOnlyList<HitResult>? inputs = null, bool upgraded = false, double? delta = null)
             {
-                if (!lines.TryGetValue(lineIndex, out var line) || !line.Cells.TryGetValue(cellIndex, out var cell))
+                if (!lines.TryGetValue(lineIndex, out var line) || !line.Cells.TryGetValue((cellIndex, phase), out var cell))
                     return;
 
-                cell.Apply(scoreProcessor, result);
+                cell.Apply(scoreProcessor, result, inputs, upgraded, delta);
             }
 
             public void Seal(ScoreProcessor scoreProcessor, int lineIndex, TypingEngine engine, TypoRule rule)
@@ -707,12 +712,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                 if (!lines.TryGetValue(lineIndex, out var line))
                     return;
 
-                foreach ((int cellIndex, var cell) in line.Cells)
+                foreach ((var key, var cell) in line.Cells)
                 {
                     if (cell.Judged)
                         continue;
 
-                    var result = TypeBeatResultMapping.UnresolvedCellResult(engine.CellLeftWrong(lineIndex, cellIndex), rule);
+                    int cellIndex = key.Cell;
+                    var result = !cell.Enabled ? HitResult.IgnoreHit : engine.IsJapaneseCharacter(lineIndex, cellIndex) ? HitResult.Miss
+                        : TypeBeatResultMapping.UnresolvedCellResult(engine.CellLeftWrong(lineIndex, cellIndex), rule);
 
                     // A MISS joins the unfixed typo on the combo-neutral ledger under backlog 259's
                     // rule, for the same reason the typo is on it: its break has already been taken
@@ -738,7 +745,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             /// combo it finds. Ascending cell order is what
             /// <c>DrawableTypeBeatHitObject.ApplySealResults</c> walks, and the two have to agree.
             /// </summary>
-            public readonly SortedDictionary<int, Cell> Cells = new SortedDictionary<int, Cell>();
+            public readonly SortedDictionary<(int Cell, int Phase), Cell> Cells = new SortedDictionary<(int Cell, int Phase), Cell>();
 
             private readonly Slot slot = new Slot(lineObject);
 
@@ -747,12 +754,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
         private sealed class Cell(TypeBeatCharObject charObject)
         {
+            public bool Enabled => charObject.ScoringEnabled;
             private readonly Slot slot = new Slot(charObject);
 
             /// <summary><c>DrawableHitObject.Judged</c>: this cell has already taken its one result.</summary>
             public bool Judged => slot.Judged;
 
-            public void Apply(ScoreProcessor scoreProcessor, HitResult result) => slot.Apply(scoreProcessor, result);
+            public void Apply(ScoreProcessor scoreProcessor, HitResult result, IReadOnlyList<HitResult>? inputs = null, bool upgraded = false, double? delta = null) => slot.Apply(scoreProcessor, result, inputs, upgraded, delta);
         }
 
         /// <summary>
@@ -762,19 +770,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// </summary>
         private sealed class Slot(HitObject hitObject)
         {
-            private readonly JudgementResult result = new JudgementResult(hitObject, hitObject.Judgement);
+            private readonly TypeBeatJapaneseJudgementResult result = new TypeBeatJapaneseJudgementResult(hitObject, hitObject.Judgement);
 
             private bool judged;
 
             public bool Judged => judged;
 
-            public void Apply(ScoreProcessor scoreProcessor, HitResult hitResult)
+            public void Apply(ScoreProcessor scoreProcessor, HitResult hitResult, IReadOnlyList<HitResult>? inputs = null, bool upgraded = false, double? delta = null)
             {
                 if (judged)
+                {
+                    if (upgraded && scoreProcessor is TypeBeatScoreProcessor processor)
+                        processor.UpdateCellResult(result, hitResult, delta, inputs);
                     return;
+                }
 
                 judged = true;
                 result.Type = hitResult;
+                result.InputResults = inputs;
+                result.JudgedTimeOffset = delta;
                 scoreProcessor.ApplyResult(result);
             }
         }

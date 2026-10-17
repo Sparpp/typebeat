@@ -72,10 +72,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void AmbiguousWordBoundariesUseTheLineOriginal()
+        public void PhoneticParticleAliasesStillMapOriginalWordBoundaries()
         {
             Assert.That(OriginalLyricGenerator.MatchWords(line("konnichiwa sekai"), "こんにちは世界", BeatmapLanguage.Japanese),
-                Is.EqualTo(new string?[] { null, null }));
+                Is.EqualTo(new string?[] { "こんにちは", "世界" }));
         }
 
         [Test]
@@ -198,8 +198,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(TypeBeatEditorOperations.AddGeneratedOriginals(map, targets, snapshot, originals), Is.EqualTo(1));
             Assert.That(target.Line.Units.Select(u => u.Original), Is.EqualTo(new[] { "不安", "定", "に" }));
             Assert.That(JapaneseInputPlan.Create("不安定に", target.Line).Groups.Any(g => g.Reading == "てい"), Is.True);
-            Assert.That(target.Line.Units.Select(u => (u.Text, u.StartTime, u.EndTime, u.SyllableSplits)),
-                Is.EqualTo(snapshot[0].Units.Select(u => (u.Text, u.StartTime, u.EndTime, u.SyllableSplits))));
+            Assert.That(target.Line.Units.Select(u => (u.Text, u.StartTime, u.EndTime)),
+                Is.EqualTo(snapshot[0].Units.Select(u => (u.Text, u.StartTime, u.EndTime))));
+            Assert.That(target.Line.Units[0].SyllableSplits, Is.EqualTo(snapshot[0].Units[0].SyllableSplits));
+            Assert.That(target.Line.Units[1].SyllableSplits, Is.EqualTo(snapshot[0].Units[1].SyllableSplits));
+            Assert.That(target.Line.Units[1].SyllableBoundaries, Is.EqualTo(snapshot[0].Units[1].SyllableBoundaries));
+            Assert.That(OriginalLyricSubdivisions.PipeText(target.Line.Units[1], "japanese", true), Is.EqualTo("定"));
         }
 
         [Test]

@@ -113,7 +113,7 @@ namespace typebeat.Game.Screens.Play
             // A LOCAL-ONLY mod (backlog 331) takes the very same path: no token is ever requested, so
             // nothing can be submitted, and the play is still imported into the local score list with
             // its replay by Player, which never looks at the token.
-            if (IsLocalOnly(Mods.Value))
+            if (IsLocalOnly(Mods.Value, Beatmap.Value.BeatmapInfo))
             {
                 handleTokenFailure(new InvalidOperationException("Local-only mod selected."));
                 return false;
@@ -184,10 +184,10 @@ namespace typebeat.Game.Screens.Play
         }
 
         /// <summary>
-        /// Whether a play under <paramref name="mods"/> stays on this device (<see cref="Mod.LocalOnly"/>):
+        /// Whether a play under <paramref name="mods"/> on <paramref name="beatmap"/> stays on this device:
         /// it requests no token and submits nothing.
         /// </summary>
-        public static bool IsLocalOnly(IEnumerable<Mod> mods) => mods.Any(m => m.LocalOnly);
+        public static bool IsLocalOnly(IEnumerable<Mod> mods, BeatmapInfo beatmap = null) => mods.Any(m => m.IsLocalOnlyFor(beatmap));
 
         /// <summary>
         /// Run one token request through to completion, populating <see cref="token"/> on success.

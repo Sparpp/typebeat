@@ -165,6 +165,9 @@ namespace typebeat.Game.Screens.Edit.GameplayTest
             // don't record replays.
         }
 
+        protected override System.Collections.Generic.IEnumerable<Mod> GetGameplayMods()
+            => base.GetGameplayMods().Where(m => !editor.TestGameplayMods.Any(t => t.GetType() == m.GetType())).Concat(editor.TestGameplayMods);
+
         protected override bool CheckModsAllowFailure() => false; // never fail.
 
         public bool OnPressed(KeyBindingPressEvent<GlobalAction> e)

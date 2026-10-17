@@ -177,7 +177,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             if (!PerformanceStatistic.ScoreEarnsPerformancePoints(score))
                 return null;
 
-            if (score.Ruleset?.CreateInstance().ScoreEarnsPerformancePoints(score) != true)
+            if (score.Ruleset?.CreateInstance().ScoreCanDisplayPerformancePoints(score) != true)
                 return score.PP;
 
             if (beatmap == null)
@@ -391,7 +391,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         // 0 sitting in its scores.pp column never reaches the client to be mistaken for a price.
 
         [Test]
-        public void AnUnrankedModPlayReadsAsIneligible()
+        public void AnUnrankedModPlayShowsItsLocalPrice()
         {
             var beatmap = playable();
             var (score, _) = play(beatmap, mods(new TypeBeatModMashing()));
@@ -399,7 +399,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Multiple(() =>
             {
                 Assert.That(new TypeBeatModMashing().Ranked, Is.False, "the premise of the gate");
-                Assert.That(ppRow(score, beatmap), Is.Null);
+                Assert.That(ppRow(score, beatmap), Is.GreaterThan(0));
+                Assert.That(score.Ruleset.CreateInstance().ScoreEarnsPerformancePoints(score), Is.False);
             });
         }
 
@@ -482,7 +483,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             customRate.SpeedChange.Value = 1.75;
             yield return new TestCaseData("ineligible: custom rate", play(ranked, mods(customRate)).Score, ranked);
 
-            yield return new TestCaseData("ineligible: unranked mod", play(ranked, mods(new TypeBeatModMashing())).Score, ranked);
+            yield return new TestCaseData("unranked mod priced locally", play(ranked, mods(new TypeBeatModMashing())).Score, ranked);
 
             var wip = playable(BeatmapOnlineStatus.WIP);
             yield return new TestCaseData("ineligible: map grants no pp", play(wip).Score, wip);
@@ -523,8 +524,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(values.Count(v => v != null), Is.EqualTo(4), "four priced states");
-                Assert.That(values.Count(v => v == null), Is.EqualTo(4), "four ineligible states");
+                Assert.That(values.Count(v => v != null), Is.EqualTo(5), "five priced states");
+                Assert.That(values.Count(v => v == null), Is.EqualTo(3), "three ineligible states");
                 Assert.That(values.Where(v => v != null).Distinct().Count(), Is.GreaterThan(1), "and the prices are not all the same number");
             });
         }
@@ -550,11 +551,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Multiple(() =>
             {
                 Assert.That(PerformancePointsDisplay.Eligible(eligible), Is.True);
-                Assert.That(PerformancePointsDisplay.Eligible(ineligible), Is.False);
+                Assert.That(PerformancePointsDisplay.Eligible(ineligible), Is.True);
 
-                Assert.That(eligible.Ruleset.CreateInstance().ScoreEarnsPerformancePoints(eligible),
+                Assert.That(eligible.Ruleset.CreateInstance().ScoreCanDisplayPerformancePoints(eligible),
                     Is.EqualTo(PerformancePointsDisplay.Eligible(eligible)));
-                Assert.That(ineligible.Ruleset.CreateInstance().ScoreEarnsPerformancePoints(ineligible),
+                Assert.That(ineligible.Ruleset.CreateInstance().ScoreCanDisplayPerformancePoints(ineligible),
                     Is.EqualTo(PerformancePointsDisplay.Eligible(ineligible)));
             });
         }

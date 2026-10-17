@@ -60,8 +60,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private readonly OsuScrollContainer scroll;
         private readonly Container listArea;
         private readonly RoundedButton lyricViewButton;
+        private readonly RoundedButton addOriginalButton;
         private readonly List<TypeBeatHitObject> displayed = new List<TypeBeatHitObject>();
-        private bool? lastToggleAvailable;
         private BeatmapLanguage? lastCheckedLanguage;
         private int lastCheckedRevision = -1;
         private readonly EditorLyricFontResolutionCache lyricFontResolution = new EditorLyricFontResolutionCache();
@@ -100,6 +100,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                             Spacing = new Vector2(0, 2),
                             Padding = new MarginPadding(4),
                         },
+                    },
+                },
+                addOriginalButton = new RoundedButton
+                {
+                    Anchor = Anchor.TopRight,
+                    Origin = Anchor.TopRight,
+                    Position = new Vector2(-182, 4),
+                    Width = 158,
+                    Height = 28,
+                    Text = "Add original script",
+                    TooltipText = "Add an empty original-script field for each word, ready for Polyglot lyrics.",
+                    Alpha = 0,
+                    Action = () =>
+                    {
+                        foreach (LineRow row in rows)
+                            row.CommitPendingText();
+                        TypeBeatEditorOperations.AddOriginalScript(editorBeatmap);
+                        state.ShowOriginalLyrics.Value = true;
                     },
                 },
                 lyricViewButton = new RoundedButton
@@ -154,6 +172,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             if (lastCheckedRevision != snapshot.Revision || lastCheckedLanguage != language)
             {
+                bool canAddOriginal = language is not (BeatmapLanguage.English or BeatmapLanguage.Instrumental);
+                addOriginalButton.Alpha = canAddOriginal ? 1 : 0;
+                addOriginalButton.Enabled.Value = canAddOriginal && current.Any(h => h.Line.Units.Any(u => u.Original == null));
                 bool canShowOriginal = language != BeatmapLanguage.English
                                        && language != BeatmapLanguage.Instrumental
                                        && current.Any(h => h.Line.Original != null || h.Line.UnromanisedWords.Count > 0
@@ -162,14 +183,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 if (!canShowOriginal && state.ShowOriginalLyrics.Value)
                     state.ShowOriginalLyrics.Value = false;
 
-                if (lastToggleAvailable != canShowOriginal)
-                {
-                    listArea.Padding = new MarginPadding { Top = canShowOriginal ? 36 : 0 };
-                    lyricViewButton.Alpha = canShowOriginal ? 1 : 0;
-                    lyricViewButton.Enabled.Value = canShowOriginal;
-                    lastToggleAvailable = canShowOriginal;
-                }
+                lyricViewButton.Enabled.Value = canShowOriginal;
 
+                listArea.Padding = new MarginPadding { Top = canAddOriginal ? 36 : 0 };
+                lyricViewButton.Alpha = canAddOriginal ? 1 : 0;
                 lastCheckedLanguage = language;
                 lastCheckedRevision = snapshot.Revision;
             }
@@ -526,6 +543,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                 FontFamily = lyricFontFamily,
                                 CommitOnFocusLost = true,
                                 CommittedText = committedText,
+                                IsJapaneseOriginal = () => state.ShowOriginalLyrics.Value && JapaneseReading.IsJapanese(TypeBeatEditorOperations.OriginalSubdivisionLanguage(editorBeatmap, HitObject.Line)),
                             },
                         },
                     },
@@ -544,8 +562,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 if (state.ShowOriginalLyrics.Value)
                 {
-                    // Use the same operation as the script editor's line-original field.
-                    // This leaves the romanized words and their timing intact.
                     TypeBeatEditorOperations.SetLineOriginal(editorBeatmap, HitObject, textBox.Text);
                     textBox.Text = committedText();
                     return;
@@ -555,14 +571,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 {
                     // Normalized to empty; refuse and flash (delete the line instead). The pipe form
                     // while the box still has focus; at rest, Update puts the rest view back.
-                    textBox.Text = textBox.HasFocus ? TypeBeatEditorOperations.PipeDisplayText(HitObject.Line) : restText;
+                    textBox.Text = textBox.HasFocus ? committedText() : restText;
                     background.FlashColour(TypeBeatStyle.ErrorChar, 400, Easing.OutQuint);
                 }
             }
 
             private string committedText() => state.ShowOriginalLyrics.Value
-                ? TypeBeatEditorOperations.OriginalCaption(HitObject.Line) ?? TypeBeatEditorOperations.PipeDisplayText(HitObject.Line)
-                : TypeBeatEditorOperations.PipeDisplayText(HitObject.Line);
+                ? TypeBeatEditorOperations.OriginalPipeDisplayText(HitObject.Line, TypeBeatEditorOperations.OriginalSubdivisionLanguage(editorBeatmap, HitObject.Line))
+                    ?? TypeBeatEditorOperations.PipeDisplayText(HitObject.Line, TypeBeatEditorOperations.OriginalSubdivisionLanguage(editorBeatmap, HitObject.Line))
+                : TypeBeatEditorOperations.PipeDisplayText(HitObject.Line, TypeBeatEditorOperations.OriginalSubdivisionLanguage(editorBeatmap, HitObject.Line));
 
             /// <summary>Commits a focused edit before the view button changes the row's text.</summary>
             public void CommitPendingText()
@@ -609,16 +626,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     // how it is edited (see TypeBeatEditorOperations.SetLineText). The pipe is a
                     // reserved character of this surface only; it is stripped on commit and never
                     // reaches the stored lyric or a gameplay cell.
-                    string romanized = TypeBeatEditorOperations.PipeDisplayText(line);
-                    string? original = TypeBeatEditorOperations.OriginalCaption(line);
+                    string? language = TypeBeatEditorOperations.OriginalSubdivisionLanguage(editorBeatmap, line);
+                    string romanized = TypeBeatEditorOperations.PipeDisplayText(line, language);
+                    string? original = TypeBeatEditorOperations.OriginalPipeDisplayText(line, language);
                     bool originalView = showOriginal && original != null;
                     display = originalView ? original! : romanized;
                     caption = originalView ? $"Romanized: {romanized}" : captionFor(line);
 
                     // At rest the box spells the words as gameplay does and marks each split with
                     // gameplay's triangle in the gap; the pipe form comes back only on focus.
-                    restText = originalView ? display : RestTextOf(romanized);
-                    restGaps = originalView ? Array.Empty<int>() : RestGapsOf(romanized);
+                    restText = RestTextOf(display);
+                    restGaps = RestGapsOf(display);
                     textBox.SetRestGaps(restGaps);
 
                     builtLine = line;
@@ -735,7 +753,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             /// framework records it as the last committed text), and the row's commit compares
             /// against the pipe form, so a focus gain alone never edits the line.</para>
             /// </summary>
-            private partial class LineTextBox : OsuTextBox
+            private partial class LineTextBox : OriginalLyricTextBox
             {
                 /// <summary>The line's committed pipe-form text, the value an in-progress edit reverts to.</summary>
                 public Func<string> CommittedText { get; init; } = () => string.Empty;

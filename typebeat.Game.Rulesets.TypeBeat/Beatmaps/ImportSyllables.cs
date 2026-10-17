@@ -7,7 +7,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json.Nodes;
+using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
+using typebeat.Game.Rulesets.TypeBeat.Import;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 {
@@ -86,7 +88,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         /// <summary><paramref name="unit"/> with its natural subdivision written in, or the unit itself when it takes none.</summary>
-        public static TimedUnit Apply(TimedUnit unit)
+        public static TimedUnit Apply(TimedUnit unit, string? language = null)
         {
             if (unit.SyllableBoundaries.Count > 0 || unit.Pauses.Count > 0)
                 return unit;
@@ -98,7 +100,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             var (boundaries, splits) = subdivision.Value;
 
-            return new TimedUnit
+            var generated = new TimedUnit
             {
                 Text = unit.Text,
                 StartTime = unit.StartTime,
@@ -110,20 +112,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Pauses = unit.Pauses,
                 Original = unit.Original,
             };
+            return OriginalLyricSubdivisions.AlignAutomaticCuts(generated, language ?? LyricOriginals.DetectLanguage(new[] { unit.Original }));
         }
 
         /// <summary>
         /// <paramref name="lines"/> with every word the rule applies to subdivided (see the class
         /// summary). A line none of whose words changes is returned as the same object.
         /// </summary>
-        public static IReadOnlyList<LyricLine> Apply(IReadOnlyList<LyricLine> lines)
+        public static IReadOnlyList<LyricLine> Apply(IReadOnlyList<LyricLine> lines, string? language = null)
         {
             var result = new LyricLine[lines.Count];
 
             for (int i = 0; i < lines.Count; i++)
             {
                 var line = lines[i];
-                var units = line.Units.Select(Apply).ToArray();
+                string? lineLanguage = language ?? LyricOriginals.DetectLanguage(new[] { line.Original }.Concat(line.Units.Select(u => u.Original)));
+                var originals = !string.IsNullOrWhiteSpace(line.Original) && line.Units.Any(u => u.Original == null)
+                    ? OriginalLyricGenerator.MatchWords(line, line.Original, BeatmapLanguageExtensions.FromCanonicalName(lineLanguage))
+                    : new string?[line.Units.Count];
+                var units = line.Units.Select((u, index) => Apply(u.Original == null && originals[index] != null
+                    ? LrcParser.WithOriginal(u, originals[index]) : u, lineLanguage)).ToArray();
 
                 result[i] = units.Where((u, m) => !ReferenceEquals(u, line.Units[m])).Any()
                     ? new LyricLine
@@ -154,7 +162,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// mapper's own cuts. A document with nothing to change, or one that does not parse, is
         /// returned VERBATIM.
         /// </summary>
-        public static string ApplyToTimingJson(string timingJson)
+        public static string ApplyToTimingJson(string timingJson, string? language = null)
         {
             if (string.IsNullOrEmpty(timingJson))
                 return timingJson;
@@ -174,8 +182,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     if (line["text"] is JsonValue lineText && lineText.TryGetValue(out string? text) && SplitMarkers.Carries(text))
                         continue;
 
-                    foreach (JsonNode? wordNode in words)
+                    var lineOriginals = new string?[words.Count];
+                    if (line["original"] is JsonValue captionValue && captionValue.TryGetValue(out string? caption) && !string.IsNullOrWhiteSpace(caption))
                     {
+                        var units = words.OfType<JsonObject>().Select(w => new TimedUnit
+                        {
+                            Text = w["text"]?.GetValue<string>() ?? "",
+                            StartTime = tryNumber(w["start_ms"], out double a) ? a : 0,
+                            EndTime = tryNumber(w["end_ms"], out double z) ? z : 0,
+                        }).ToArray();
+                        if (units.Length == words.Count && units.Length > 0)
+                        {
+                            var source = new LyricLine
+                            {
+                                RawText = string.Join(' ', units.Select(u => u.Text)), Units = units,
+                                Original = caption, StartTime = units[0].StartTime, EndTime = units[^1].EndTime, SingEndTime = units[^1].EndTime,
+                            };
+                            lineOriginals = OriginalLyricGenerator.MatchWords(source, caption,
+                                BeatmapLanguageExtensions.FromCanonicalName(language ?? LyricOriginals.DetectLanguage(new[] { caption })));
+                        }
+                    }
+                    for (int wordIndex = 0; wordIndex < words.Count; wordIndex++)
+                    {
+                        JsonNode? wordNode = words[wordIndex];
                         if (wordNode is not JsonObject word
                             || word["text"] is not JsonValue textValue || !textValue.TryGetValue(out string? token) || string.IsNullOrEmpty(token)
                             || !tryNumber(word["start_ms"], out double start) || !tryNumber(word["end_ms"], out double end)
@@ -191,6 +220,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                             continue;
 
                         var (boundaries, splits) = subdivision.Value;
+                        string? original = word["original"] is JsonValue originalValue && originalValue.TryGetValue(out string? value) ? value : lineOriginals[wordIndex];
+                        if (!string.IsNullOrWhiteSpace(original))
+                        {
+                            var aligned = OriginalLyricSubdivisions.AlignAutomaticCuts(new TimedUnit
+                            {
+                                Text = token, Original = original, StartTime = start, EndTime = end,
+                                SyllableBoundaries = boundaries, SyllableSplits = splits,
+                            }, language ?? LyricOriginals.DetectLanguage(new[] { original }));
+                            boundaries = aligned.SyllableBoundaries.ToArray();
+                            splits = aligned.SyllableSplits.ToArray();
+                            if (boundaries.Length == 0)
+                                continue;
+                        }
 
                         var segmentTexts = SyllableSegments.SegmentTexts(token, splits);
                         var syllables = new JsonArray();
