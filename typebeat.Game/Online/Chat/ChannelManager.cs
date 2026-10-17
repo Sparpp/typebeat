@@ -245,7 +245,7 @@ namespace typebeat.Game.Online.Chat
 
                 var req = new PostMessageRequest(message);
 
-                req.Success += m => dequeueAndRun();
+                req.Success += _ => dequeueAndRun();
                 req.Failure += exception =>
                 {
                     handlePostException(exception);

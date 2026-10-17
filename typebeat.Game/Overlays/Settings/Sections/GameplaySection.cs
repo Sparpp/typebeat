@@ -24,8 +24,8 @@ namespace typebeat.Game.Overlays.Settings.Sections
             Children = new Drawable[]
             {
                 new GeneralSettings(),
-                new BeatmapSettings(),
                 new BackgroundSettings(),
+                new BeatmapSettings(),
                 new HUDSettings(),
                 new InputSettings(),
                 new ModsSettings(),

@@ -110,8 +110,7 @@ namespace typebeat.Game.Screens.Edit.Compose.Components
                     return;
 
                 text = value;
-                if (selectionDetailsText != null)
-                    selectionDetailsText.Text = value;
+                selectionDetailsText?.Text = value;
             }
         }
 

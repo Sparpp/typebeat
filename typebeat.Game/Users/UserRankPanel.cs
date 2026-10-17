@@ -108,12 +108,12 @@ namespace typebeat.Game.Users
                         Masking = true,
                         Children = new Drawable[]
                         {
-                            new UserCoverBackground
+                            new CoverBackground
                             {
                                 RelativeSizeAxes = Axes.Both,
                                 Anchor = Anchor.Centre,
                                 Origin = Anchor.Centre,
-                                User = User,
+                                Model = User,
                                 Alpha = 0.3f
                             },
                             new GridContainer

@@ -35,6 +35,9 @@ namespace typebeat.Game.Rulesets.UI
         [Resolved]
         private IGameplayClock? gameplayClock { get; set; }
 
+        [Resolved]
+        private GameplayState? gameplayState { get; set; }
+
         protected readonly AudioContainer AudioContainer;
 
         public GameplaySampleTriggerSource(HitObjectContainer hitObjectContainer)
@@ -76,6 +79,7 @@ namespace typebeat.Game.Rulesets.UI
             var hitSound = GetNextSample();
             ApplySampleInfo(hitSound, samples);
             hitSound.Play();
+            gameplayState?.ApplySamples(samples);
         });
 
         protected virtual void ApplySampleInfo(SkinnableSound hitSound, ISampleInfo[] samples)

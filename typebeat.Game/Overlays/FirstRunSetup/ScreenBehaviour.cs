@@ -1,6 +1,8 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
+using System.Collections.Generic;
 using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Graphics;
@@ -13,6 +15,7 @@ using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Localisation;
 using typebeat.Game.Overlays.Settings;
 using typebeat.Game.Overlays.Settings.Sections;
+using typebeat.Game.Rulesets;
 
 namespace typebeat.Game.Overlays.FirstRunSetup
 {
@@ -22,7 +25,7 @@ namespace typebeat.Game.Overlays.FirstRunSetup
         private SearchContainer<SettingsSection> searchContainer = null!;
 
         [BackgroundDependencyLoader]
-        private void load(OsuColour colours)
+        private void load(OsuColour colours, RulesetStore rulesets)
         {
             Content.Children = new Drawable[]
             {
@@ -75,23 +78,50 @@ namespace typebeat.Game.Overlays.FirstRunSetup
                 {
                     RelativeSizeAxes = Axes.X,
                     AutoSizeAxes = Axes.Y,
-                    Children = new SettingsSection[]
+                    // This list should be kept in sync with SettingsOverlay.
+                    ChildrenEnumerable = new SettingsSection[]
                     {
-                        // This list should be kept in sync with SettingsOverlay.
                         new GeneralSection(),
+                        new SkinSection(),
                         // InputSection is intentionally omitted for now due to its sub-panel being a pain to set up.
                         new UserInterfaceSection(),
                         new GameplaySection(),
-                        new RulesetSection(),
+                    }.Concat(createRulesetSections(rulesets)).Concat(new SettingsSection[]
+                    {
                         // ExperimentalSection is intentionally omitted: settings still on trial are
                         // not something to put in front of a player who has not played yet.
                         new AudioSection(),
                         new GraphicsSection(),
                         new MaintenanceSection()
-                    },
+                    }),
                     SearchTerm = SettingsItem<bool>.CLASSIC_DEFAULT_SEARCH_TERM,
                 }
             };
+        }
+
+        /// <summary>
+        /// One section per ruleset that has settings, built the way SettingsOverlay builds them.
+        /// Upstream dropped ruleset settings from this screen when RulesetSection started taking
+        /// a ruleset; type!beat keeps them, since its ruleset is the game.
+        /// </summary>
+        private static IEnumerable<SettingsSection> createRulesetSections(RulesetStore rulesets)
+        {
+            foreach (Ruleset ruleset in rulesets.AvailableRulesets.Select(info => info.CreateInstance()))
+            {
+                SettingsSubsection? section = null;
+
+                try
+                {
+                    section = ruleset.CreateSettings();
+                }
+                catch (Exception e)
+                {
+                    RulesetStore.LogRulesetFailure(ruleset.RulesetInfo, e);
+                }
+
+                if (section != null)
+                    yield return new RulesetSection(ruleset, section);
+            }
         }
 
         private void applyClassic()
