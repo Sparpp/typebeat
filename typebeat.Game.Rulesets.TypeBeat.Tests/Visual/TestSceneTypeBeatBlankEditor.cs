@@ -114,7 +114,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("remove word greyed out", () => !panelButton("remove word").Enabled.Value);
             AddAssert("subdivide greyed out", () => !panelButton("subdivide (D)").Enabled.Value);
             AddAssert("unsubdivide greyed out", () => !panelButton("unsubdivide").Enabled.Value);
-            AddAssert("insert pause greyed out", () => !panelButton("insert pause").Enabled.Value);
+            AddAssert("insert pause greyed out", () => !panelButton("insert pause (P)").Enabled.Value);
 
             AddStep("park the playhead", () => EditorClock.Seek(1500));
             AddStep("press \"add line\"", () => addAtPlayheadButton().TriggerClick());
@@ -127,13 +127,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("remove word still greyed with nothing selected", () => !panelButton("remove word").Enabled.Value);
             AddAssert("subdivide still greyed with nothing selected", () => !panelButton("subdivide (D)").Enabled.Value);
             AddAssert("unsubdivide still greyed with nothing selected", () => !panelButton("unsubdivide").Enabled.Value);
-            AddAssert("insert pause still greyed with nothing selected", () => !panelButton("insert pause").Enabled.Value);
+            AddAssert("insert pause still greyed with nothing selected", () => !panelButton("insert pause (P)").Enabled.Value);
 
             AddStep("select the first word", () => state().SelectUnit(0));
             AddUntilStep("remove word live with a word selected", () => panelButton("remove word").Enabled.Value);
             AddAssert("subdivide live with a word selected", () => panelButton("subdivide (D)").Enabled.Value);
             AddAssert("unsubdivide live with a word selected", () => panelButton("unsubdivide").Enabled.Value);
-            AddAssert("insert pause live with a word selected", () => panelButton("insert pause").Enabled.Value);
+            AddAssert("insert pause live with a word selected", () => panelButton("insert pause (P)").Enabled.Value);
         }
 
         [Test]

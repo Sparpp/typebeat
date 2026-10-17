@@ -56,7 +56,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                     selector().Current.Value = new FileInfo(path);
             });
             AddUntilStep("selected file assigned", () => selector().Current.Value?.FullName == path);
-            AddUntilStep("lyrics imported immediately", () => EditorBeatmap.HitObjects.Count == 1 && firstLine().Line.RawText == "sakura sekai");
+            AddAssert("original-script file is staged without replacing the map", () =>
+                EditorBeatmap.HitObjects.Count == 2 && firstLine().Line.RawText == "hello world");
+            AddUntilStep("original lyrics can be aligned from the selected file", () => Editor.ChildrenOfType<TypeBeatSetupSection>().Single()
+                .ChildrenOfType<FormButton>().Single(b => b.ButtonText.ToString() == "Generate lyrics").Enabled.Value);
+            AddStep("generate timing from the file", () => Editor.ChildrenOfType<TypeBeatSetupSection>().Single()
+                .ChildrenOfType<FormButton>().Single(b => b.ButtonText.ToString() == "Generate timing").Action!());
+            AddUntilStep("word-timed lyrics imported", () => EditorBeatmap.HitObjects.Count == 1 && firstLine().Line.RawText == "sakura sekai");
             AddAssert("word timestamps and offset preserved", () =>
                 firstLine().Line.Units.Select(u => u.StartTime).SequenceEqual(new[] { 750d, 2000 })
                 && firstLine().Line.Units.Select(u => u.EndTime).SequenceEqual(new[] { 2000d, 2750 }));
