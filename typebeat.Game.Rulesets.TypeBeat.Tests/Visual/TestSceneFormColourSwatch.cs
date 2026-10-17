@@ -1,0 +1,179 @@
+// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+// See the LICENCE file in the repository root for full licence text.
+
+using System.Linq;
+using NUnit.Framework;
+using osu.Framework.Allocation;
+using osu.Framework.Bindables;
+using osu.Framework.Graphics;
+using osu.Framework.Graphics.Colour;
+using osu.Framework.Graphics.Cursor;
+using osu.Framework.Graphics.Sprites;
+using osu.Framework.Graphics.UserInterface;
+using osu.Framework.Testing;
+using typebeat.Game.Graphics;
+using typebeat.Game.Graphics.Containers;
+using typebeat.Game.Graphics.UserInterfaceV2;
+using typebeat.Game.Overlays;
+using typebeat.Game.Tests.Visual;
+using osuTK.Input;
+
+namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
+{
+    /// <summary>
+    /// The shared hex-plus-swatch colour row on its own, bound to a plain bindable, so nothing
+    /// downstream can re-normalise what it commits. (The editor's freestyle row re-saves every colour
+    /// through the map, which hid a commit that stored alpha 1/255.)
+    /// </summary>
+    public partial class TestSceneFormColourSwatch : OsuManualInputManagerTestScene
+    {
+        [Cached]
+        private readonly OverlayColourProvider colourProvider = new OverlayColourProvider(OverlayColourScheme.Aquamarine);
+
+        private readonly Bindable<Colour4> colour = new Bindable<Colour4>(new Colour4(255, 138, 61, 255));
+
+        private FormColourSwatch row = null!;
+
+        [SetUpSteps]
+        public void SetUpSteps()
+        {
+            AddStep("reset colour", () => colour.SetDefault());
+            AddStep("create row", () => Child = new PopoverContainer
+            {
+                RelativeSizeAxes = Axes.Both,
+                Child = row = new FormColourSwatch
+                {
+                    Caption = "Colour",
+                    Width = 0.5f,
+                    Current = colour,
+                },
+            });
+        }
+
+        [Test]
+        public void TestTheSwatchSitsInsideTheCard()
+        {
+            Drawable swatch() => row.ChildrenOfType<OsuClickableContainer>().Single(c => c is IHasPopover);
+
+            AddAssert("one card: the swatch is inside the hex field's card", () =>
+            {
+                var card = row.HexBox.ScreenSpaceDrawQuad.AABBFloat;
+                var inner = swatch().ScreenSpaceDrawQuad.AABBFloat;
+                return card.Contains(inner.TopLeft) && card.Contains(inner.BottomRight);
+            });
+            AddAssert("inset by the same margin top, bottom and right", () =>
+            {
+                var card = row.HexBox.ScreenSpaceDrawQuad.AABBFloat;
+                var inner = swatch().ScreenSpaceDrawQuad.AABBFloat;
+                float top = inner.Top - card.Top, bottom = card.Bottom - inner.Bottom, right = card.Right - inner.Right;
+                return top > 0 && System.Math.Abs(top - bottom) < 0.5f && System.Math.Abs(top - right) < 0.5f;
+            });
+            AddAssert("the row is exactly the card's height", () => System.Math.Abs(row.DrawHeight - row.HexBox.DrawHeight) < 0.01f);
+            AddAssert("the picker opens from the swatch", () =>
+            {
+                row.ShowPicker();
+                return true;
+            });
+            AddUntilStep("picker shown", () => this.ChildrenOfType<OsuColourPicker>().Any());
+        }
+
+        [Test]
+        public void TestTheSwatchCarriesALegibleEyedropper()
+        {
+            SpriteIcon icon() => row.ChildrenOfType<SpriteIcon>().Single(i => i.Icon.Equals(FontAwesome.Solid.EyeDropper));
+
+            AddAssert("an eyedropper on the swatch", () => icon() != null);
+            AddAssert("white with a shadow on the default orange", () => icon().Colour.Equals((ColourInfo)Colour4.White) && icon().Shadow);
+
+            AddStep("switch to a pale yellow", () => colour.Value = new Colour4(255, 248, 192, 255));
+            AddAssert("the icon turns dark to stay legible", () => icon().Colour.Equals((ColourInfo)FormColourSwatch.IconColourFor(colour.Value))
+                                                                   && !icon().Colour.Equals((ColourInfo)Colour4.White));
+            AddAssert("without a shadow", () => !icon().Shadow);
+
+            AddStep("switch to a dark colour", () => colour.Value = new Colour4(20, 20, 30, 255));
+            AddAssert("white again", () => icon().Colour.Equals((ColourInfo)Colour4.White) && icon().Shadow);
+        }
+
+        [Test]
+        public void TestThePickersPreviewConfirmsAndClosesIt()
+        {
+            SpriteIcon confirm() => this.ChildrenOfType<OsuColourPicker>().Single().ChildrenOfType<SpriteIcon>().Single(i => i.Icon.Equals(FontAwesome.Solid.Check));
+
+            AddStep("open the picker", () => row.ShowPicker());
+            AddUntilStep("picker shown", () => this.ChildrenOfType<OsuColourPicker>().Any(p => p.IsPresent));
+
+            AddAssert("its preview carries a check mark", () => confirm().Alpha == 1);
+
+            AddStep("pick a colour in it", () => this.ChildrenOfType<OsuColourPicker>().Single().Current.Value = new Colour4(18, 171, 239, 255));
+            AddAssert("which applies straight away", () => hexIs("#12abef"));
+
+            AddStep("hover the preview", () => InputManager.MoveMouseTo(confirm()));
+            AddUntilStep("the check mark grows on hover", () => confirm().Scale.X > 1.1f);
+
+            AddStep("click it", () => InputManager.Click(MouseButton.Left));
+            AddUntilStep("the picker closes", () => !this.ChildrenOfType<OsuColourPicker>().Any(p => p.IsPresent));
+            AddAssert("keeping the picked colour", () => hexIs("#12abef"));
+        }
+
+        [Test]
+        public void TestAPickerOutsideAPopoverKeepsAPlainPreview()
+        {
+            AddStep("show a bare picker", () => Child = new OsuColourPicker { Current = colour });
+            AddAssert("no check mark", () => this.ChildrenOfType<SpriteIcon>().Single(i => i.Icon.Equals(FontAwesome.Solid.Check)).Alpha == 0);
+        }
+
+        [Test]
+        public void TestTypedColourIsStoredOpaque()
+        {
+            commitHex("#00ff00");
+
+            AddAssert("colour is the typed one", () => colour.Value.R == 0 && colour.Value.G == 1 && colour.Value.B == 0);
+            AddAssert("and fully opaque", () => colour.Value.A == 1);
+            AddAssert("field spells it without an alpha suffix", () => hexIs("#00ff00"));
+        }
+
+        [Test]
+        public void TestASecondColourCanBeTypedOverTheFirst()
+        {
+            commitHex("#00ff00");
+            commitHex("123456");
+
+            AddAssert("the second colour took", () => hexIs("#123456"));
+            AddAssert("opaque", () => colour.Value.A == 1);
+        }
+
+        [Test]
+        public void TestAnAlphaInTheHexIsDropped()
+        {
+            commitHex("#11223380");
+
+            AddAssert("stored opaque", () => colour.Value.A == 1);
+            AddAssert("field spells six digits", () => hexIs("#112233"));
+        }
+
+        [Test]
+        public void TestClearingResetsToDefault()
+        {
+            commitHex("#123456");
+            commitHex(string.Empty);
+
+            AddAssert("back to the default", () => colour.IsDefault);
+            AddAssert("field spells the default", () => hexIs("#ff8a3d"));
+        }
+
+        private void commitHex(string value)
+        {
+            TextBox box() => row.HexBox.ChildrenOfType<TextBox>().Single();
+
+            AddStep("focus the hex field", () => row.HexBox.TriggerClick());
+            AddUntilStep("hex field focused", () => box().HasFocus);
+            AddStep($"type '{value}' and press Enter", () =>
+            {
+                box().Text = value;
+                InputManager.Key(Key.Enter);
+            });
+        }
+
+        private bool hexIs(string expected) => string.Equals(row.HexBox.Current.Value, expected, System.StringComparison.OrdinalIgnoreCase);
+    }
+}
