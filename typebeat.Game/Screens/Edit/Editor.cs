@@ -505,6 +505,8 @@ namespace typebeat.Game.Screens.Edit
             Clipboard.Content.Value = state.ClipboardContent;
         });
 
+        public Rulesets.Mods.Mod[] TestGameplayMods => currentScreen?.TestGameplayMods ?? System.Array.Empty<Rulesets.Mods.Mod>();
+
         public void TestGameplay()
         {
             clock.Stop();

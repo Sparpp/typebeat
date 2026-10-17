@@ -20,10 +20,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
     /// word and connection costs. A compound may cross authored timing words only when its
     /// surface can be partitioned back into those readings. Non-romaji stays intact.
     /// </summary>
-    internal static class JapaneseLyricGenerator
+    internal static partial class JapaneseLyricGenerator
     {
         private static readonly Lazy<ReadingDictionary> dictionary = new Lazy<ReadingDictionary>(() => new ReadingDictionary());
-        private static readonly Regex romaji = new Regex(@"[a-zA-Z]+(?:['-][a-zA-Z]+)*-*", RegexOptions.Compiled);
+        private static readonly Regex romaji = new Regex(@"[a-zA-Z]+(?:['’-][a-zA-Z]+)*-*", RegexOptions.Compiled);
         private const int beam_width = 32;
         private const int segmentation_cost = 2500;
         private const int particle_preference = 2500;
@@ -33,6 +33,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             token.ThrowIfCancellationRequested();
             var paths = new List<Conversion> { new Conversion(string.Empty, 0, 0, null) };
             var matches = romaji.Matches(text).Cast<Match>().ToArray();
+            bool[] english = EnglishPhraseWords(text, matches);
             int copied = 0;
 
             for (int i = 0; i < matches.Length; i++)
@@ -41,7 +42,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 Match match = matches[i];
                 appendLiteral(text[copied..match.Index]);
                 string? kana = JapaneseRomaji.ReadAuthored(match.Value);
-                if (kana == null)
+                if (kana == null || english[i])
                 {
                     appendLiteral(match.Value);
                     copied = match.Index + match.Length;
@@ -52,7 +53,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 int consumed = match.Index + match.Length;
                 // Decode each authored word independently, then score the complete phrase. Spaces
                 // carry timing boundaries; they need not prevent a dictionary compound lookup.
-                while (i + 1 < matches.Length && text[consumed..matches[i + 1].Index].Length > 0
+                while (i + 1 < matches.Length && !english[i + 1] && text[consumed..matches[i + 1].Index].Length > 0
                        && text[consumed..matches[i + 1].Index].All(char.IsWhiteSpace))
                 {
                     string? next = JapaneseRomaji.ReadAuthored(matches[i + 1].Value);
@@ -85,7 +86,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         internal static bool HasDictionaryReading(string surface, string authored)
         {
             string? kana = JapaneseRomaji.ReadAuthored(authored);
-            return kana != null && dictionary.Value.HasSurface(normaliseReading(kana), surface);
+            return kana != null && surfaces.Value.MatchesReading(normaliseReading(kana), surface);
         }
 
         private static string normaliseReading(string reading)
@@ -195,7 +196,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 // their pronunciation entry matches the authored romaji.
                 readings = index.ToDictionary(p => p.Key, p => p.Value.Distinct().Select(e => e with
                 {
-                    Cost = e.Cost + (e.Surface.All(c => c is >= 'ァ' and <= 'ヶ' or 'ー')
+                    Cost = e.Cost - (PreferredLyricSurface(e.Surface, p.Key) != e.Surface ? 3500 : 0)
+                           + (e.Surface.All(c => c is >= 'ァ' and <= 'ヶ' or 'ー')
                                      && p.Value.Any(other => other.Surface.Any(c => c is >= 'ぁ' and <= 'ゖ')) ? 3500 : 0)
                            + (pronunciationSpellings.Contains(p.Key) && JapaneseRomaji.Hiragana(e.Surface) == p.Key ? 3500 : 0),
                 }).OrderBy(e => e.Cost).Take(beam_width).ToArray(), StringComparer.Ordinal);
@@ -255,7 +257,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                     void extend(Entry entry, int length)
                     {
                         int end = at + length;
-                        string surface = entry.Surface;
+                        string reading = kana.Substring(at, length);
+                        string surface = PreferredLyricSurface(entry.Surface, reading);
                         // Allow a compound such as 不安定 across "fuan tei", keeping the
                         // surfaces "不安" and "定" in their existing word timing windows.
                         int[] splits = boundaries.Where(b => b > at && b < end).OrderBy(b => b).ToArray();

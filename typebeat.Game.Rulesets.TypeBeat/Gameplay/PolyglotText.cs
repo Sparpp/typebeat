@@ -207,7 +207,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>
         /// Whether a press of <paramref name="typed"/> satisfies a cell expecting
         /// <paramref name="expected"/>: equal in NFC, and folded to lower case unless
-        /// <paramref name="caseSensitive"/> (the Literate mod) says otherwise.
+        /// <paramref name="caseSensitive"/> (the Literate mod) says otherwise. A lyric's ë also
+        /// accepts the plain e key, retaining case sensitivity and the displayed original spelling.
         /// </summary>
         public static bool Matches(char typed, char expected, bool caseSensitive)
         {
@@ -216,6 +217,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             char t = nfcChar(typed);
             char e = nfcChar(expected);
+
+            if (e is 'ë' or 'Ë' && (caseSensitive ? t == (e == 'ë' ? 'e' : 'E') : Typeability.Fold(t) == 'e'))
+                return true;
 
             return caseSensitive ? t == e : Typeability.Fold(t) == Typeability.Fold(e);
         }

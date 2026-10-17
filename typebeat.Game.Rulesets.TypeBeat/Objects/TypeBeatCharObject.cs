@@ -23,8 +23,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects
 
         /// <summary>The normalized display char this cell expects.</summary>
         public char Expected { get; set; }
+        public int Phase { get; set; }
+        public int MinimumRomajiInputs { get; set; }
+        public bool JapaneseInputScoring { get; set; }
+        internal int FullComboAfter { get; set; }
 
-        public override Rulesets.Judgements.Judgement CreateJudgement() => new TypeBeatCharJudgement();
+        public bool ConfigureJapaneseScoring(bool characterTiming, bool inputScoring)
+        {
+            bool scoring = Phase == 0 || characterTiming && !inputScoring;
+            bool inputs = Phase == 0 && MinimumRomajiInputs > 0 && characterTiming && inputScoring;
+            bool changed = ScoringEnabled != scoring || JapaneseInputScoring != inputs;
+            ScoringEnabled = scoring;
+            JapaneseInputScoring = inputs;
+            return changed;
+        }
+
+        public bool ScoringEnabled { get; set; } = true;
+
+        public override Rulesets.Judgements.Judgement CreateJudgement() => new CharacterPhaseJudgement(this);
+
+        private sealed class CharacterPhaseJudgement(TypeBeatCharObject owner) : TypeBeatCharJudgement
+        {
+            public override HitResult MaxResult => owner.ScoringEnabled ? HitResult.Great : HitResult.IgnoreHit;
+        }
 
         protected override HitWindows CreateHitWindows() => new TypeBeatHitWindows(Typeability.IsFreestyle(Expected));
     }

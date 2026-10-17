@@ -269,9 +269,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// when it carries usable ones. Empty for a word with neither, and identical to what the strip
         /// draws its runs from.
         /// </summary>
-        internal static IReadOnlyList<int> Cuts(TimedUnit unit, double unitStart, double unitEnd)
+        internal static IReadOnlyList<int> Cuts(TimedUnit unit, double unitStart, double unitEnd, Func<char, bool>? isCell = null)
         {
-            if (Of(unit.Text, unitStart, unitEnd, unit) is Cut cut)
+            if (Of(unit.Text, unitStart, unitEnd, unit, isCell) is Cut cut)
                 return cut.Splits;
 
             return unit.SyllableBoundaries.Count == 0
@@ -289,9 +289,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// substituted); it must be the same length as <see cref="TimedUnit.Text"/>, whose character
         /// positions are what the cuts are expressed in.</para>
         /// </summary>
-        internal static IReadOnlyList<Run> DisplayRuns(string display, TimedUnit unit, double unitStart, double unitEnd)
+        internal static IReadOnlyList<Run> DisplayRuns(string display, TimedUnit unit, double unitStart, double unitEnd, Func<char, bool>? isCell = null)
         {
-            if (Of(unit.Text, unitStart, unitEnd, unit) is Cut cut)
+            if (Of(unit.Text, unitStart, unitEnd, unit, isCell) is Cut cut)
                 return DisplayRuns(display, cut);
 
             var boundaries = unit.SyllableBoundaries;

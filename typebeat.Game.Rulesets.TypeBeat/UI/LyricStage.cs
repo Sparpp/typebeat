@@ -22,6 +22,7 @@ using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
+using typebeat.Game.Rulesets.TypeBeat.Replays;
 using osuTK;
 using osuTK.Graphics;
 
@@ -92,6 +93,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private readonly BindableFloat syllableBrightness = new BindableFloat(60f);
         private readonly Bindable<JudgementIndicatorMode> judgementIndicator = new Bindable<JudgementIndicatorMode>(JudgementIndicatorMode.FadeIn);
         private readonly BindableBool approachBars = new BindableBool(true);
+        private readonly BindableBool characterIndicatorTiming = new BindableBool();
         private readonly Bindable<PaceBarRevealMode> paceBarReveal = new Bindable<PaceBarRevealMode>(PaceBarRevealMode.Off);
         private readonly BindableBool judgementColouredBars = new BindableBool();
         private readonly BindableFloat syllableFadeInEnd = new BindableFloat();
@@ -212,6 +214,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         /// <summary>The grouping-switch handler subscribed to the engine at load (see <c>load</c>), or null.</summary>
         private Action? regroup;
+        private (bool syllableTiming, bool charTimedStretch, bool firstCharTiming, bool wordShelter)? autoplayTimingRules;
 
         public LyricStage(TypingEngine engine)
         {
@@ -332,6 +335,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // one), and the marks and bands drawn at load followed the grouping in force then.
             regroup = () =>
             {
+                autoplayTimingRules = null;
                 paceBands = buildPaceBands();
 
                 for (int i = 0; i < displays.Length; i++)
@@ -431,6 +435,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             bindToDisplays(TypeBeatRulesetSetting.SyllableFadeInDuration, syllableFadeInDuration, (d, v) => d.SetSyllableFadeInDuration(v));
             bindToDisplays(TypeBeatRulesetSetting.TextPopIn, textPopIn, (d, v) => d.SetTextPopInEnabled(v));
             bindToDisplays(TypeBeatRulesetSetting.SyllableBrightness, syllableBrightness, (d, v) => d.SetSungBrightness(v));
+            config?.BindWith(TypeBeatRulesetSetting.CharacterIndicatorTiming, characterIndicatorTiming);
+            characterIndicatorTiming.BindValueChanged(e =>
+            {
+                updateAutoplayIndicatorTimes();
+                foreach (var d in displays)
+                    d.SetCharacterIndicatorTiming(e.NewValue);
+            }, true);
 
             // The sync tint (backlog 251) is a DISPLAY setting on those same terms, and the terms
             // are the whole point of it: the tint reads the judged delta a keypress already earned,
@@ -733,6 +744,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
                 // Player caret follows the typing caret index.
                 int caretIndex = engine.CaretIndex;
+                d.SetJapaneseInputProgress(caretIndex, engine.JapanesePendingKanaCount);
                 Vector2 playerPoint = d.ToSpaceOfOtherDrawable(d.PositionOfCell(caretIndex), this);
                 playerCaret.Height = d.LineHeight;
                 playerCaret.SetCellWidth(d.CellWidthAt(caretIndex));
@@ -1403,12 +1415,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         // binding in load() zeroes for.
         private int sweptLine = -1;
 
+        /// <summary>Cache Autoplay's schedule until replay timing rules or the line grouping change.</summary>
+        private void updateAutoplayIndicatorTimes()
+        {
+            if (!characterIndicatorTiming.Value)
+                return;
+
+            var rules = (syllableTiming: engine.SyllableTiming && !engine.HardRockFromMod, charTimedStretch: engine.CharTimedStretch,
+                         firstCharTiming: engine.FirstCharTiming, wordShelter: engine.WordShelter);
+            if (autoplayTimingRules == rules)
+                return;
+
+            autoplayTimingRules = rules;
+            double lastTime = double.NegativeInfinity;
+            for (int i = 0; i < displays.Length; i++)
+            {
+                var line = engine.Lines[i];
+                displays[i].SetAutoplayHitTimes(TypeBeatAutoGenerator.GetPressTimes(line, engine.GroupingOf(line), rules.syllableTiming,
+                    rules.charTimedStretch, rules.firstCharTiming, rules.wordShelter, ref lastTime));
+            }
+        }
+
         /// <summary>
         /// Feed the current song line and its neighbours so each syllable can stay lit for its
         /// complete Great window across a line split. A negative line index clears all candidates.
         /// </summary>
         private void setSungSyllable(int lineIndex, double time)
         {
+            updateAutoplayIndicatorTimes();
             // Great windows can straddle a line split. Feed both visible neighbours until
             // their own final/first syllable leaves its full window.
             int lo = lineIndex >= 0 ? Math.Max(0, lineIndex - 1) : 0;

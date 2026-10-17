@@ -399,7 +399,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // result at all (backlog 109): its cell's result is deferred until the cell is corrected
             // or sealed on, so there is nothing there to carry HP either.
             if (lineDrawables.TryGetValue(judgement.LineIndex, out var line))
-                line.ApplyCharJudgement(judgement);
+            {
+                if (judgement.Upgraded && line.CellAt(judgement.CellIndex, judgement.Phase) is { Judged: true } cell
+                    && scoreProcessor is TypeBeatScoreProcessor processor
+                    && TypeBeatResultMapping.CellResult(judgement.Type, TypoRule.Deferred, Engine.OffTime) is HitResult result)
+                    processor.UpdateCellResult(cell.Result, result, judgement.Delta,
+                        judgement.Inputs?.Select(i => TypeBeatResultMapping.CellResult(i.Type, TypoRule.Deferred, Engine.OffTime) ?? HitResult.Miss).ToArray());
+                else
+                    line.ApplyCharJudgement(judgement);
+            }
 
             // So HP is settled for a typo separately from its result (backlog 166), and at the same
             // moment every other judgement settles it: the keypress. Waiting for the seal made the
@@ -503,6 +511,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <see cref="TypingEngine.Mistyped"/> announces, one for one). The ledger is dropped, since
         /// every entry that is still owed will be re-marked at its line's seal.</para>
         ///
+        /// <para>A result improved by retyping retains its original award time. If it survives the
+        /// framework rewind, restore its tier and input grades from the rebuilt engine so seeking
+        /// between the first award and its improvement shows the earlier grade again.</para>
+        ///
         /// <para>KNOWN RESIDUE: the hand-mirrored combo BREAKS are not undone, so
         /// <see cref="ScoreProcessor.Combo"/> can read low between the seek target and the first
         /// break after it, at which point the next hand-mirrored break (an absolute write of 0, or
@@ -521,7 +533,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// Health is not re-derived here because, unlike the mistype count, the engine does not hold
         /// an authoritative total to copy: HP is the health processor's own running account.</para>
         /// </summary>
-        private void onRewound() => (scoreProcessor as TypeBeatScoreProcessor)?.ResyncAfterRewind(Engine.Mistypes);
+        private void onRewound() => (scoreProcessor as TypeBeatScoreProcessor)?.ResyncAfterRewind(Engine.Mistypes, Engine);
 
         protected override void Dispose(bool isDisposing)
         {
@@ -542,7 +554,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// NOT <c>PerformancePoints.EligibleRate</c>: that answers a pp-eligibility question and returns
         /// null for a custom rate, but a custom-rate play still has a real typing speed worth showing.</para>
         ///
-        /// <para>Editor Test Play also includes its playback tempo.</para>
+        /// <para>Editor Test Play also includes its playback tempo in Release builds. Development builds
+        /// intentionally omit that tempo so mappers can compare the map at 1x.</para>
         ///
         /// <para>MUST be sampled per frame, never cached at load: ModWindUp / ModWindDown ramp the rate
         /// across the run. Null (no <see cref="IGameplayClock"/> in the hierarchy) means a bare

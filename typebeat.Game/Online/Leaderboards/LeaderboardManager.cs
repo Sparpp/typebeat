@@ -127,7 +127,7 @@ namespace typebeat.Game.Online.Leaderboards
 
                     // A selection holding a LOCAL-ONLY mod (backlog 331) has no online board: no play under
                     // it was ever submitted, so asking the server for one could only ever come back empty.
-                    if (newCriteria.ExactMods?.Any(m => m.LocalOnly) == true)
+                    if (newCriteria.ExactMods?.Any(m => m.IsLocalOnlyFor(newCriteria.Beatmap)) == true)
                     {
                         scores.Value = LeaderboardScores.Failure(LeaderboardFailState.LocalOnlyMods);
                         return;

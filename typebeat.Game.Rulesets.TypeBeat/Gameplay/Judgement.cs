@@ -206,7 +206,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             => Math.Clamp(1 - (delta < 0 ? -delta / MehEarly : delta / MehLate), 0, 1);
     }
 
-    public readonly record struct CharJudgement(int LineIndex, int CellIndex, JudgementType Type, double Delta, int ComboAfter);
+    public readonly record struct JapaneseInputJudgement(JudgementType Type, double Delta);
+
+    public readonly record struct CharJudgement(int LineIndex, int CellIndex, JudgementType Type, double Delta, int ComboAfter, int Phase = 0,
+        IReadOnlyList<JapaneseInputJudgement>? Inputs = null, bool Upgraded = false);
 
     /// <summary>
     /// One sealed line. <paramref name="ComboBroken"/> says the line ran out of time on at least one

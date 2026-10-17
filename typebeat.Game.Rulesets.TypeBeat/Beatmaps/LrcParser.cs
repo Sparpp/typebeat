@@ -287,6 +287,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             SyllableSplits = unit.SyllableSplits,
             Pauses = unit.Pauses,
             Original = original,
+            OriginalSplits = original == unit.Original ? unit.OriginalSplits : Array.Empty<OriginalLyricSplit>(),
         };
 
         /// <summary>
@@ -904,7 +905,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             SyllableBoundaries = unit.SyllableBoundaries,
             SyllableSplits = unit.SyllableSplits,
             Pauses = unit.Pauses,
-            Original = unit.Original,
+            Original = unit.Original, OriginalSplits = unit.OriginalSplits,
         };
 
         #endregion

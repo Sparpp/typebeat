@@ -12,6 +12,8 @@ using System;
 using System.Collections.Generic;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 
+using System.Linq;
+
 namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 {
     public sealed partial class TypingEngine
@@ -429,7 +431,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         private readonly bool[] lineAbandoned;
         private readonly Dictionary<JudgementType, int> counts = new Dictionary<JudgementType, int>();
-        private readonly List<SyncSample> syncTimeline = new List<SyncSample>();
+        private readonly List<SyncSample?> syncTimeline = new List<SyncSample?>();
 
         private readonly int totalTypeableCells;
 
@@ -463,7 +465,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             lines = new List<TypingLine>(beatmap.Lines.Count);
 
             foreach (var line in beatmap.Lines)
-                lines.Add(TypingLine.ForMods(line, literate, polyglot, polyglotLanguage));
+                lines.Add(TypingLine.ForMods(line, literate, polyglot, polyglotLanguage, japaneseCharacterTiming: true));
 
             lineSealed = new bool[lines.Count];
             lineAbandoned = new bool[lines.Count];
@@ -565,6 +567,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     cell.JudgedDelta = null;
                     cell.JudgedTier = null;
                     cell.FirstCorrectDelta = null;
+                    cell.SyncSampleStart = cell.EndSyncSampleIndex = -1;
+                    cell.SyncSampleCount = 0;
+                    cell.FirstEndDelta = null;
+                    cell.InputJudgements = null;
+                    cell.EndJudgedTier = null;
 
                     // The one place backlog 210's correction flag is ever cleared: it survives a
                     // backspace by design, so only a whole-run rebuild puts it back.
@@ -602,6 +609,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             rollingCount = 0;
             rollingNext = 0;
+
+            countTimedCells();
         }
 
         /// <summary>
@@ -773,6 +782,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 if (cell.State == CellState.Wrong)
                     cell.JudgedTier ??= JudgementType.Miss;
 
+                if (usesJapaneseInputScoring(index, i) && cell.FirstCorrectDelta == null
+                    && cell.State is CellState.Untyped or CellState.Abandoned or CellState.Wrong)
+                {
+                    int extraMisses = Math.Max(1, cell.MinimumRomajiInputs) - (cell.State == CellState.Wrong ? 0 : 1);
+                    missed += extraMisses;
+                    counts[JudgementType.Miss] += extraMisses;
+                }
+                else if (IsJapaneseCharacter(index, i) && cell.FirstCorrectDelta == null && cell.State == CellState.Wrong)
+                {
+                    missed++;
+                    counts[JudgementType.Miss]++;
+                }
+                if (!JapaneseInputScoring && JapaneseCharacterTiming && cell.EndTargetTime.HasValue && cell.FirstEndDelta == null
+                    && cell.State is CellState.Untyped or CellState.Abandoned or CellState.Wrong)
+                {
+                    missed++;
+                    counts[JudgementType.Miss]++;
+                    cell.EndJudgedTier = JudgementType.Miss;
+                }
                 bool phantom = cell.State == CellState.Abandoned;
 
                 if (cell.State != CellState.Untyped && !phantom)
@@ -967,5 +995,126 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 caretIndex++;
             }
         }
-    }
+
+
+        private bool japaneseCharacterTiming = true;
+        public bool JapaneseCharacterTiming
+        {
+            get => japaneseCharacterTiming;
+            set
+            {
+                if (japaneseCharacterTiming == value)
+                    return;
+                japaneseCharacterTiming = value;
+                foreach (var line in lines)
+                    line.SetJapaneseCharacterTiming(value);
+                clearJapanesePending();
+                rebuildCountableTargets();
+                countTimedCells();
+                JapaneseWordTimingChanged?.Invoke();
+            }
+        }
+
+        /// <summary>Grade actual romaji inputs together on completion; combo uses the minimum reading.</summary>
+        private bool japaneseInputScoring = true;
+        public bool JapaneseInputScoring
+        {
+            get => japaneseInputScoring;
+            set
+            {
+                if (japaneseInputScoring == value)
+                    return;
+                japaneseInputScoring = value;
+                countTimedCells();
+            }
+        }
+
+        /// <summary>Accept shown furigana kana as input; older replay headers leave this disabled.</summary>
+        private bool japaneseKanaInput = true;
+        public bool JapaneseKanaInput
+        {
+            get => japaneseKanaInput;
+            set
+            {
+                if (japaneseKanaInput == value)
+                    return;
+                japaneseKanaInput = value;
+                clearJapanesePending();
+            }
+        }
+
+        private bool usesJapaneseInputScoring(int lineIndex, int cellIndex)
+            => JapaneseInputScoring && IsJapaneseCharacter(lineIndex, cellIndex);
+
+        public bool IsJapaneseCharacter(int lineIndex, int cellIndex)
+            => JapaneseCharacterTiming && UsesJapaneseRomaji && lines[lineIndex].JapaneseInput?.IsJapaneseCell(cellIndex) == true;
+        private double japanesePendingStartTime;
+        private readonly List<double> japanesePendingTimes = new List<double>();
+        private double? japaneseCommitEndTime;
+        private double[]? japaneseCommitInputTimes;
+        private int japanesePendingKanaCount;
+
+        public int JapanesePendingKanaCount => JapanesePending.Length > 0 ? japanesePendingKanaCount : 0;
+
+        private void updateJapanesePendingProgress()
+        {
+            var plan = lines[activeLineIndex].JapaneseInput;
+            var group = JapaneseInputEra2 ? plan?.AtForInput(caretIndex) : plan?.At(caretIndex);
+            japanesePendingKanaCount = group == null ? 0
+                : JapaneseRomaji.CompletedKana(group.Reading, japanesePending, plan!.Following(group), allowKana: JapaneseKanaInput);
+        }
+
+        private bool judgeJapaneseInputs(TypingLine line, TypingCell cell, int cellIndex, char typed, double time, bool inertRetype)
+        {
+            double finish = japaneseCommitEndTime ?? time;
+            bool upgraded = false;
+            if (inertRetype && BestRetypeJudgement && cell.InputJudgements != null)
+                upgraded = improveJapaneseRetype(line, cell, cellIndex, time);
+            if (!inertRetype)
+            {
+                double end = line.JapaneseCharacterEnd(cellIndex);
+                double[] times = japaneseCommitInputTimes is { Length: > 0 } ? japaneseCommitInputTimes : new[] { time };
+                var inputs = new JapaneseInputJudgement[times.Length];
+                cell.SyncSampleStart = syncTimeline.Count;
+                cell.SyncSampleCount = times.Length;
+                for (int i = 0; i < times.Length; i++)
+                {
+                    // The first key anchors the character's start. Subsequent keys may land
+                    // anywhere in its sung span, with the normal tolerance at either edge.
+                    double delta = i == 0 || times[i] < cell.TargetTime ? times[i] - cell.TargetTime : Math.Max(0, times[i] - end);
+                    var tier = EraRules.AwardedTier(WindowsFor(cell).Classify(delta), cell.HeldWrongBeforeJudged, CorrectionCredit);
+                    inputs[i] = new JapaneseInputJudgement(tier, delta);
+                    counts[tier]++;
+                    syncTimeline.Add(new SyncSample(times[i], delta));
+                }
+                cell.InputJudgements = inputs;
+                totalTimedCells += inputs.Length - Math.Max(1, cell.MinimumRomajiInputs);
+                cell.FirstCorrectDelta = inputs[0].Delta;
+                cell.JudgedTier = inputs[0].Type;
+                totalKeypresses += inputs.Length;
+                correctKeypresses += inputs.Length;
+                if (OffTime == OffTimeRule.BreaksCombo && inputs.Any(i => i.Type is JudgementType.Premature or JudgementType.Lagging))
+                {
+                    breakRun();
+                    discardRestorableStreak();
+                    raise(ComboBroken);
+                }
+                else
+                    for (int i = 0; i < Math.Max(1, cell.MinimumRomajiInputs); i++)
+                        creditCombo(cellIndex);
+            }
+            cell.State = CellState.Correct;
+            cell.TypedChar = typed;
+            cell.JudgedDelta = cell.FirstCorrectDelta;
+            if (!committingJapanese)
+                recordJapaneseInput();
+            if (!AnyOrderWithinWord)
+                caretIndex++;
+            advanceCaretToFrontier();
+            raise(CharJudged, new CharJudgement(activeLineIndex, cellIndex, cell.JudgedTier!.Value, cell.JudgedDelta!.Value, combo, Inputs: cell.InputJudgements, Upgraded: upgraded));
+            rollForwardIfFinishedEarly(finish);
+            if (JapaneseInputEra2)
+                protectJapaneseCompletion();
+            return true;
+        }    }
 }

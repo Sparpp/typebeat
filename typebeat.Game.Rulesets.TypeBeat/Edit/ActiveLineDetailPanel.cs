@@ -43,6 +43,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         [Resolved]
         private BindableBeatDivisor beatDivisor { get; set; } = null!;
 
+        public void QuantizeSelectedWords()
+        {
+            if (state.ActiveLine.Value is not { } line)
+                return;
+            TypeBeatEditorOperations.QuantizeWords(editorBeatmap, line, state.SelectedUnitsInOrder(line.Line.Units.Count),
+                time => timingSettings.Snap(time, editorBeatmap.ControlPointInfo, beatDivisor.Value, force: true));
+        }
+
         private double gridTime => timingSettings.Snap(editorClock.CurrentTime, editorBeatmap.ControlPointInfo, beatDivisor.Value);
 
         [Resolved]
@@ -136,6 +144,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                 actionButton("add line", addAtPlayhead, line_button_width, "Adds a new line at the playhead"),
                                 actionButton("split line (S)", splitAtSelectedWord, line_button_width, "Splits the line in two at the selected word"),
                                 actionButton("merge next (M)", mergeNext, line_button_width),
+                                actionButton("Quantize (Q)", QuantizeSelectedWords, line_button_width, "Snap selected words to the current timing grid"),
                                 actionButton("delete line", deleteLine, line_button_width),
                             }),
                         },
@@ -195,7 +204,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                 // The authored rest (see InsertWordPause): a tap-edge, not a text
                                 // edit, so it lives beside the subdivision buttons that it is clamped
                                 // and dragged like. Also gated on a word being selected (backlog 390).
-                                insertPauseButton = actionButton("insert pause", insertPauseOnSelectedWords, inertWhenDisabled: true),
+                                insertPauseButton = actionButton("insert pause (P)", InsertPauseOnSelectedWords, inertWhenDisabled: true),
                             }),
                         },
                     },
@@ -435,7 +444,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             editorBeatmap.BeginChange();
 
             foreach (int i in targets)
-                TypeBeatEditorOperations.AddSyllableBoundary(editorBeatmap, line, i, gridTime);
+                TypeBeatEditorOperations.AddSyllableBoundary(editorBeatmap, line, i, gridTime, state.ShowOriginalLyrics.Value);
 
             editorBeatmap.EndChange();
         }
@@ -462,16 +471,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         }
 
         /// <summary>
-        /// Inserts an authored rest into every selected word of the ACTIVE line (the primary word
-        /// alone when there is no multi-selection), as one undo. The playhead is the rest's START and
-        /// its split snaps to the nearest character boundary at or after it, so a mapper who parks the
-        /// caret in the breath and presses this gets a rest they then widen by dragging either of the
-        /// strip's two edge handles. A word that cannot hold one is left alone, exactly as
-        /// "subdivide" leaves a word it cannot split.
+        /// Inserts a rest at the playhead for one selected word. Multiple selected words instead
+        /// join at their existing seams: timing gaps become pauses and touching words subdivisions.
+        /// The button and P shortcut share this action and its single undo step.
         /// </summary>
-        private void insertPauseOnSelectedWords()
+        public void InsertPauseOnSelectedWords()
         {
-            if (state.ActiveLine.Value is not TypeBeatHitObject line)
+            if (state.TapSession != null || state.ActiveLine.Value is not TypeBeatHitObject line
+                || !editorBeatmap.HitObjects.Contains(line))
                 return;
 
             int[] targets = selectedWords(line);
@@ -479,12 +486,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (targets.Length == 0)
                 return;
 
-            editorBeatmap.BeginChange();
+            if (targets.Length == 1)
+            {
+                TypeBeatEditorOperations.InsertWordPause(editorBeatmap, line, targets[0], gridTime);
+                return;
+            }
 
-            foreach (int i in targets)
-                TypeBeatEditorOperations.InsertWordPause(editorBeatmap, line, i, gridTime);
+            int[] mergedSelection = TypeBeatEditorOperations.MergeSelectedWords(editorBeatmap, line, targets);
 
-            editorBeatmap.EndChange();
+            if (mergedSelection.Length == 0)
+            {
+                state.Refuse();
+                return;
+            }
+
+            state.SelectUnit(mergedSelection[0]);
+            state.SelectedUnitIndices.UnionWith(mergedSelection);
         }
 
         private void mergeNext()

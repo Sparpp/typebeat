@@ -80,6 +80,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         [Test]
+        public void TestAddOriginalScriptCreatesEmptyWordFields()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+            AddStep("choose Japanese and two words", () =>
+            {
+                EditorBeatmap.Metadata.Language = BeatmapLanguage.Japanese;
+                TypeBeatEditorOperations.SetLineText(EditorBeatmap, firstLine(), "aiu shika");
+                state().SelectedLine.Value = firstLine();
+            });
+            RoundedButton addOriginal() => Editor.ChildrenOfType<LineListPanel>().Single().ChildrenOfType<RoundedButton>()
+                .Single(b => b.Text.ToString() == "Add original script");
+            RoundedButton toggle() => Editor.ChildrenOfType<LineListPanel>().Single().ChildrenOfType<RoundedButton>()
+                .Single(b => b.Text.ToString().StartsWith("Lyrics:", StringComparison.Ordinal));
+            AddUntilStep("add button available", () => addOriginal().IsPresent && addOriginal().Enabled.Value);
+            AddAssert("button left of lyric toggle", () => addOriginal().ScreenSpaceDrawQuad.TopRight.X <= toggle().ScreenSpaceDrawQuad.TopLeft.X);
+            AddStep("click add original", () =>
+            {
+                InputManager.MoveMouseTo(addOriginal());
+                InputManager.Click(MouseButton.Left);
+            });
+            AddUntilStep("empty per-word fields shown", () => state().ShowOriginalLyrics.Value
+                && Editor.ChildrenOfType<WordScriptEditor>().Single().WordColumnCount == 2
+                && firstLine().Line.Units.All(u => u.Original == ""));
+            AddStep("switch to English", () => EditorBeatmap.Metadata.Language = BeatmapLanguage.English);
+            AddUntilStep("add button hidden", () => !addOriginal().IsPresent);
+        }
+
+        [Test]
         public void TestEditorBootsWithLyricObjects()
         {
             AddAssert("editor ready", () => Editor.ReadyForUse);
@@ -124,6 +152,83 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 && firstLine().Line.Units.Single().EndTime == 3000);
             AddAssert("Polyglot keeps the original glyph", () =>
                 Rulesets.TypeBeat.Gameplay.PolyglotLine.Derive(firstLine().Line, "japanese").Line.RawText == "天");
+        }
+
+        [Test]
+        public void TestJapaneseKanjiAndPunctuationCorrectionsKeepTheAuthoredReading()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+            AddStep("prepare kana originals", () =>
+            {
+                EditorBeatmap.Metadata.Language = BeatmapLanguage.Japanese;
+                TypeBeatEditorOperations.SetLineText(EditorBeatmap, firstLine(), "hitori de");
+                TypeBeatEditorOperations.SetLineOriginal(EditorBeatmap, firstLine(), "ひとりで");
+                state().SelectedLine.Value = firstLine();
+                state().ShowOriginalLyrics.Value = true;
+            });
+            OsuTextBox box(string placeholder) => Editor.ChildrenOfType<WordScriptEditor>().Single()
+                .ChildrenOfType<OsuTextBox>().First(b => b.PlaceholderText.ToString() == placeholder);
+            AddUntilStep("word originals shown", () => box("original").Text == "ひとり");
+            AddStep("correct hitori to kanji", () =>
+            {
+                InputManager.MoveMouseTo(box("original"));
+                InputManager.Click(MouseButton.Left);
+                box("original").Text = "一人";
+                InputManager.Key(Key.Enter);
+            });
+            AddUntilStep("caption and reading agree", () => firstLine().Line.Original == "一人で"
+                && firstLine().Line.RawText == "hitori de");
+            AddStep("add Japanese punctuation to line", () =>
+            {
+                InputManager.MoveMouseTo(box("line original"));
+                InputManager.Click(MouseButton.Left);
+                box("line original").Text = "「一人」で。";
+                InputManager.Key(Key.Enter);
+            });
+            AddUntilStep("punctuation reaches gameplay", () => Rulesets.TypeBeat.Gameplay.TypingLine.ForMods(firstLine().Line,
+                literate: true, polyglot: true, language: "japanese").DisplayText == "「一人」で。");
+            AddAssert("romaji retains hitori", () => firstLine().Line.RawText == "hitori de");
+        }
+
+        [Test]
+        public void TestOriginalSubdivisionMarkersEditBothScriptsAndSpreadTimelineLabels()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+            AddStep("prepare subdivided original", () =>
+            {
+                EditorBeatmap.Metadata.Language = BeatmapLanguage.Japanese;
+                TypeBeatEditorOperations.SetLineText(EditorBeatmap, firstLine(), "あいう");
+                TypeBeatEditorOperations.SetLineText(EditorBeatmap, firstLine(), "a|iu");
+                state().SelectedLine.Value = firstLine();
+                state().ShowOriginalLyrics.Value = true;
+            });
+
+            OsuTextBox wordBox(string placeholder) => Editor.ChildrenOfType<WordScriptEditor>().Single()
+                .ChildrenOfType<OsuTextBox>().Single(b => b.PlaceholderText.ToString() == placeholder);
+            AddUntilStep("both script rows show cuts", () => wordBox("original").Text == "あ|いう" && wordBox("romanised").Text == "a|iu");
+            AddAssert("original timeline labels straddle subdivision", () =>
+            {
+                var labels = Editor.ChildrenOfType<LyricTimeline>().Single().ChildrenOfType<OsuSpriteText>().ToArray();
+                var left = labels.FirstOrDefault(l => l.Text.ToString() == "あ");
+                var right = labels.FirstOrDefault(l => l.Text.ToString() == "いう");
+                return left != null && right != null && left.X < right.X;
+            });
+            AddStep("move original marker", () =>
+            {
+                InputManager.MoveMouseTo(wordBox("original"));
+                InputManager.Click(MouseButton.Left);
+                wordBox("original").Text = "あい|う";
+                InputManager.Key(Key.Enter);
+            });
+            AddUntilStep("romanized marker follows", () => TypeBeatEditorOperations.PipeDisplayText(firstLine().Line, "japanese") == "ai|u");
+            AddStep("undo marker edit", () =>
+            {
+                InputManager.PressKey(Key.ControlLeft);
+                InputManager.Key(Key.Z);
+                InputManager.ReleaseKey(Key.ControlLeft);
+            });
+            AddUntilStep("both markers restored", () => TypeBeatEditorOperations.OriginalPipeDisplayText(firstLine().Line, "japanese") == "あ|いう"
+                && TypeBeatEditorOperations.PipeDisplayText(firstLine().Line, "japanese") == "a|iu");
         }
 
         [TestCase(Key.ControlLeft, 0)]
@@ -936,7 +1041,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
         /// <summary>
         /// The four word-edit buttons that act on the WORD SELECTION ("remove word", "subdivide", its
-        /// inverse "unsubdivide", and "insert pause") are greyed out AND inert until a word is
+        /// inverse "unsubdivide", and "insert pause (P)") are greyed out AND inert until a word is
         /// selected (backlog 390), so a stray press with nothing selected can neither edit the map nor
         /// make a click sound. "add word" is exempt: it appends to the line's end with nothing
         /// selected, so it needs only a live editable line.
@@ -959,13 +1064,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddAssert("subdivide greyed out", () => !panelButton("subdivide (D)").Enabled.Value);
             AddAssert("unsubdivide greyed out", () => !panelButton("unsubdivide").Enabled.Value);
-            AddAssert("insert pause greyed out", () => !panelButton("insert pause").Enabled.Value);
+            AddAssert("insert pause greyed out", () => !panelButton("insert pause (P)").Enabled.Value);
             AddAssert("remove word greyed out", () => !panelButton("remove word").Enabled.Value);
 
             // Non-clickable: the button does not even hit-test, so the press cannot reach it.
             AddAssert("subdivide refuses positional input", () => !panelButton("subdivide (D)").ReceivePositionalInputAt(panelButton("subdivide (D)").ScreenSpaceDrawQuad.Centre));
             AddAssert("unsubdivide refuses positional input", () => !panelButton("unsubdivide").ReceivePositionalInputAt(panelButton("unsubdivide").ScreenSpaceDrawQuad.Centre));
-            AddAssert("insert pause refuses positional input", () => !panelButton("insert pause").ReceivePositionalInputAt(panelButton("insert pause").ScreenSpaceDrawQuad.Centre));
+            AddAssert("insert pause refuses positional input", () => !panelButton("insert pause (P)").ReceivePositionalInputAt(panelButton("insert pause (P)").ScreenSpaceDrawQuad.Centre));
             AddAssert("remove word refuses positional input", () => !panelButton("remove word").ReceivePositionalInputAt(panelButton("remove word").ScreenSpaceDrawQuad.Centre));
 
             // The click/hover SOUND lives on a HoverClickSounds child (see OsuButton), and it fires only
@@ -979,7 +1084,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("photograph the sheet", () => before = snapshot());
             AddStep("click subdivide with nothing selected", () => clickPanelButton("subdivide (D)"));
             AddStep("click unsubdivide with nothing selected", () => clickPanelButton("unsubdivide"));
-            AddStep("click insert pause with nothing selected", () => clickPanelButton("insert pause"));
+            AddStep("click insert pause with nothing selected", () => clickPanelButton("insert pause (P)"));
             AddStep("click remove word with nothing selected", () => clickPanelButton("remove word"));
             AddAssert("nothing was edited", () => snapshot(), () => Is.EqualTo(before));
 
@@ -987,7 +1092,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("select word 1", () => state().SelectUnit(0));
             AddUntilStep("subdivide enabled", () => panelButton("subdivide (D)").Enabled.Value);
             AddAssert("unsubdivide enabled", () => panelButton("unsubdivide").Enabled.Value);
-            AddAssert("insert pause enabled", () => panelButton("insert pause").Enabled.Value);
+            AddAssert("insert pause enabled", () => panelButton("insert pause (P)").Enabled.Value);
             AddAssert("remove word enabled", () => panelButton("remove word").Enabled.Value);
             AddAssert("subdivide now takes positional input", () => panelButton("subdivide (D)").ReceivePositionalInputAt(panelButton("subdivide (D)").ScreenSpaceDrawQuad.Centre));
 
@@ -1005,7 +1110,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("clear the word selection", () => state().ClearUnitSelection());
             AddUntilStep("subdivide greyed again", () => !panelButton("subdivide (D)").Enabled.Value);
             AddAssert("unsubdivide greyed again", () => !panelButton("unsubdivide").Enabled.Value);
-            AddAssert("insert pause greyed again", () => !panelButton("insert pause").Enabled.Value);
+            AddAssert("insert pause greyed again", () => !panelButton("insert pause (P)").Enabled.Value);
         }
 
         /// <summary>
@@ -1043,7 +1148,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         public void TestASecondPauseCanBeAddedAndOneTakenBackOut()
         {
             AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
-            AddUntilStep("insert pause button present", () => panelButton("insert pause").DrawWidth > 0);
+            AddUntilStep("insert pause button present", () => panelButton("insert pause (P)").DrawWidth > 0);
 
             AddStep("park the caret and select the word", () =>
             {
@@ -1056,7 +1161,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("caret parked", () => Math.Abs(EditorClock.CurrentTime - 1200) < 1);
             AddUntilStep("strip sized", () => strip().IsLoaded && strip().DrawWidth > 0);
 
-            AddStep("insert the first breath", () => clickPanelButton("insert pause"));
+            AddStep("insert the first breath", () => clickPanelButton("insert pause (P)"));
             AddUntilStep("one rest", () => lineAt(0).Line.Units[0].Pauses.Count == 1);
             AddUntilStep("and its region is drawn", () => strip().PauseRegionCount == 1);
 
@@ -1068,7 +1173,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddUntilStep("caret parked again", () => Math.Abs(EditorClock.CurrentTime - 2300) < 1);
 
-            AddStep("insert the second breath", () => clickPanelButton("insert pause"));
+            AddStep("insert the second breath", () => clickPanelButton("insert pause (P)"));
 
             AddUntilStep("two rests", () => lineAt(0).Line.Units[0].Pauses.Count == 2);
             AddUntilStep("and two regions are drawn", () => strip().PauseRegionCount == 2);
@@ -1142,7 +1247,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         public void TestPauseEdgesDragIndependently()
         {
             AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
-            AddUntilStep("insert pause button present", () => panelButton("insert pause").DrawWidth > 0);
+            AddUntilStep("insert pause button present", () => panelButton("insert pause (P)").DrawWidth > 0);
 
             AddStep("select line 1's word with the caret early in it", () =>
             {
@@ -1155,7 +1260,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("caret parked", () => Math.Abs(EditorClock.CurrentTime - 1100) < 1);
             AddUntilStep("strip sized", () => strip().IsLoaded && strip().DrawWidth > 0);
 
-            AddStep("click insert pause", () => clickPanelButton("insert pause"));
+            AddStep("click insert pause", () => clickPanelButton("insert pause (P)"));
             AddUntilStep("the word carries a rest", () => lineAt(0).Line.Units[0].Pauses.Count > 0);
 
             // Whatever edge this press lands on, it IS one of them, and pulling it out makes room to
@@ -1185,7 +1290,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         public void TestInsertPauseButtonAuthorsARestAndItsEdgeRemovesIt()
         {
             AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
-            AddUntilStep("insert pause button present", () => panelButton("insert pause").DrawWidth > 0);
+            AddUntilStep("insert pause button present", () => panelButton("insert pause (P)").DrawWidth > 0);
 
             AddStep("select line 1's word and park the caret inside it", () =>
             {
@@ -1198,7 +1303,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("caret parked", () => Math.Abs(EditorClock.CurrentTime - 2000) < 1);
             AddUntilStep("strip sized", () => strip().IsLoaded && strip().DrawWidth > 0);
 
-            AddStep("click insert pause", () => clickPanelButton("insert pause"));
+            AddStep("click insert pause", () => clickPanelButton("insert pause (P)"));
 
             AddUntilStep("the word carries a rest", () => lineAt(0).Line.Units[0].Pauses.Count > 0);
             AddAssert("the rest starts at the caret", () => Math.Abs(lineAt(0).Line.Units[0].Pauses[0].StartTime - 2000) < 1);
@@ -1218,6 +1323,104 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("and the word's characters run together again", () => labelExists("hello world"));
         }
 
+        [TestCase(false)]
+        [TestCase(true)]
+        public void TestInsertPauseMergesSelectedWordsAsOneUndo(bool hotkey)
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+            AddStep("prepare three timed words", () =>
+            {
+                EditorClock.Stop();
+                EditorClock.Seek(2000);
+                var hitObject = lineAt(0);
+                EditorBeatmap.BeginChange();
+                hitObject.Line = new LyricLine
+                {
+                    RawText = "we sing now", StartTime = 1000, SingEndTime = 2800, EndTime = 3000,
+                    Units = new[]
+                    {
+                        new TimedUnit { Text = "we", StartTime = 1000, EndTime = 1400, Source = TimingSource.Explicit },
+                        new TimedUnit { Text = "sing", StartTime = 1600, EndTime = 2200, Source = TimingSource.Explicit },
+                        new TimedUnit { Text = "now", StartTime = 2200, EndTime = 2800, Source = TimingSource.Explicit },
+                    },
+                };
+                hitObject.Granularity = TimingGranularity.Word;
+                EditorBeatmap.Update(hitObject);
+                EditorBeatmap.EndChange();
+                state().SelectedLine.Value = hitObject;
+            });
+            AddUntilStep("prepared line active", () => state().ActiveLine.Value == lineAt(0) && lineAt(0).Line.Units.Count == 3);
+            AddStep("select all three words", () => state().SelectAllUnits(3));
+            AddUntilStep("insert pause enabled", () => panelButton("insert pause (P)").Enabled.Value);
+            AddStep(hotkey ? "press P" : "click insert pause", () =>
+            {
+                if (hotkey)
+                    InputManager.Key(Key.P);
+                else
+                    clickPanelButton("insert pause (P)");
+            });
+            AddUntilStep("selected words merged", () => lineAt(0).Line.Units.Count == 1);
+            AddAssert("text joined", () => lineAt(0).Line.RawText == "wesingnow");
+            AddAssert("gap became a pause", () => lineAt(0).Line.Units[0].Pauses.SequenceEqual(new[] { new WordPause(1400, 1600, 2) }));
+            AddAssert("touching seam became a subdivision", () =>
+                lineAt(0).Line.Units[0].SyllableBoundaries.SequenceEqual(new[] { 2200d })
+                && lineAt(0).Line.Units[0].SyllableSplits.SequenceEqual(new[] { 6 }));
+            AddAssert("merged word stays selected", () => state().SelectedUnitIndices.SetEquals(new[] { 0 }) && state().SelectedUnitIndex.Value == 0);
+            AddUntilStep("strip draws the gap", () => strip().PauseRegionCount == 1);
+            AddStep("undo once", () => Editor.Undo());
+            AddUntilStep("all three words restored", () => lineAt(0).Line.Units.Count == 3);
+            AddAssert("text and all word windows restored", () => lineAt(0).Line.RawText == "we sing now"
+                && lineAt(0).Line.Units.Select(u => (u.StartTime, u.EndTime))
+                           .SequenceEqual(new[] { (1000d, 1400d), (1600d, 2200d), (2200d, 2800d) }));
+        }
+
+        [Test]
+        public void TestPauseShortcutKeepsSingleWordInsertion()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+            AddStep("select line 1", () =>
+            {
+                EditorClock.Stop();
+                EditorClock.Seek(2000);
+                state().SelectedLine.Value = lineAt(0);
+            });
+            AddUntilStep("line 1 active", () => state().ActiveLine.Value == lineAt(0));
+            AddStep("press P without a word selection", () =>
+            {
+                state().ClearUnitSelection();
+                InputManager.Key(Key.P);
+            });
+            AddAssert("no pause without selection", () => lineAt(0).Line.Units[0].Pauses.Count == 0);
+            AddStep("select word and press P", () =>
+            {
+                state().SelectUnit(0);
+                InputManager.Key(Key.P);
+            });
+            AddUntilStep("single word received a pause", () => lineAt(0).Line.Units[0].Pauses.Count == 1);
+            AddAssert("pause starts at the playhead", () => Math.Abs(lineAt(0).Line.Units[0].Pauses[0].StartTime - 2000) < 1);
+        }
+
+        [Test]
+        public void TestFocusedTextBoxKeepsPForTyping()
+        {
+            string before = null!;
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+            AddUntilStep("rows built", () => rows().Count == 2);
+            AddStep("select line 1", () => clickRow(0));
+            AddUntilStep("line 1 active", () => state().ActiveLine.Value == lineAt(0));
+            AddStep("select word and click into its lyric text", () =>
+            {
+                state().SelectUnit(0);
+                InputManager.MoveMouseTo(textBoxOf(0));
+                InputManager.Click(MouseButton.Left);
+                before = snapshot();
+            });
+            AddUntilStep("text box focused", () => textBoxOf(0).HasFocus);
+            AddStep("press P while editing text", () => InputManager.Key(Key.P));
+            AddAssert("text box kept focus", () => textBoxOf(0).HasFocus);
+            AddAssert("P did not insert a pause", () => snapshot() == before && lineAt(0).Line.Units[0].Pauses.Count == 0);
+        }
+
         /// <summary>Whether the strip is drawing a word-run label with exactly this text.</summary>
         private bool labelExists(string text)
             => Editor.ChildrenOfType<TruncatingSpriteText>().Any(t => t.Text.ToString() == text);
@@ -1228,6 +1431,56 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         /// skipped cells pre-marked as hits by the editor player AND sealed as misses by the engine
         /// behind them).
         /// </summary>
+        [TestCase(false)]
+        [TestCase(true)]
+        public void TestOriginalLyricsPreviewSelectsPolyglot(bool originalView)
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+            AddStep("author original Japanese lyrics", () =>
+            {
+                EditorClock.Stop();
+                EditorClock.Seek(0);
+                EditorBeatmap.Metadata.Language = typebeat.Game.Beatmaps.BeatmapLanguage.Japanese;
+                TypeBeatEditorOperations.SetLineText(EditorBeatmap, lineAt(0), "日本");
+                state().ShowOriginalLyrics.Value = originalView;
+            });
+            AddAssert("test selection follows original view", () => Editor.TestGameplayMods.Any(m => m is TypeBeat.Mods.TypeBeatModPolyglot) == originalView);
+            AddStep("save original lyrics", () => Assert.That(Editor.Save(), Is.True));
+            AddStep("start test play", () => Editor.TestGameplay());
+            AddUntilStep("player entered", () => editorPlayer() != null);
+            AddAssert("gameplay uses the chosen script", () => editorPlayer()!.GameplayState.Mods.Any(m => m is TypeBeat.Mods.TypeBeatModPolyglot) == originalView);
+            AddUntilStep("test play finishes", () => editorPlayer() == null);
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void TestQuantizeSelectedWord(bool hotkey)
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+            AddStep("prepare an off-grid selected word", () =>
+            {
+                EditorClock.Stop();
+                EditorClock.Seek(2000);
+                EditorBeatmap.ControlPointInfo.Add(0, new typebeat.Game.Beatmaps.ControlPoints.TimingControlPoint { BeatLength = 500 });
+                TypeBeatEditorOperations.SetUnitTiming(EditorBeatmap, lineAt(0), 0, 1050, 2850);
+                state().SelectedLine.Value = lineAt(0);
+            });
+            AddUntilStep("line active", () => state().ActiveLine.Value == lineAt(0));
+            AddStep("quantize selected word", () =>
+            {
+                state().SelectUnit(0);
+                if (hotkey)
+                    InputManager.Key(Key.Q);
+                else
+                    Editor.ChildrenOfType<ActiveLineDetailPanel>().Single().QuantizeSelectedWords();
+            });
+            AddAssert("both word edges lie on the grid", () =>
+            {
+                var unit = lineAt(0).Line.Units[0];
+                return unit.StartTime != 1050 && unit.EndTime != 2850;
+            });
+        }
+
         [Test]
         public void TestGameplayFromMidMapStartsWithFullAccuracy()
         {

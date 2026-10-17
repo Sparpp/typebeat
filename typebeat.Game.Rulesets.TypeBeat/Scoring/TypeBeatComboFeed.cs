@@ -175,7 +175,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// </summary>
         public static HitResult SealedCellResult(ScoreProcessor? processor, TypingEngine engine, int lineIndex, int cellIndex, TypoRule rule)
         {
-            var result = TypeBeatResultMapping.UnresolvedCellResult(engine.CellLeftWrong(lineIndex, cellIndex), rule);
+            var result = engine.IsJapaneseCharacter(lineIndex, cellIndex) ? HitResult.Miss
+                : TypeBeatResultMapping.UnresolvedCellResult(engine.CellLeftWrong(lineIndex, cellIndex), rule);
 
             if (result == TypeBeatResultMapping.UNFIXED_TYPO || (engine.BackDatedSealBreak && result == TypeBeatResultMapping.SEAL_MISS))
                 (processor as TypeBeatScoreProcessor)?.MarkComboNeutral(lineIndex, cellIndex);

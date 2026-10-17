@@ -7,6 +7,8 @@
 
 using System;
 
+using System.Linq;
+
 namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 {
     public sealed partial class TypingEngine
@@ -119,6 +121,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private void clearJapanesePending()
         {
             japanesePending = string.Empty;
+            japanesePendingTimes.Clear();
+            japanesePendingKanaCount = 0;
             japanesePendingLine = japanesePendingCell = -1;
         }
 
@@ -129,7 +133,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             var plan = lines[activeLineIndex].JapaneseInput;
             var group = JapaneseInputEra2 ? plan?.AtForInput(caretIndex) : plan?.At(caretIndex);
             // Space/Enter explicitly confirm a word, so a trailing n needs no next-letter lookahead.
-            if (group == null || (JapaneseRomaji.Matches(group.Reading, JapanesePending) & JapaneseRomaji.Match.Complete) == 0)
+            if (group == null || (JapaneseRomaji.Matches(group.Reading, JapanesePending, allowKana: JapaneseKanaInput) & JapaneseRomaji.Match.Complete) == 0)
                 return false;
             commitJapanese(group, japanesePendingTime);
             return true;
@@ -209,8 +213,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             }
 
             char lower = char.ToLowerInvariant(c);
+            if (JapaneseKanaInput && lower is >= 'ぁ' and <= 'ゖ' or >= 'ァ' and <= 'ヶ')
+                lower = JapaneseRomaji.Hiragana(lower.ToString())[0];
             string input = japanesePending + lower;
-            var match = JapaneseRomaji.Matches(group.Reading, input, plan!.Following(group));
+            var match = JapaneseRomaji.Matches(group.Reading, input, plan!.Following(group), allowKana: JapaneseKanaInput);
             if (match == JapaneseRomaji.Match.Invalid)
             {
                 // A nasal's first n may also begin nn. The following consonant resolves that
@@ -218,7 +224,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // Inside the line, a vowel pronunciation alias still needs nn/n'; a word/line
                 // boundary can explicitly finish n before the next word's first vowel.
                 string following = plan.Following(group);
-                if ((JapaneseRomaji.Matches(group.Reading, japanesePending, following) & JapaneseRomaji.Match.Complete) != 0
+                if ((JapaneseRomaji.Matches(group.Reading, japanesePending, following, allowKana: JapaneseKanaInput) & JapaneseRomaji.Match.Complete) != 0
                     && (following.Length == 0 || char.IsWhiteSpace(following[0]) || lower is not ('a' or 'i' or 'u' or 'e' or 'o' or 'y')))
                 {
                     commitJapanese(group, japanesePendingTime);
@@ -230,10 +236,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             }
 
             recordJapaneseInput();
+            if (japanesePending.Length == 0)
+                japanesePendingStartTime = time;
+            japanesePendingTimes.Add(time);
             japanesePending = input;
             japanesePendingLine = activeLineIndex;
             japanesePendingCell = caretIndex;
             japanesePendingTime = time;
+            updateJapanesePendingProgress();
             if (match == JapaneseRomaji.Match.Complete)
                 commitJapanese(group, time);
             return true;
@@ -243,6 +253,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         {
             int lineIndex = activeLineIndex;
             int startCell = caretIndex;
+            double startTime = japanesePending.Length > 0 ? japanesePendingStartTime : time;
+            double[] inputTimes = japanesePendingTimes.ToArray();
+            var plan = lines[lineIndex].JapaneseInput!;
+            int[]? inputEnds = JapaneseRomaji.InputEnds(group.Reading, japanesePending, plan.Following(group), allowKana: JapaneseKanaInput);
+            int readingOffset = 0, inputOffset = 0;
             clearJapanesePending();
             committingJapanese = true;
             try
@@ -250,7 +265,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 while (activeLineIndex == lineIndex && caretIndex < group.EndCellExclusive)
                 {
                     int before = caretIndex;
-                    ProcessKey(lines[lineIndex].Cells[caretIndex].Expected, time);
+                    double cellStart = startTime, cellEnd = time;
+                    japaneseCommitInputTimes = null;
+                    string? characterReading = plan.CharacterReadingAt(caretIndex);
+                    if (JapaneseCharacterTiming && inputEnds != null && characterReading != null
+                        && readingOffset + characterReading.Length <= inputEnds.Length && inputTimes.Length > 0)
+                    {
+                        int endInput = inputEnds[readingOffset + characterReading.Length - 1];
+                        cellStart = inputTimes[Math.Min(inputOffset, inputTimes.Length - 1)];
+                        cellEnd = inputTimes[Math.Min(endInput - 1, inputTimes.Length - 1)];
+                        japaneseCommitInputTimes = inputTimes.Skip(inputOffset).Take(endInput - inputOffset).ToArray();
+                        readingOffset += characterReading.Length;
+                        inputOffset = endInput;
+                    }
+                    japaneseCommitEndTime = cellEnd;
+                    ProcessKey(lines[lineIndex].Cells[caretIndex].Expected, JapaneseCharacterTiming ? cellStart : time);
                     if (caretIndex == before && activeLineIndex == lineIndex)
                         break;
                 }
@@ -258,6 +287,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             finally
             {
                 committingJapanese = false;
+                japaneseCommitEndTime = null;
+                japaneseCommitInputTimes = null;
                 if (JapaneseInputEra2 && (activeLineIndex != lineIndex || caretIndex != startCell))
                     protectJapaneseCompletion();
             }

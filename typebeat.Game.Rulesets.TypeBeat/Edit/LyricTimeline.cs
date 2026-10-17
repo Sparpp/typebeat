@@ -15,6 +15,7 @@ using osu.Framework.Graphics.Shapes;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Input.Events;
 using osu.Framework.Localisation;
+using typebeat.Game.Beatmaps;
 using typebeat.Game.Graphics.Cursor;
 using typebeat.Game.Graphics.Fonts;
 using typebeat.Game.Graphics.Sprites;
@@ -756,9 +757,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 if (!ReferenceEquals(runsUnit, unit) || runsOriginalView != originalView || !string.Equals(runsDisplay, display, StringComparison.Ordinal))
                 {
-                    runs = originalView
-                        ? new[] { new PausedWord.Run(unit.Original!, unit.StartTime, unit.EndTime) }
-                        : PausedWord.DisplayRuns(display, unit, unit.StartTime, unit.EndTime);
+                    string? language = TypeBeatEditorOperations.OriginalSubdivisionLanguage(editorBeatmap, hitObject.Line);
+                    var displayed = originalView ? OriginalLyricSubdivisions.Project(unit, language) : unit;
+                    runs = PausedWord.DisplayRuns(originalView ? displayed.Text : display, displayed, unit.StartTime, unit.EndTime,
+                        originalView ? Typeability.IsPolyglotTypeCell : null);
                     runsUnit = unit;
                     runsDisplay = display;
                     runsOriginalView = originalView;
@@ -1150,6 +1152,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             private readonly Container visual;
             private readonly Box promotionBand;
 
+            private LyricLine? appearanceLine;
+            private BeatmapLanguage appearanceLanguage;
+            private bool appearanceOriginalView;
+
             // Shift latched at drag start, and the run of the drag the promotion needs: where the
             // divider STARTED (the rest's near edge) and where it was last dragged to (its far edge).
             private bool promote;
@@ -1196,7 +1202,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     {
                         RelativeSizeAxes = Axes.X,
                         Height = 4,
-                        Colour = TypeBeatStyle.TypedChar,
                     });
                 }
 
@@ -1219,6 +1224,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                         RelativeSizeAxes = Axes.Y,
                         Width = 2,
                         Masking = true,
+                        Colour = TypeBeatStyle.TypedChar,
                         Alpha = 0.85f,
                         Child = dashes,
                     },
@@ -1258,9 +1264,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 Alpha = time.HasValue && !state.HiddenByTapScope(hitObject, unitIndex) ? 1 : 0;
 
                 if (time.HasValue)
+                {
                     X = parent.PositionOf(time.Value);
+                    updateAppearance();
+                }
 
                 updatePromotionBand(parent);
+            }
+
+            private void updateAppearance()
+            {
+                var line = hitObject.Line;
+                var language = editorBeatmap.Metadata.Language;
+                bool originalView = state.ShowOriginalLyrics.Value;
+
+                // Alignment is only rechecked after an edit, language change or view toggle.
+                // The idle timeline must not repeat dictionary lookups or derive splits per frame.
+                if (ReferenceEquals(appearanceLine, line) && appearanceLanguage == language && appearanceOriginalView == originalView)
+                    return;
+
+                var unit = line.Units[unitIndex];
+                bool applicable = true;
+
+                if (originalView && unit.Original != null)
+                {
+                    var splits = SyllableSegments.SplitsFor(unit);
+                    applicable = boundaryIndex < splits.Count && OriginalLyricSubdivisions.SourceCut(unit, splits[boundaryIndex],
+                        TypeBeatEditorOperations.OriginalSubdivisionLanguage(editorBeatmap, line)).HasValue;
+                }
+
+                visual.Colour = applicable ? TypeBeatStyle.TypedChar : TypeBeatStyle.UntypedChar;
+                appearanceLine = line;
+                appearanceLanguage = language;
+                appearanceOriginalView = originalView;
             }
 
             /// <summary>

@@ -1,7 +1,10 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System.Collections.Generic;
+using typebeat.Game.Rulesets.Judgements;
 using typebeat.Game.Rulesets.Objects.Drawables;
+using typebeat.Game.Rulesets.TypeBeat.Scoring;
 using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 
@@ -19,12 +22,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
         {
         }
 
+        protected override JudgementResult CreateResult(Judgement judgement)
+            => new TypeBeatJapaneseJudgementResult(HitObject, judgement);
+
         /// <summary>
-        /// Forwards an engine judgement as this cell's one-and-only osu result. Later engine
-        /// re-judgements of the same cell (backspace + retype) are ignored: the first osu result
-        /// stands, mirroring the engine's own scoring-inert retype rule for ever-correct cells.
+        /// Applies this cell's initial result. A retype never applies another result here:
+        /// the playfield amends a better award through TypeBeatScoreProcessor.UpdateCellResult.
         ///
-        /// <para><paramref name="judgedDelta"/> is the delta the engine graded the press on
+        /// <para>The judgedDelta is the delta the engine graded the press on
         /// (<see cref="Gameplay.CharJudgement.Delta"/>), carried as the result's
         /// <see cref="JudgementResult.JudgedTimeOffset"/>. Without it the result's offset is the
         /// distance from this cell's POINT target, which the engine does not judge on (a cell in a
@@ -32,7 +37,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
         /// Great far out in the Ok band and the results screen's timing graph did the same. A seal
         /// result has no keypress behind it and passes none.</para>
         /// </summary>
-        public void ApplyEngineResult(HitResult result, double? judgedDelta = null)
+        public void ApplyEngineResult(HitResult result, double? judgedDelta = null, IReadOnlyList<HitResult>? inputs = null)
         {
             if (Judged)
                 return;
@@ -41,7 +46,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
             {
                 r.Type = s.result;
                 r.JudgedTimeOffset = s.judgedDelta;
-            }, (result, judgedDelta));
+                ((TypeBeatJapaneseJudgementResult)r).InputResults = s.inputs;
+            }, (result, judgedDelta, inputs));
         }
 
         protected override void CheckForResult(bool userTriggered, double timeOffset)

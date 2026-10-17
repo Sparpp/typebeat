@@ -132,7 +132,7 @@ namespace typebeat.Game.Overlays.Mods
                 double multiplier = scoreMultiplierCalculator?.CalculateFor(ActiveMods.Value) ?? 1;
 
                 rankingInformationDisplay.ModMultiplier.Value = multiplier;
-                rankingInformationDisplay.Ranked.Value = ActiveMods.Value.All(m => m.Ranked);
+                rankingInformationDisplay.Ranked.Value = ActiveMods.Value.All(m => m.IsRankedFor(workingBeatmap.BeatmapInfo));
             }
 
             if (beatmapAttributesDisplay != null)

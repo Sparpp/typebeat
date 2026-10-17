@@ -71,7 +71,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>
         /// Scores one line: its z, its coverage, and the predictors they were built from. False when
         /// the study's model cannot score the line at all (no words, no bigrams it has frequencies
-        /// for), which the caller reads exactly as the table would read an absent row.
+        /// for, even after the punctuation fallback), which the caller reads exactly as the table
+        /// would read an absent row.
         /// </summary>
         internal static bool TryScore(string line, out Reading reading)
         {
@@ -278,12 +279,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// The mean Gutenberg frequency of the line's character bigrams. The authors build the
         /// bigrams from the LOWER-CASED sentence with its spaces removed, so a bigram spans the two
         /// words a space separated; a bigram the corpus does not carry is dropped rather than
-        /// counted as zero, so a line of no known bigrams has no value at all.
+        /// counted as zero. When punctuation separates EVERY letter ("F. (F) B. (B) I. (I)"),
+        /// estimate this feature from the underlying character sequence instead. The other six
+        /// predictors still read the authored sentence, including its capitals and symbols.
+        /// Existing finite readings stay unchanged; a line with no known pairs even after removing
+        /// supported punctuation remains unscored.
         /// </summary>
         private static double meanBigramFrequency(string sentence)
         {
             string stripped = sentence.ToLowerInvariant().Replace(" ", string.Empty);
 
+            double mean = knownBigramMean(stripped);
+
+            if (!double.IsNaN(mean))
+                return mean;
+
+            string underlying = string.Concat(stripped.Where(c => !Typeability.IsPunctuation(c)));
+
+            return underlying.Length < stripped.Length ? knownBigramMean(underlying) : double.NaN;
+        }
+
+        private static double knownBigramMean(string stripped)
+        {
             if (stripped.Length < 2)
                 return double.NaN;
 

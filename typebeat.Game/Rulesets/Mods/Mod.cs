@@ -131,6 +131,9 @@ namespace typebeat.Game.Rulesets.Mods
         [JsonIgnore]
         public virtual bool Ranked => false;
 
+        /// <summary>Whether this mod ranks on the selected beatmap. Other mods retain their global policy.</summary>
+        public virtual bool IsRankedFor(BeatmapInfo? beatmap) => Ranked;
+
         /// <summary>
         /// Whether a play carrying this mod stays on this device (backlog 331): it never requests a
         /// score submission token and is never submitted (the path a non-user-playable mod already
@@ -141,6 +144,9 @@ namespace typebeat.Game.Rulesets.Mods
         /// </summary>
         [JsonIgnore]
         public virtual bool LocalOnly => false;
+
+        /// <summary>Whether plays on this beatmap stay local instead of requesting submission or online scores.</summary>
+        public virtual bool IsLocalOnlyFor(BeatmapInfo? beatmap) => LocalOnly;
 
         /// <summary>
         /// Whether this mod can be played on <paramref name="beatmap"/> (backlog 331): the per-beatmap

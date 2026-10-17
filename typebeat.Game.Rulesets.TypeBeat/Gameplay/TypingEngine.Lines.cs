@@ -287,18 +287,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public bool ProcessEnter(double time)
         {
-            if (JapaneseRomajiInput && UsesJapaneseRomaji && JapanesePending.Length > 0)
+            int originalLine = activeLineIndex;
+            if (tryCommitJapanesePending())
             {
-                int originalLine = activeLineIndex;
-                if (!tryCommitJapanesePending())
-                    return false;
-                // An IME-style confirmation never abandons the rest of this line, or the next
-                // line reached by automatic handoff. A complete manual line can still advance.
+                // A complete reading still uses Enter as confirmation without abandoning the
+                // rest of this line, or the next line reached by automatic handoff.
                 if (activeLineIndex == originalLine && IsLineComplete)
                     processEnter(time);
                 return true;
             }
-            return processEnter(time);
+
+            // An incomplete reading cannot be confirmed, but must not block the ordinary line
+            // skip. Clear its composition only after a successful skip; pinned/waiting carets
+            // retain pending input when Enter is inert.
+            bool skipped = processEnter(time);
+            if (skipped)
+                clearJapanesePending();
+            return skipped;
         }
 
         private bool processEnter(double time)

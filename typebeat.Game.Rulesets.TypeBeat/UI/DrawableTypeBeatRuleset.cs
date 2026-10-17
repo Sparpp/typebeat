@@ -139,8 +139,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <para>Untouched for every other replay, where <c>Derived</c> hands back the very object it
         /// was given and no clone is made at all.</para>
         /// </summary>
+        [Resolved(CanBeNull = true)]
+        private typebeat.Game.Rulesets.Scoring.ScoreProcessor? phaseScoreProcessor { get; set; }
+
         public override void SetReplayScore(Score replayScore)
         {
+            bool characterTiming = replayScore == null || replayScore.Replay.Frames.OfType<TypeBeatReplayFrame>().FirstOrDefault(f => f.IsConfigExtended)?.JapaneseCharacterTiming == true;
+            bool changed = false;
+            bool inputScoring = replayScore == null || replayScore.Replay.Frames.OfType<TypeBeatReplayFrame>().FirstOrDefault(f => f.IsConfigExtended)?.JapaneseInputScoring == true;
+            foreach (var cell in Beatmap.HitObjects.SelectMany(l => l.NestedHitObjects.OfType<Objects.TypeBeatCharObject>()))
+                changed |= cell.ConfigureJapaneseScoring(characterTiming, inputScoring);
+            if (changed)
+                phaseScoreProcessor?.ApplyBeatmap(Beatmap);
             if (replayScore != null)
             {
                 var derived = PuppeteerReplayTransform.Derived(Beatmap, Mods.ToList(), replayScore.Replay);

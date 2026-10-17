@@ -16,8 +16,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <summary>
         /// The SHIPPED rating (the chunked axis, see <see cref="LyricDifficulty.Live"/>), exactly as
         /// every caller reads it, shipped typability included. The exact pins below are the same
-        /// numbers the web port's LyricPaceTest pins for the same fixtures, so the two copies are held
-        /// together here as well as in WireCompat.
+        /// numbers for the current client formula, including the negative-z whole-map bonus. The
+        /// mirrored web formula must use these same pins when its parity fixtures are updated.
         ///
         /// <para>These fixtures used to read the ENVELOPE model with typability off, the sandbox
         /// reading that model was ported from. That model is gone (it last fed only Target WPM), so the
@@ -117,8 +117,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(Shipped(oneLine), Is.EqualTo(2.1018069517667728), "23 cells: four words + the 3 spaces between them");
-                Assert.That(Shipped(twoLines), Is.EqualTo(1.7908710384500925), "20 cells: no space over a line break");
+                Assert.That(Shipped(oneLine), Is.EqualTo(2.1078517699642552), "23 cells: four words + the 3 spaces between them");
+                Assert.That(Shipped(twoLines), Is.EqualTo(1.7962369444673221), "20 cells: no space over a line break");
             });
         }
 
@@ -150,9 +150,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(Shipped(map, 0.75), Is.EqualTo(6.8277402216711653), "sr_ht");
-                Assert.That(Shipped(map), Is.EqualTo(8.6605850300065299), "difficulty_rating");
-                Assert.That(Shipped(map, 1.50), Is.EqualTo(12.694611634615599), "sr_dt");
+                Assert.That(Shipped(map, 0.75), Is.EqualTo(6.8512192811076789), "sr_ht");
+                Assert.That(Shipped(map), Is.EqualTo(8.6903668295584655), "difficulty_rating");
+                Assert.That(Shipped(map, 1.50), Is.EqualTo(12.738265542265243), "sr_dt");
             });
         }
 
@@ -172,8 +172,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             double noMod = Shipped(map);
             double doubleTime = Shipped(map, 1.50);
 
-            Assert.That(noMod, Is.EqualTo(9.7403999749190024).Within(1e-9));
-            Assert.That(doubleTime, Is.EqualTo(14.062221324374589).Within(1e-9), "under the old ceiling this read exactly 10.00");
+            Assert.That(noMod, Is.EqualTo(9.7738950146424912).Within(1e-9));
+            Assert.That(doubleTime, Is.EqualTo(14.110578133445392).Within(1e-9), "under the old ceiling this read exactly 10.00");
         }
 
         [Test]
@@ -402,14 +402,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(Shipped(big), Is.EqualTo(20.916395725603415));
-                Assert.That(Shipped(big, 1.50), Is.EqualTo(30.706334165525064));
-                Assert.That(Shipped(realistic), Is.EqualTo(5.1243366042448653));
-                Assert.That(Shipped(mid, 0.75), Is.EqualTo(6.8277402216711653));
-                Assert.That(Shipped(mid), Is.EqualTo(8.6605850300065299));
-                Assert.That(Shipped(mid, 1.50), Is.EqualTo(12.694611634615599));
+                Assert.That(Shipped(big), Is.EqualTo(20.989384416358078));
+                Assert.That(Shipped(big, 1.50), Is.EqualTo(30.813485280756332));
+                Assert.That(Shipped(realistic), Is.EqualTo(5.1418377347840236));
+                Assert.That(Shipped(mid, 0.75), Is.EqualTo(6.8512192811076789));
+                Assert.That(Shipped(mid), Is.EqualTo(8.6903668295584655));
+                Assert.That(Shipped(mid, 1.50), Is.EqualTo(12.738265542265243));
                 // No mark and no capital in the pool, so the Literate stream is the same stream.
-                Assert.That(Shipped(mid, 1, literate: true), Is.EqualTo(8.6605850300065299));
+                Assert.That(Shipped(mid, 1, literate: true), Is.EqualTo(8.6903668295584655));
             });
         }
 

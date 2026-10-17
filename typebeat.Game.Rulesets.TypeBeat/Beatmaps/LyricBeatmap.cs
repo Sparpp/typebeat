@@ -593,6 +593,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// </summary>
     public readonly record struct WordPause(double StartTime, double EndTime, int SplitChar);
 
+    /// <summary>A mapper-authored correspondence between cuts in the two spellings.</summary>
+    public readonly record struct OriginalLyricSplit(int TextIndex, int OriginalIndex);
+
     public sealed class TimedUnit
     {
         public required string Text { get; init; }
@@ -660,6 +663,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// key, written only when it differs from <see cref="Text"/>.</para>
         /// </summary>
         public string? Original { get; init; }
+
+        /// <summary>Explicit cut links override inferred readings, including custom romanizations.</summary>
+        public IReadOnlyList<OriginalLyricSplit> OriginalSplits { get; init; } = Array.Empty<OriginalLyricSplit>();
     }
 
     /// <summary>

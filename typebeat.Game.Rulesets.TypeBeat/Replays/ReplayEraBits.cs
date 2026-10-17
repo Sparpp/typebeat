@@ -238,6 +238,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             // back) can.
             bit(EraWord.ConfigExtended, 1 << 9, nameof(TypeBeatReplayFrame.KeyTimeJudgement), f => f.KeyTimeJudgement, (f, v) => f.KeyTimeJudgement = v,
                 e => e.KeyTimeJudgement, (e, v) => e.KeyTimeJudgement = v),
+
+            bit(EraWord.ConfigExtended, 1 << 10, nameof(TypeBeatReplayFrame.JapaneseCharacterTiming), f => f.JapaneseCharacterTiming, (f, v) => f.JapaneseCharacterTiming = v,
+                e => e.JapaneseCharacterTiming, (e, v) => e.JapaneseCharacterTiming = v),
+
+            bit(EraWord.ConfigExtended, 1 << 11, nameof(TypeBeatReplayFrame.JapaneseInputScoring), f => f.JapaneseInputScoring, (f, v) => f.JapaneseInputScoring = v,
+                e => e.JapaneseInputScoring, (e, v) => e.JapaneseInputScoring = v),
+
+            bit(EraWord.ConfigExtended, 1 << 12, nameof(TypeBeatReplayFrame.JapaneseKanaInput), f => f.JapaneseKanaInput, (f, v) => f.JapaneseKanaInput = v,
+                e => e.JapaneseKanaInput, (e, v) => e.JapaneseKanaInput = v),
+
+            bit(EraWord.ConfigExtended, 1 << 13, nameof(TypeBeatReplayFrame.BestRetypeJudgement), f => f.BestRetypeJudgement, (f, v) => f.BestRetypeJudgement = v,
+                e => e.BestRetypeJudgement, (e, v) => e.BestRetypeJudgement = v),
         };
 
         private static readonly ReplayEraBit[] config_bits = ALL.Where(b => b.Word == EraWord.Config).ToArray();

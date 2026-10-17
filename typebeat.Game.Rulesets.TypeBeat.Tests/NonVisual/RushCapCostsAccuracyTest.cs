@@ -324,13 +324,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// An inert retype re-derives the Meh the first judgement took: the untouched delta alone
-        /// would re-read it as a Great.
+        /// Earlier replays retain the original rush-cap award; new runs may improve it on re-entry.
         /// </summary>
-        [Test]
-        public void AnInertRetypeOfAnOverCapCellIsStillAMeh()
+        [TestCase(false)]
+        [TestCase(true)]
+        public void RetypingAnOverCapCellUsesRecordedRule(bool bestRetype)
         {
             var typing = engine(rushCapCostsAccuracy: true);
+            typing.BestRetypeJudgement = bestRetype;
 
             var types = new List<JudgementType>();
             typing.CharJudged += j => types.Add(j.Type);
@@ -349,9 +350,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsTrue(typing.ProcessBackspace());
             Assert.IsTrue(typing.ProcessKey('h', 1100));
 
-            Assert.AreEqual(JudgementType.Meh, types[^1], "the retype announces the award the cell holds");
-            Assert.AreEqual(-70, cell(typing, 7).JudgedDelta, "the first delta stands");
-            CollectionAssert.AreEquivalent(tally, typing.BuildResults().Counts, "a retype is scoring-inert");
+            Assert.AreEqual(bestRetype ? JudgementType.Great : JudgementType.Meh, types[^1], "the retype announces the award the cell holds");
+            Assert.AreEqual(bestRetype ? 30 : -70, cell(typing, 7).JudgedDelta);
+            if (!bestRetype)
+                CollectionAssert.AreEquivalent(tally, typing.BuildResults().Counts, "a retype is scoring-inert");
         }
 
         /// <summary>An off-time press out past the cap keeps its off-time tier: the penalty never lifts a press.</summary>

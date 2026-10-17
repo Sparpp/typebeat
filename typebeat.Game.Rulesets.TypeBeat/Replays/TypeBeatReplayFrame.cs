@@ -585,6 +585,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// </summary>
         public bool KeyTimeJudgement;
 
+        /// <summary>Extended bit 10: JapaneseCharacterTiming input/scoring era.</summary>
+        public bool JapaneseCharacterTiming;
+
+        /// <summary>Extended bit 11: JapaneseInputScoring input/scoring era.</summary>
+        public bool JapaneseInputScoring;
+
+        /// <summary>Extended bit 12: JapaneseKanaInput input/scoring era.</summary>
+        public bool JapaneseKanaInput;
+
+        /// <summary>Extended bit 13: BestRetypeJudgement input/scoring era.</summary>
+        public bool BestRetypeJudgement;
+
+
+
         /// <summary>
         /// The final line sealed as soon as it was fully typed correctly (see
         /// <see cref="Gameplay.TypingEngine.EarlyFinish"/>). Bit 4 (value 16) of the extended flags
@@ -677,7 +691,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// Parameters are append-only and named, as <see cref="CreateConfigFrame"/>'s are; each one
         /// defaults to clear, which is what a replay with no extended frame decodes to.
         /// </summary>
-        public static TypeBeatReplayFrame CreateExtendedConfigFrame(double time, bool rushCapCostsAccuracy = false, bool inputEra2 = false, bool authoredSyllablesOnly = false, bool alignSubdivisionTargets = false, bool earlyFinish = false, bool japaneseRomajiInput = false, bool japaneseWordTiming = false, bool japaneseInputEra2 = false, bool japaneseInputEra3 = false, bool keyTimeJudgement = false) => new TypeBeatReplayFrame(time, CONFIG_EXTENDED)
+        public static TypeBeatReplayFrame CreateExtendedConfigFrame(double time, bool rushCapCostsAccuracy = false, bool inputEra2 = false, bool authoredSyllablesOnly = false, bool alignSubdivisionTargets = false, bool earlyFinish = false, bool japaneseRomajiInput = false, bool japaneseWordTiming = false, bool japaneseInputEra2 = false, bool japaneseInputEra3 = false, bool keyTimeJudgement = false, bool japaneseCharacterTiming = false, bool japaneseInputScoring = false, bool japaneseKanaInput = false, bool bestRetypeJudgement = false) => new TypeBeatReplayFrame(time, CONFIG_EXTENDED)
         {
             EarlyFinish = earlyFinish,
             RushCapCostsAccuracy = rushCapCostsAccuracy,
@@ -689,6 +703,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             JapaneseInputEra2 = japaneseInputEra2,
             JapaneseInputEra3 = japaneseInputEra3,
             KeyTimeJudgement = keyTimeJudgement,
+            JapaneseCharacterTiming = japaneseCharacterTiming,
+            JapaneseInputScoring = japaneseInputScoring,
+            JapaneseKanaInput = japaneseKanaInput,
+            BestRetypeJudgement = bestRetypeJudgement,
+
         };
 
         public void FromLegacy(LegacyReplayFrame currentFrame, IBeatmap beatmap, ReplayFrame? lastFrame = null)

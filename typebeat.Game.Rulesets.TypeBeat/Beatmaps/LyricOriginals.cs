@@ -493,7 +493,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// gates its availability on.
         /// </summary>
         public static bool HasOriginals(IEnumerable<LyricLine> lines)
-            => lines.Any(l => l.Original != null || l.UnromanisedWords.Count > 0 || l.Units.Any(u => u.Original != null));
+            => lines.Any(l => !string.IsNullOrWhiteSpace(l.Original) || l.UnromanisedWords.Count > 0 || l.Units.Any(u => !string.IsNullOrWhiteSpace(u.Original)));
 
         /// <summary><see cref="HasOriginals(IEnumerable{LyricLine})"/> over a decoded beatmap's lines.</summary>
         public static bool HasOriginals(IBeatmap beatmap)
