@@ -66,7 +66,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
         /// shared <see cref="TypeBeatResultMapping.CellResult"/> (which is also what
         /// <see cref="Scoring.TypeBeatReplayScorer"/> re-derives a stored score with, so live play
         /// and recalculation cannot drift). Live play is always <see cref="TypoRule.Deferred"/> and
-        /// always the mapping's default <see cref="Scoring.OffTimeRule.MehHit"/>; nothing in gameplay
+        /// always the mapping's default <see cref="Gameplay.OffTimeRule.MehHit"/>; nothing in gameplay
         /// may select either of the other rules.
         ///
         /// <para>An OFF-TIME press (the right character outside the outermost Meh window) resolves
@@ -87,7 +87,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
         ///
         /// <para>The combo break the mistype costs therefore has no result to travel on, and is
         /// mirrored into the score processor by hand on <see cref="TypingEngine.Mistyped"/> instead
-        /// (see <c>TypeBeatPlayfield.onMistyped</c>). That is the seam a REJECTED key has always
+        /// (see <c>TypeBeatComboFeed.OnMistyped</c>). That is the seam a REJECTED key has always
         /// used, so the two input models now account for a wrong keypress identically. That break is
         /// the cell's whole combo consequence, which is why the seal applies the unfixed typo's hit
         /// combo-neutral (<see cref="Scoring.TypeBeatScoreProcessor.MarkComboNeutral"/>).</para>
@@ -133,8 +133,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
 
         /// <summary>
         /// The drawable carrying <paramref name="cellIndex"/>'s score, or null when this line has no such
-        /// cell. Exposed for the playfield's seal, which needs a cell's own target time to tell what the
-        /// play actually reached (see <c>TypeBeatPlayfield.cellWasDueBeforeThePlayStarted</c>).
+        /// cell. Exposed for the playfield's seal, which grants a cell the play started past (see
+        /// <c>TypeBeatPlayfield.cellWasDueBeforeThePlayStarted</c>; the time it compares is the engine's
+        /// own target, this drawable only carries the cell's result).
         /// </summary>
         public DrawableTypeBeatCharObject? CellAt(int cellIndex, int phase = 0)
             => charDrawablesByCell.TryGetValue((cellIndex, phase), out var cell) ? cell : null;

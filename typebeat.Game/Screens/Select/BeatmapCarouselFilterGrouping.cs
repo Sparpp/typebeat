@@ -154,7 +154,7 @@ namespace typebeat.Game.Screens.Select
 
         public static bool ShouldGroupBeatmapsTogether(FilterCriteria criteria)
         {
-            // A set's difficulties are grouped under one expandable set panel — except when the
+            // A set's difficulties are grouped under one expandable set panel, except when the
             // ordering is by difficulty itself, where each difficulty stands alone so the sort is
             // meaningful. (Sets with a single difficulty still collapse to one row via the same
             // set/expand path.)

@@ -99,6 +99,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <summary>Shadow offset (font-relative) paired with <see cref="TextShadow"/>.</summary>
         public static readonly Vector2 TEXT_SHADOW_OFFSET = new Vector2(0f, 0.08f);
 
+        // Mirrored in typebeat-web: typebeat-player.js CARET_BLINK_PERIOD and LINE_SCROLL_MS.
         public const double CARET_BLINK_PERIOD = 530;    // ms
         public const double LINE_SCROLL_DURATION = 220;  // ms, Easing.OutQuint
         public const double SCREEN_FADE_DURATION = 300;  // ms

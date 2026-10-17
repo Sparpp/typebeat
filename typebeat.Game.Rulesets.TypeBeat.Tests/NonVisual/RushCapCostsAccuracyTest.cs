@@ -128,15 +128,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             // Press 8 ('h', target 1070) leaves the caret 7 ahead: over the cap. The clock says Great
             // (-70), the award is Meh, the delta is recorded as the clock saw it, and the combo is
-            // CREDITED: 50 * (1 + 7/50) = 57 points at the pre-increment combo of 7.
-            long before = typing.Score;
+            // CREDITED.
             Assert.IsTrue(typing.ProcessKey('h', 1000));
 
             Assert.AreEqual(JudgementType.Meh, judgements[^1].Type);
             Assert.AreEqual(-70, judgements[^1].Delta, "the announced delta is the press the player made");
             Assert.AreEqual(-70, cell(typing, 7).JudgedDelta);
             Assert.IsTrue(cell(typing, 7).JudgedPastRushCap);
-            Assert.AreEqual(57, typing.Score - before);
             Assert.AreEqual(8, typing.Combo, "an over-cap press credits combo like any other hit");
             Assert.AreEqual(8, typing.MaxCombo);
             Assert.AreEqual(0, comboBreaks, "and breaks nothing");
@@ -345,7 +343,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.AreEqual(JudgementType.Meh, types[^1]);
 
-            long score = typing.Score;
+            var tally = typing.BuildResults().Counts;
 
             // Let the song catch up so the retype is well inside the cap, then erase and retype 'h'.
             typing.Update(1100);
@@ -354,21 +352,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.AreEqual(bestRetype ? JudgementType.Great : JudgementType.Meh, types[^1], "the retype announces the award the cell holds");
             Assert.AreEqual(bestRetype ? 30 : -70, cell(typing, 7).JudgedDelta);
-            if (bestRetype)
-                Assert.Greater(typing.Score, score);
-            else
-                Assert.AreEqual(score, typing.Score, "the earlier rule keeps retypes scoring-inert");
+            if (!bestRetype)
+                CollectionAssert.AreEquivalent(tally, typing.BuildResults().Counts, "a retype is scoring-inert");
         }
 
         /// <summary>An off-time press out past the cap keeps its off-time tier: the penalty never lifts a press.</summary>
         [Test]
         public void TheRushTierNeverLiftsAPress()
         {
-            Assert.AreEqual(JudgementType.Meh, TypeBeatResultMapping.RushCapTier(JudgementType.Great));
-            Assert.AreEqual(JudgementType.Meh, TypeBeatResultMapping.RushCapTier(JudgementType.Ok));
-            Assert.AreEqual(JudgementType.Meh, TypeBeatResultMapping.RushCapTier(JudgementType.Meh));
-            Assert.AreEqual(JudgementType.Premature, TypeBeatResultMapping.RushCapTier(JudgementType.Premature));
-            Assert.AreEqual(JudgementType.Lagging, TypeBeatResultMapping.RushCapTier(JudgementType.Lagging));
+            Assert.AreEqual(JudgementType.Meh, EraRules.RushCapTier(JudgementType.Great));
+            Assert.AreEqual(JudgementType.Meh, EraRules.RushCapTier(JudgementType.Ok));
+            Assert.AreEqual(JudgementType.Meh, EraRules.RushCapTier(JudgementType.Meh));
+            Assert.AreEqual(JudgementType.Premature, EraRules.RushCapTier(JudgementType.Premature));
+            Assert.AreEqual(JudgementType.Lagging, EraRules.RushCapTier(JudgementType.Lagging));
         }
 
         /// <summary>The penalty belongs to the unpinned caret and, like the break before it, is lifted by <see cref="TypingEngine.RushCapExempt"/>.</summary>
@@ -465,7 +461,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         private static void assertSameAccount(TypingEngine expected, TypingEngine actual, string because)
         {
-            Assert.AreEqual(expected.Score, actual.Score, because);
             Assert.AreEqual(expected.Combo, actual.Combo, because);
             Assert.AreEqual(expected.MaxCombo, actual.MaxCombo, because);
             Assert.AreEqual(expected.CaretIndex, actual.CaretIndex, because);

@@ -11,6 +11,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using osu.Framework.Logging;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 {
@@ -102,8 +103,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 lines = BuildLines(raw, songEndMs);
                 return true;
             }
-            catch
+            catch (JsonException)
             {
+                // Malformed JSON is an ordinary "not a timing.json" answer and stays silent.
+                lines = Array.Empty<LyricLine>();
+                return false;
+            }
+            catch (Exception e)
+            {
+                // Anything else can be a defect in line building rather than bad input, so it is
+                // logged instead of passing for "no lyrics". The answer is still false, as before.
+                Logger.Error(e, "Failed to build lyric lines from timing.json");
                 lines = Array.Empty<LyricLine>();
                 return false;
             }
@@ -121,7 +131,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         ///
         /// <para>Public because the import boundary has to apply the SAME rule when it strips
         /// backing vocals out of a timing.json on the way into an .osu
-        /// (<c>LyricMapImporter.StripBackingVocalLines</c>): if the two rules could drift, an
+        /// (<c>TimingJsonPostProcess.StripBackingVocalLines</c>): if the two rules could drift, an
         /// import would store a line the decode then drops, or drop one the decode would have
         /// kept.</para>
         /// </summary>
@@ -148,7 +158,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// dropped, and a partial strip still changes the token count so the words[] pairing in
         /// <see cref="BuildLines"/> falls back to interpolation for that line, exactly as before.
         /// The .osu writer strips on the same side of the seam
-        /// (<c>LyricMapImporter.StripBackingVocalLines</c>), so an imported map is bracket-free
+        /// (<c>TimingJsonPostProcess.StripBackingVocalLines</c>), so an imported map is bracket-free
         /// before it is ever stored and the two readings agree line for line.</para>
         /// </summary>
         public static bool TryParseRawLine(JsonElement lineElement, out RawLine rawLine, bool stripBackingVocals = false)

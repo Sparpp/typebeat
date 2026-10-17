@@ -13,6 +13,12 @@ namespace typebeat.Game.Online.API.Requests.Responses
 {
     public class APIBeatmapSet : IBeatmapSetOnlineInfo, IBeatmapSetInfo
     {
+        [JsonProperty("metadata_revision")]
+        public long? MetadataRevision { get; set; }
+
+        [JsonProperty("package_revision")]
+        public int? PackageRevision { get; set; }
+
         [JsonProperty(@"covers")]
         public BeatmapSetOnlineCovers Covers { get; set; }
 
@@ -180,6 +186,18 @@ namespace typebeat.Game.Online.API.Requests.Responses
         /// </remarks>
         [JsonProperty(@"has_vocals_stem")]
         public bool HasVocalsStem { get; set; }
+
+        /// <summary>
+        /// The tracked-file manifest of the set's CURRENT online version (see <see cref="Beatmaps.SetFileManifest"/>),
+        /// as the server's <c>file_manifest</c>, or null from a server that predates it.
+        /// </summary>
+        /// <remarks>
+        /// Supersedes <see cref="HasVocalsStem"/> as the update signal, since one manifest covers every tracked file
+        /// kind. Read through <see cref="Beatmaps.SetFileManifest.Online"/>, which falls back to the stem flag when
+        /// this is absent.
+        /// </remarks>
+        [JsonProperty(@"file_manifest")]
+        public string? FileManifest { get; set; }
 
         /// <summary>The creator's plain-text description (empty when none).</summary>
         [JsonProperty(@"description")]

@@ -64,7 +64,7 @@ namespace typebeat.Game.Online.API.Requests
         /// <summary>
         /// The assembled payload's length, sent as <c>total_bytes</c>.
         /// </summary>
-        public int TotalBytes { get; }
+        public long TotalBytes { get; }
 
         /// <summary>
         /// Lowercase hex SHA-256 of the assembled payload, which the server verifies on complete.
@@ -72,7 +72,7 @@ namespace typebeat.Game.Online.API.Requests
         /// </summary>
         public string Sha256 { get; }
 
-        public CreateUploadSessionRequest(uint beatmapSetId, string kind, string contentType, int totalBytes, string sha256)
+        public CreateUploadSessionRequest(uint beatmapSetId, string kind, string contentType, long totalBytes, string sha256)
         {
             ArgumentException.ThrowIfNullOrEmpty(kind);
             ArgumentException.ThrowIfNullOrEmpty(contentType);

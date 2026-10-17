@@ -41,9 +41,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// <item><description>THE MISS PENALTY IS JUDGED AGAINST THE MAP'S DIFFICULT CHARACTERS, NOT ITS
     /// CELL COUNT. <paramref name="difficultCharacters"/> is
     /// <see cref="LyricDifficulty.ModelResult.DifficultCharacters"/> at the played rate on the played
-    /// stream: every cell weighted by how close its own bin sits to the map's peak, to the envelope
-    /// power. Dropping a cell therefore costs more on a map whose difficulty is concentrated in a few
-    /// passages, and the count is a property of the map rather than of the play.</description></item>
+    /// stream, which on the shipped axis (<see cref="LyricDifficulty.Live"/>) is the chunked axis's
+    /// LengthCharacters: every chunk's weighted characters, counted in full where the chunk's strain
+    /// is at or above the map's own score and with falling credit below it. Dropping a cell therefore
+    /// costs more on a map whose difficulty is concentrated in a few passages, and the count is a
+    /// property of the map rather than of the play.</description></item>
     /// <item><description>THE LOSS CURVE IS CALIBRATED IN FRACTIONS. The power sits on the missed
     /// FRACTION of those difficult characters, so the same miss RATE costs the same share of the
     /// core price on every map. <c>miss_exponent</c> 13.5134 is <c>ln(2)/ln(1/0.95)</c>: at
@@ -168,14 +170,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// </para>
     ///
     /// <para>
-    /// COMBO IS AN ADDITIVE BONUS AND NOT A FACTOR OF THE PRODUCT (backlog 270). Every generation
-    /// from v1 to v20 multiplied the whole play by a combo term, so a broken run scaled the core
-    /// pp DOWN; from v12 that term was a log-bent ratio raised to 2.50, tuned so the loss read as
-    /// roughly the combo's face value. It is now <c>maxcombo/notes · max(0, combo_bonus_slope ·
-    /// (SR_eff − combo_bonus_zero))</c>, ADDED to the finished product (see
-    /// <see cref="combo_bonus_slope"/>): a play keeps its core pp whatever its longest run was,
-    /// and a full combo collects the whole of a bonus that is worth 25 pp at 3 stars, 50 at 5 and
-    /// 75 at 7.
+    /// COMBO IS A PERCENTAGE BONUS ON THE PRICE (v22), the <c>(1 + comboBonus)</c> factor above (see
+    /// <see cref="combo_bonus_at_200_cells"/>). Every generation from v1 to v20 multiplied the whole
+    /// play by a combo term, so a broken run scaled the core pp DOWN; from v12 that term was a
+    /// log-bent ratio raised to 2.50. v21 (backlog 270) made it an amount ADDED to the finished
+    /// product, <c>maxcombo/notes · max(0, combo_bonus_slope · (SR_eff − combo_bonus_zero))</c>, and
+    /// v22 replaced that. <see cref="combo_bonus_slope"/> and <see cref="combo_bonus_zero"/> are
+    /// retained but unused by the shipped formula.
     /// </para>
     ///
     /// <para>
@@ -517,42 +518,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         private const double acc_knee_width = 0.0;
 
         /// <summary>
-        /// WHAT A FULL COMBO IS WORTH, PER STAR (backlog 270). The combo bonus is
-        /// <c>maxcombo/notes · max(0, combo_bonus_slope · (SR_eff − combo_bonus_zero))</c>, ADDED
-        /// to the finished product rather than multiplied into it, so this constant is a number of
-        /// pp per star rather than a fraction of anything: at 12.5 a full combo is worth 25 pp at
-        /// 3 stars, 50 at 5 and 75 at 7, and a play with half the map's combo collects half of
-        /// that.
+        /// RETAINED, UNUSED BY THE SHIPPED FORMULA. The v21 combo bonus (backlog 270) was
+        /// <c>maxcombo/notes · max(0, combo_bonus_slope · (SR_eff − combo_bonus_zero))</c>, a
+        /// number of pp ADDED to the finished product: 25 pp for a full combo at 3 stars, 50 at 5
+        /// and 75 at 7. v22 replaced it with the percentage bonus below, and nothing in this file
+        /// reads this constant or <see cref="combo_bonus_zero"/> any more.
         ///
-        /// <para>WHY ADDITIVE. Through v20 combo was a FACTOR, so a broken run scaled the whole
-        /// play down and stacked on top of the two penalty terms that had already charged for the
-        /// flubs that broke it. Non-FC plays were crushed: a real 69% run that never held a long
-        /// streak priced at almost nothing however hard the map was. As a bonus, the core pp of a
-        /// play is whatever its difficulty, cleanliness, typos and accuracy say it is, and a long
-        /// run adds to it.</para>
-        ///
-        /// <para>THE BONUS IS DELIBERATELY NOT GATED BY ACCURACY, and the consequence was measured
-        /// rather than overlooked: combo does not break on an off-time press, so a full-combo run
-        /// at 69% accuracy collects the whole bonus. Gating it by
-        /// <c>acc^accuracy_exponent · AccuracyKnee(acc)</c> was tried in the sandbox and moves
-        /// top-20 totals by 1 to 4%, which is not worth making the bonus a second accuracy term;
-        /// the spec is a naive fraction of a naive bonus.</para>
-        ///
-        /// <para>A SLOPE OF ZERO MEANS THERE IS NO BONUS, exactly, for every play and every
-        /// rating, which is what <c>tools/pp.py</c> reads an absent declaration of either constant
-        /// as. That needs no branch here: <c>0 · (SR_eff − z)</c> is 0 and <c>max(0, 0)</c> is 0,
-        /// so the sentinel is a value of the arithmetic and not merely a reading of it.</para>
+        /// <para>Both stay declared because <c>docs/pp.md</c> pins every constant here and
+        /// <c>tools/pp.py</c> parses the declarations: they are the record of what v21 priced, and
+        /// what lets the tool tell a mirror one generation behind from a broken one. Do not read
+        /// either as live.</para>
         /// </summary>
         private const double combo_bonus_slope = 12.5;
 
         /// <summary>
-        /// THE RATING BELOW WHICH A FULL COMBO IS WORTH NOTHING (backlog 270): the bonus is
-        /// <c>max(0, combo_bonus_slope · (SR_eff − combo_bonus_zero))</c>, so it opens at
-        /// <c>SR_eff = combo_bonus_zero</c> and grows linearly above it. The <c>Math.Max</c> is
-        /// load-bearing and not defensive: a real map can rate below 1.0 (a map with no window long
-        /// enough to fit the smallest scheduled duration rates EXACTLY 0 under the envelope model,
-        /// there being no length term left to give it anything else), and without the clamp
-        /// such a play would be handed a NEGATIVE bonus that a long run made worse.
+        /// RETAINED, UNUSED BY THE SHIPPED FORMULA: the v21 bonus's zero point, the rating below
+        /// which a full combo was worth nothing. Kept for the reason given on
+        /// <see cref="combo_bonus_slope"/>.
         /// </summary>
         private const double combo_bonus_zero = 1.0;
 
@@ -593,12 +575,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
         // ---- mod multipliers (docs/pp.md) ----
 
-        // THE NUMBERS IN THIS BLOCK ARE CHOSEN, NOT DERIVED FROM THE SCORE MULTIPLIERS. Two of
-        // them (recite_multiplier and fletcher_strict_multiplier) happen to equal the mod's score
-        // multiplier because the user picked the same number twice, and that is a coincidence
-        // rather than a rule: Easy is 0.75 here against 0.5x score, Hard Rock 1.25 against 1.10x,
-        // No Fail 0.90 against 0.5x and Flashlight a length-scaled bonus against a flat 1.12x.
-        // Never read one table off the other.
+        // THE NUMBERS IN THIS BLOCK ARE CHOSEN, NOT DERIVED FROM THE SCORE MULTIPLIERS. One of
+        // them (fletcher_strict_multiplier, 1.02) happens to equal the mod's score multiplier
+        // because the user picked the same number twice, and that is a coincidence rather than a
+        // rule: Easy is 0.85 here against 0.5x score, Hard Rock 1.0 against 1.10x, No Fail 0.90
+        // against 0.5x, Recite a scale of 2.0 on Flashlight's bonus against a flat 1.07x, and
+        // Flashlight a length-scaled bonus against a flat 1.05x. Never read one table off the other.
         //
         // Rhythmic (RH) had an entry here from backlog 135 until backlog 270, at 1.10. The mod
         // itself went in backlog 147, so no client can send the acronym and exactly one stored row
@@ -612,8 +594,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <summary>
         /// Recite (backlog 236): the lyric text is hidden until the line is sung, so the play is
         /// typed from listening rather than from reading ahead. Nothing about the map changes, so
-        /// there is no converted rating to price it through and it takes a flat term, exactly as
-        /// Easy and Hard Rock do.
+        /// there is no converted rating to price it through.
+        ///
+        /// <para>SINCE v23 IT IS NOT A FLAT TERM EITHER but the SCALE on Flashlight's bonus (see
+        /// <see cref="ReciteMultiplierFor"/>), because hiding the lyric is what Flashlight charges for
+        /// and that cost grows with how much map there is to hold in the head.</para>
         /// </summary>
         private const double recite_multiplier = 2.0;
 
@@ -641,13 +626,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         private const double easy_multiplier = 0.85;
 
         /// <summary>
-        /// Hard Rock (backlog 150): the play was judged on HALVED windows, the exact mirror of Easy,
-        /// so every character was half as forgiving to land. Priced flat for the same reason Easy is
-        /// (the mod converts nothing, so no rating input can see it), at a value the user chose on
-        /// 2026-08-13. Deliberately NOT the reciprocal of <see cref="easy_multiplier"/> (1.333...):
-        /// the window scales mirror each other, the prices need not, and a tighter window costs a
-        /// player less than a wider one gives them. Separate from the mod's 1.10x SCORE multiplier,
-        /// exactly as Easy's flat term is separate from its 0.5x.
+        /// Hard Rock (backlog 150, and its rule since backlog 180): every character is judged on its
+        /// own point target rather than on its syllable's sung span, at the same windows as an
+        /// unmodded play. From backlog 150 until backlog 264 the mod also HALVED every window, the
+        /// mirror of Easy; 264 dropped the halving, and a stored replay from before it still resolves
+        /// under the halved ladder through its CONFIG frame (bit 13). Hard Rock is a JUDGEMENT ARM of
+        /// the star rating (<see cref="JudgementArmFor"/>), so this flat term prices only what is
+        /// left after that. Separate from the mod's 1.10x SCORE multiplier, exactly as Easy's flat
+        /// term is separate from its 0.5x.
         /// </summary>
         // NEUTRAL at the PP Sandbox's active dials: Hard Rock's judgement windows are what the
         // rhythm arm reads, so the sandbox leaves the flat term at 1.0 rather than paying for the
@@ -955,8 +941,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// </summary>
         /// <summary>
         /// THE DIFFICULT CHARACTERS of the map those lines describe, at the played rate and on the
-        /// played stream: the envelope model's own N, which is what the miss penalty is judged
-        /// against. 0 for a rate the formula cannot price, which prices any miss on such a play as a
+        /// played stream: on the shipped axis, the chunked axis's LengthCharacters, which is what the
+        /// miss penalty is judged against. 0 for a rate the formula cannot price, which prices any miss on such a play as a
         /// zeroed cleanliness term rather than falling back to the map's cell count.
         /// </summary>
         public static double DifficultCharactersFor(IEnumerable<LyricLine> lines, IReadOnlyList<Mod>? mods, string? language = null)

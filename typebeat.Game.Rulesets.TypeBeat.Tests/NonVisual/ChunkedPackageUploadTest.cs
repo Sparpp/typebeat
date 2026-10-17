@@ -5,8 +5,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using NUnit.Framework;
 using osu.Framework.Extensions;
@@ -106,7 +108,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             byte[] package = Encoding.ASCII.GetBytes("PK-not-really-a-zip");
 
             var payload = await ChunkedPackageUpload.BuildFullPayloadAsync(package).ConfigureAwait(false);
-            string body = Encoding.UTF8.GetString(payload.Bytes);
+            string body = Encoding.UTF8.GetString(payload.ToArray());
 
             Assert.Multiple(() =>
             {
@@ -132,7 +134,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             };
 
             var payload = await ChunkedPackageUpload.BuildPatchPayloadAsync(changed, new[] { "old-background.jpg" }).ConfigureAwait(false);
-            string body = Encoding.UTF8.GetString(payload.Bytes);
+            string body = Encoding.UTF8.GetString(payload.ToArray());
 
             Assert.Multiple(() =>
             {
@@ -154,7 +156,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var payload = await ChunkedPackageUpload.BuildFullPayloadAsync(Encoding.ASCII.GetBytes("package")).ConfigureAwait(false);
 
-            using var stream = new MemoryStream(payload.Bytes);
+            using var stream = new MemoryStream(payload.ToArray());
             string expected = stream.ComputeSHA2Hash();
 
             Assert.Multiple(() =>
@@ -189,7 +191,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(second.Bytes, Is.EqualTo(first.Bytes));
+                Assert.That(second.ToArray(), Is.EqualTo(first.ToArray()));
                 Assert.That(second.Sha256, Is.EqualTo(first.Sha256));
                 Assert.That(second.ContentType, Is.EqualTo(first.ContentType));
             });
@@ -203,7 +205,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(second.Bytes, Is.EqualTo(first.Bytes));
+                Assert.That(second.ToArray(), Is.EqualTo(first.ToArray()));
                 Assert.That(second.Sha256, Is.EqualTo(first.Sha256));
                 Assert.That(second.ContentType, Is.EqualTo(first.ContentType));
             });
@@ -241,6 +243,169 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(patchSecond.ContentType, Is.Not.EqualTo(patchFirst.ContentType));
                 Assert.That(patchSecond.Sha256, Is.Not.EqualTo(patchFirst.Sha256));
             });
+        }
+
+        /// <summary>
+        /// Sizes past 2 GB slice with long arithmetic: the chunk count and each chunk's length still fit an int,
+        /// the offsets do not, and the last chunk carries exactly the remainder.
+        /// </summary>
+        [Test]
+        public void PayloadsPastTwoGigabytesSliceExactly()
+        {
+            const long two_gb = 1L << 31;
+            const long five_gb = 5L * 1024 * 1024 * 1024;
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(ChunkedPackageUpload.TotalChunks(two_gb, chunk_bytes), Is.EqualTo(262144));
+                Assert.That(ChunkedPackageUpload.ChunkLength(262143, two_gb, chunk_bytes), Is.EqualTo(chunk_bytes), "2 GB divides evenly");
+
+                Assert.That(ChunkedPackageUpload.TotalChunks(two_gb + 100, chunk_bytes), Is.EqualTo(262145));
+                Assert.That(ChunkedPackageUpload.ChunkOffset(262144, chunk_bytes), Is.EqualTo(two_gb));
+                Assert.That(ChunkedPackageUpload.ChunkLength(262144, two_gb + 100, chunk_bytes), Is.EqualTo(100));
+
+                Assert.That(ChunkedPackageUpload.TotalChunks(five_gb + 1, chunk_bytes), Is.EqualTo(655361));
+                Assert.That(ChunkedPackageUpload.ChunkOffset(655360, chunk_bytes), Is.EqualTo(five_gb));
+                Assert.That(ChunkedPackageUpload.ChunkLength(655359, five_gb + 1, chunk_bytes), Is.EqualTo(chunk_bytes));
+                Assert.That(ChunkedPackageUpload.ChunkLength(655360, five_gb + 1, chunk_bytes), Is.EqualTo(1));
+                Assert.Throws<ArgumentOutOfRangeException>(() => ChunkedPackageUpload.ChunkLength(655361, five_gb + 1, chunk_bytes));
+
+                // a chunk count the session protocol cannot index is refused rather than wrapped.
+                Assert.Throws<OverflowException>(() => ChunkedPackageUpload.TotalChunks(long.MaxValue, 1));
+            });
+        }
+
+        /// <summary>
+        /// The payload is the exact bytes the BCL's multipart content serialises to, which is what the server
+        /// reassembles and parses and what session creation hashes: building it from segments must not move a byte.
+        /// </summary>
+        [Test]
+        public async Task PayloadBytesAreWhatTheMultipartContentSerialises()
+        {
+            byte[] package = Encoding.ASCII.GetBytes("PK-not-really-a-zip");
+            var changed = new Dictionary<string, byte[]>
+            {
+                { "beatmap.typb", Encoding.ASCII.GetBytes("[General]") },
+                { "audio.mp3", Encoding.ASCII.GetBytes("ID3") },
+            };
+            string[] deleted = { "old-background.jpg" };
+
+            var full = await ChunkedPackageUpload.BuildFullPayloadAsync(package).ConfigureAwait(false);
+            var patch = await ChunkedPackageUpload.BuildPatchPayloadAsync(changed, deleted).ConfigureAwait(false);
+
+            using var fullContent = new MultipartFormDataContent(boundaryOf(full));
+            fullContent.Add(octets(package), @"beatmapArchive", @"package.osz");
+
+            using var patchContent = new MultipartFormDataContent(boundaryOf(patch));
+            foreach ((string filename, byte[] contents) in changed)
+                patchContent.Add(octets(contents), @"filesChanged", filename);
+            patchContent.Add(new StringContent(deleted[0]), @"filesDeleted");
+
+            byte[] fullExpected = await fullContent.ReadAsByteArrayAsync().ConfigureAwait(false);
+            byte[] patchExpected = await patchContent.ReadAsByteArrayAsync().ConfigureAwait(false);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(full.ToArray(), Is.EqualTo(fullExpected));
+                Assert.That(full.Length, Is.EqualTo(fullExpected.LongLength));
+                Assert.That(full.ContentType, Is.EqualTo(fullContent.Headers.ContentType!.ToString()));
+
+                Assert.That(patch.ToArray(), Is.EqualTo(patchExpected));
+                Assert.That(patch.Length, Is.EqualTo(patchExpected.LongLength));
+                Assert.That(patch.ContentType, Is.EqualTo(patchContent.Headers.ContentType!.ToString()));
+            });
+
+            static ByteArrayContent octets(byte[] contents)
+            {
+                var part = new ByteArrayContent(contents);
+                part.Headers.ContentType = new MediaTypeHeaderValue(@"application/octet-stream");
+                return part;
+            }
+
+            static string boundaryOf(ChunkedPackageUpload.UploadPayload payload)
+                => MediaTypeHeaderValue.Parse(payload.ContentType).Parameters.Single(p => p.Name == "boundary").Value!.Trim('"');
+        }
+
+        /// <summary>
+        /// Chunks are cut from the segments only when sent, and every chunk size, including ones that straddle a
+        /// segment boundary, reads back the same bytes as the whole payload.
+        /// </summary>
+        [Test]
+        public async Task ChunksReadAcrossSegmentsMatchTheWholePayload()
+        {
+            var changed = new Dictionary<string, byte[]>
+            {
+                { "beatmap.typb", Enumerable.Range(0, 3000).Select(i => (byte)i).ToArray() },
+                { "audio.mp3", Enumerable.Range(0, 5000).Select(i => (byte)(i * 7)).ToArray() },
+            };
+
+            var payload = await ChunkedPackageUpload.BuildPatchPayloadAsync(changed, new[] { "gone.jpg" }).ConfigureAwait(false);
+            byte[] whole = payload.ToArray();
+
+            foreach (int size in new[] { 1, 7, 64, 1000, chunk_bytes, whole.Length })
+            {
+                var reassembled = new List<byte>();
+
+                for (int i = 0; i < ChunkedPackageUpload.TotalChunks(payload.Length, size); i++)
+                    reassembled.AddRange(payload.ReadChunk(ChunkedPackageUpload.ChunkOffset(i, size), ChunkedPackageUpload.ChunkLength(i, payload.Length, size)));
+
+                Assert.That(reassembled, Is.EqualTo(whole), $"chunk size {size}");
+            }
+
+            Assert.Throws<ArgumentOutOfRangeException>(() => payload.ReadChunk(payload.Length - 1, 2));
+        }
+
+        /// <summary>
+        /// The payload refers to the package the caller already holds instead of taking another copy of it, which is
+        /// the memory a large package used to cost a third time over.
+        /// </summary>
+        [Test]
+        public async Task PayloadSharesThePackageBuffer()
+        {
+            byte[] package = Encoding.ASCII.GetBytes("PK-not-really-a-zip");
+
+            var payload = await ChunkedPackageUpload.BuildFullPayloadAsync(package).ConfigureAwait(false);
+
+            package[0] = (byte)'Q';
+
+            Assert.That(Encoding.ASCII.GetString(payload.ToArray()), Does.Contain("QK-not-really-a-zip"));
+        }
+
+        /// <summary>
+        /// The chunked fallback's payload is only built when it is first asked for, and only once however often it is
+        /// asked for after that; a failed build stays failed.
+        /// </summary>
+        [Test]
+        public async Task DeferredPayloadBuildsOnFirstUseOnly()
+        {
+            int builds = 0;
+
+            var deferred = new ChunkedPackageUpload.DeferredPayload(() =>
+            {
+                Interlocked.Increment(ref builds);
+                return ChunkedPackageUpload.BuildFullPayloadAsync(Encoding.ASCII.GetBytes("package"));
+            });
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(deferred.Started, Is.False);
+                Assert.That(builds, Is.Zero, "nothing is assembled while the direct upload has not failed");
+            });
+
+            var first = await deferred.GetAsync().ConfigureAwait(false);
+            var second = await deferred.GetAsync().ConfigureAwait(false);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(deferred.Started, Is.True);
+                Assert.That(builds, Is.EqualTo(1));
+                Assert.That(second, Is.SameAs(first), "a resumed session must send the very same payload");
+            });
+
+            var failing = new ChunkedPackageUpload.DeferredPayload(() => throw new InvalidOperationException("export gone"));
+
+            Assert.ThrowsAsync<InvalidOperationException>(() => failing.GetAsync());
+            Assert.ThrowsAsync<InvalidOperationException>(() => failing.GetAsync());
         }
 
         [Test]

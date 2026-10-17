@@ -133,10 +133,11 @@ namespace typebeat.Game.Online
         /// </summary>
         /// <remarks>
         /// <para>
-        /// This is the same set <c>UploadRetryPolicy.IsChunkTransportFailure</c> names, for the same
-        /// reason, and it is named separately because the decision it encodes is a different one:
-        /// there the question is whether to repeat a request on the SAME route, here it is only ever
-        /// asked once the route has already changed under the caller.
+        /// This is nearly the set <c>UploadRetryPolicy.IsChunkTransportFailure</c> names, for the same
+        /// reason, with <see cref="SocketException"/> in place of <see cref="System.IO.IOException"/>
+        /// (both are written over <see cref="FailureClassifier"/>). It is named separately because the
+        /// decision it encodes is a different one: there the question is whether to repeat a request on
+        /// the SAME route, here it is only ever asked once the route has already changed under the caller.
         /// </para>
         /// <para>
         /// Retried:
@@ -165,26 +166,7 @@ namespace typebeat.Game.Online
         /// </list>
         /// </para>
         /// </remarks>
-        public static bool IsFailoverRetryable(Exception? exception)
-        {
-            for (var candidate = exception; candidate != null; candidate = candidate.InnerException)
-            {
-                switch (candidate)
-                {
-                    case OperationCanceledException:
-                    case APIException:
-                        return false;
-
-                    case WebException:
-                    case HttpRequestException:
-                    case SocketException:
-                    case APIAccess.WebRequestFlushedException:
-                        return true;
-                }
-            }
-
-            return false;
-        }
+        public static bool IsFailoverRetryable(Exception? exception) => FailureClassifier.FAILOVER.Matches(exception);
 
         /// <summary>
         /// Whether a request that was built against <paramref name="routeWhenSent"/> and failed with

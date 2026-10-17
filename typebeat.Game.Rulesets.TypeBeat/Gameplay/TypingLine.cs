@@ -82,12 +82,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// when a retype improves its tier. Its presence prevents duplicate combo and scoring cells.
         /// </summary>
         internal double? FirstCorrectDelta { get; set; }
-        internal double AwardMultiplier { get; set; } = 1;
-        internal int AwardedPoints { get; set; }
         internal int SyncSampleStart { get; set; } = -1;
         internal int SyncSampleCount { get; set; }
-        internal double EndAwardMultiplier { get; set; } = 1;
-        internal int EndAwardedPoints { get; set; }
         internal int EndSyncSampleIndex { get; set; } = -1;
 
         /// <summary>
@@ -95,7 +91,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// been judged, i.e. whether this cell's ONE awarded judgement is (or will be) a CORRECTION
         /// rather than a clean first attempt. Backlog 210 reads it to cap that judgement at
         /// <see cref="JudgementType.Ok"/> (see
-        /// <see cref="Scoring.TypeBeatResultMapping.AwardedTier"/>).
+        /// <see cref="EraRules.AwardedTier"/>).
         ///
         /// <para>HISTORY, unlike <see cref="State"/>: set once, never cleared, and it survives the
         /// backspace that erases the wrong character, which is the whole of what it is for. It is
@@ -109,7 +105,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// a wrong character typed into it after erasure.</para>
         ///
         /// <para>Era-independent, deliberately: it records what HAPPENED, and
-        /// <see cref="Scoring.CorrectionCreditRule"/> decides what that is worth, so re-deriving a
+        /// <see cref="CorrectionCreditRule"/> decides what that is worth, so re-deriving a
         /// stored score under either arm reads the same flag.</para>
         /// </summary>
         internal bool HeldWrongBeforeJudged { get; set; }
@@ -117,7 +113,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>
         /// Whether this cell's ONE awarded judgement was made with the caret out past the rush cap
         /// under <see cref="TypingEngine.RushCapCostsAccuracy"/> (backlog 347), which awarded it
-        /// <see cref="Scoring.TypeBeatResultMapping.RushCapTier"/> whatever its delta said.
+        /// <see cref="EraRules.RushCapTier"/> whatever its delta said.
         ///
         /// <para>Retained through erasure. An improved retype replaces this flag along with its
         /// award; older replay rules keep the first award and flag. The display needs it because

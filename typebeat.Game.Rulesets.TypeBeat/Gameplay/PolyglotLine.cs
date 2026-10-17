@@ -6,6 +6,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using osu.Framework.Logging;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
@@ -558,6 +559,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             return new Piece { Unit = unit, Natural = natural, Cluster = cluster.ToArray() };
         }
+
+        /// <summary>Whether <see cref="carry"/> has already logged a romanisation failure this session.</summary>
 
         /// <summary>
         /// Carries romanised <paramref name="cuts"/> (indices into <paramref name="romanised"/>) onto

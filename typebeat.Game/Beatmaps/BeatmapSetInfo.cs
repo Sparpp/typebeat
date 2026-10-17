@@ -75,10 +75,10 @@ namespace typebeat.Game.Beatmaps
         /// This is user data, not map content: it lives in realm rather than in any beatmap file so that
         /// toggling it never re-encodes (and never un-ranks) a map, and so that an accidental untick cannot
         /// destroy a hand-found beatdrop timestamp. It replaced the per-difficulty
-        /// <see cref="BeatmapUserSettings.IntroPoolInclusion"/> at realm schema 58, whose migration derived
-        /// this value from the old per-difficulty overrides. It is deliberately NOT copied by the realm write
-        /// mapper (see <c>RealmObjectExtensions</c>): an editor save of a set detached before a toggle would
-        /// otherwise silently revert the toggle.
+        /// <c>BeatmapUserSettings.IntroPoolInclusion</c> at realm schema 58, whose migration derived
+        /// this value from the old per-difficulty overrides (schema 65 dropped the old column). It is
+        /// deliberately NOT copied by the realm write mapper (see <c>RealmObjectExtensions</c>): an editor
+        /// save of a set detached before a toggle would otherwise silently revert the toggle.
         /// </remarks>
         public bool? IntroPoolInclusion { get; set; }
 
@@ -133,47 +133,47 @@ namespace typebeat.Game.Beatmaps
         public DateTimeOffset? OnlineVersionLastUpdated { get; set; }
 
         /// <summary>
-        /// Whether the online set's CURRENT version carries an isolated vocals stem
-        /// (<c>vocals.ogg</c>/<c>vocals.wav</c>), as last reported by a metadata lookup
-        /// (<c>has_vocals_stem</c>, backlog 396). Realm column, default false.
+        /// The tracked-file manifest of the online set's CURRENT version (see <see cref="SetFileManifest"/>), as last
+        /// reported by a metadata lookup (<c>file_manifest</c>, or the <c>has_vocals_stem</c> flag of a server that
+        /// predates it), or <c>null</c> when no lookup has reported one yet.
         /// </summary>
         /// <remarks>
         /// <para>
-        /// The server's answer for the version currently being served, recorded on every successful lookup
-        /// exactly as <see cref="OnlineVersionLastUpdated"/> is, and compared at read time against the stem
-        /// the LOCAL copy actually carries (<see cref="OnlineStemIsMissingLocally"/>). It is deliberately not
-        /// gated by <see cref="OnlineVersionLastUpdated"/>'s "do not advance while behind" rule: it describes
-        /// what the online offers right now, and whether that is something the local copy lacks is a separate
-        /// question answered by the local file list.
+        /// The server's answer for the version currently being served, recorded on every successful lookup exactly
+        /// as <see cref="OnlineVersionLastUpdated"/> is, and compared at read time against the files the LOCAL copy
+        /// carries (<see cref="OnlineFilesMissingLocally"/>). It is deliberately not gated by
+        /// <see cref="OnlineVersionLastUpdated"/>'s "do not advance while behind" rule: it describes what the online
+        /// offers right now, and whether that is something the local copy lacks is a separate question answered by
+        /// <see cref="LocalFileManifest"/>.
         /// </para>
         /// <para>
-        /// A realm schema bump added it with the column default false, meaning "no stem known", which reads as
-        /// nothing to offer; the next lookup records the real value. That ordering matters: the offer must not
-        /// fire off a stale flag before a lookup has confirmed the online version's content.
+        /// <c>null</c> reads as nothing to offer, and the next lookup records the real value. That ordering matters:
+        /// the offer must not fire off a stale value before a lookup has confirmed the online version's content.
+        /// One string for every tracked kind, so a new kind needs no realm schema change (realm schema 65 replaced
+        /// the per-kind stem flags with it).
         /// </para>
         /// </remarks>
-        public bool OnlineVersionHasVocalsStem { get; set; }
+        public string? OnlineFileManifest { get; set; }
 
         /// <summary>
-        /// Whether the LOCAL copy carries a vocals stem (<c>vocals.ogg</c>/<c>vocals.wav</c>), recorded as a
-        /// scalar column at import and after an accepted update.
+        /// The tracked-file manifest of the LOCAL copy (see <see cref="SetFileManifest"/>), recorded as a scalar
+        /// column at import and after an accepted update.
         /// </summary>
         /// <remarks>
         /// <para>
-        /// A scalar, deliberately, rather than a live read of <see cref="Files"/>: the song-select carousel
-        /// holds DETACHED sets, and the detach mapper strips <see cref="Files"/> for weight (see
-        /// <c>RealmObjectExtensions.beatmap_set_mapper</c>), so <see cref="VocalsStem.FilenameIn"/> sees no
-        /// file at all on the very object <see cref="Screens.Select.PanelUpdateBeatmapButton"/> reads. The
-        /// live file list is only correct on the managed set the importer holds, which the panel never sees,
-        /// so a presence test against it made <see cref="OnlineStemIsMissingLocally"/> true forever.
+        /// A scalar, deliberately, rather than a live read of <see cref="Files"/>: the song-select carousel holds
+        /// DETACHED sets, and the detach mapper strips <see cref="Files"/> for weight (see
+        /// <c>RealmObjectExtensions.beatmap_set_mapper</c>), so <see cref="SetFileManifest.Of(IHasRealmFiles)"/> sees
+        /// no file at all on the very object <see cref="Screens.Select.PanelUpdateBeatmapButton"/> reads. The live
+        /// file list is only correct on the managed set the importer holds, which the panel never sees.
         /// </para>
         /// <para>
-        /// Recorded by <see cref="RecordLocalVocalsStem()"/> at import and on the changed update branch, and
-        /// backfilled for every existing set by realm schema 64. It is copied by the detach mapper (a plain
-        /// scalar), so the carousel sees the real value.
+        /// Recorded by <see cref="RecordLocalFileManifest()"/> at import and on the changed update branch, and
+        /// backfilled for every existing set from its own file list by realm schema 65. It is copied by the detach
+        /// mapper (a plain scalar), so the carousel sees the real value.
         /// </para>
         /// </remarks>
-        public bool HasLocalVocalsStem { get; set; }
+        public string LocalFileManifest { get; set; } = SetFileManifest.EMPTY;
 
         /// <summary>
         /// Whether the online set has a version strictly newer than <see cref="OnlineVersionLastUpdated"/>
@@ -233,49 +233,44 @@ namespace typebeat.Game.Beatmaps
         }
 
         /// <summary>
-        /// Whether the online version offers a vocals stem the LOCAL copy lacks: the online set carries one
-        /// (as last looked up, <see cref="OnlineVersionHasVocalsStem"/>) and this set has no stem file
-        /// (<see cref="VocalsStem.FilenameIn"/>).
+        /// Whether the online version offers a tracked file the LOCAL copy lacks: the online manifest (as last
+        /// looked up, <see cref="OnlineFileManifest"/>) names a kind the local one (<see cref="LocalFileManifest"/>)
+        /// does not (see <see cref="SetFileManifest.Covers"/>).
         /// </summary>
         /// <remarks>
-        /// This is the arm that makes a stem-only version cut visible (backlog 396). Such a cut adds a file
-        /// and bumps the version but leaves every <c>.osu</c> MD5 byte-identical, so neither the MD5 path nor
-        /// <see cref="OnlineVersionIsNewer"/> can see it against a client that already had the map (whose
-        /// baseline may have adopted the already-bumped version), and a client that already holds the audio
-        /// never re-fetches a version that only added a file. Presence, not time, is what the client can
-        /// actually tell apart here. Once the update lands <see cref="HasLocalVocalsStem"/> is set, so this
-        /// reads false and the offer clears on its own.
+        /// This is the arm that makes a file-only version cut visible (backlog 396, a stem-only version). Such a cut
+        /// adds a file and bumps the version but leaves every <c>.osu</c> MD5 byte-identical, so neither the MD5 path
+        /// nor <see cref="OnlineVersionIsNewer"/> can see it against a client that already had the map (whose baseline
+        /// may have adopted the already-bumped version), and a client that already holds the audio never re-fetches a
+        /// version that only added a file. Presence, not time, is what the client can actually tell apart here. Once
+        /// the update lands <see cref="LocalFileManifest"/> names the kind, so this reads false and the offer clears
+        /// on its own.
         /// </remarks>
-        public bool OnlineStemIsMissingLocally => OnlineVersionHasVocalsStem && !HasLocalVocalsStem;
+        public bool OnlineFilesMissingLocally => !SetFileManifest.Covers(LocalFileManifest, OnlineFileManifest);
 
         /// <summary>
-        /// Records whether the LOCAL copy carries a vocals stem, from the live file list. Called where the
-        /// MANAGED set is in hand (import, and the no-change update branch): it reads <see cref="Files"/>
-        /// via <see cref="VocalsStem.FilenameIn"/>, which is only populated on a managed set (see
-        /// <see cref="HasLocalVocalsStem"/>).
+        /// Records the LOCAL copy's tracked-file manifest from the live file list. Called where the MANAGED set is
+        /// in hand (import, which the no-change update branch also lands in, and the changed update branch): it reads <see cref="Files"/>, which is only populated on
+        /// a managed set (see <see cref="LocalFileManifest"/>).
         /// </summary>
-        public void RecordLocalVocalsStem() => RecordLocalVocalsStem(VocalsStem.FilenameIn(this) != null);
+        public void RecordLocalFileManifest() => RecordLocalFileManifest(SetFileManifest.Of(this));
 
-        /// <summary>
-        /// Records whether the LOCAL copy carries a vocals stem from an already-computed answer. The
-        /// changed-branch update is handed the new set DETACHED (its <see cref="Files"/> are empty), so it
-        /// must pass the answer read from the freshly-written managed set instead.
-        /// </summary>
-        public void RecordLocalVocalsStem(bool hasLocalStem)
+        /// <summary>Records the LOCAL copy's tracked-file manifest from an already-computed answer.</summary>
+        public void RecordLocalFileManifest(string manifest)
         {
-            if (HasLocalVocalsStem != hasLocalStem)
-                HasLocalVocalsStem = hasLocalStem;
+            if (LocalFileManifest != manifest)
+                LocalFileManifest = manifest;
         }
 
         /// <summary>
-        /// Records what the last successful lookup reported about the online version's stem
-        /// (<see cref="OnlineVersionHasVocalsStem"/>). Only ever called with a real answer: a failed or
-        /// absent lookup must not blank a flag that is holding an offer open.
+        /// Records what the last successful lookup reported about the online version's tracked files
+        /// (<see cref="OnlineFileManifest"/>). Only ever called with a real answer: a failed or absent lookup must
+        /// not blank a value that is holding an offer open.
         /// </summary>
-        public void RecordOnlineVocalsStem(bool hasVocalsStem)
+        public void RecordOnlineFileManifest(string manifest)
         {
-            if (OnlineVersionHasVocalsStem != hasVocalsStem)
-                OnlineVersionHasVocalsStem = hasVocalsStem;
+            if (OnlineFileManifest != manifest)
+                OnlineFileManifest = manifest;
         }
 
         /// <summary>
@@ -351,12 +346,12 @@ namespace typebeat.Game.Beatmaps
         /// </summary>
         /// <remarks>
         /// Three arms: the per-difficulty MD5 (<see cref="BeatmapInfo.MatchesOnlineVersion"/>), the set
-        /// version baseline (<see cref="OnlineVersionIsNewer"/>), and the stem presence
-        /// (<see cref="OnlineStemIsMissingLocally"/>, against the recorded <see cref="HasLocalVocalsStem"/>).
-        /// The stem arm is what makes a stem-only version cut visible (backlog 396): the version baseline
+        /// version baseline (<see cref="OnlineVersionIsNewer"/>), and the tracked-file manifest
+        /// (<see cref="OnlineFilesMissingLocally"/>, against the recorded <see cref="LocalFileManifest"/>).
+        /// The manifest arm is what makes a file-only version cut visible (backlog 396): the version baseline
         /// cannot see it once it has adopted the already-bumped version, and the MD5 path cannot see it at
         /// all, so presence is the only signal that holds.
         /// </remarks>
-        public bool AllBeatmapsUpToDate => Beatmaps.All(b => b.MatchesOnlineVersion) && !OnlineVersionIsNewer && !OnlineStemIsMissingLocally;
+        public bool AllBeatmapsUpToDate => Beatmaps.All(b => b.MatchesOnlineVersion) && !OnlineVersionIsNewer && !OnlineFilesMissingLocally;
     }
 }

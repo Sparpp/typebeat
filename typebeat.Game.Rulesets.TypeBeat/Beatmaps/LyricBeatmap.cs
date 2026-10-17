@@ -192,7 +192,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// ingest of a foreign lyrics file still reads "(oh oh)" as a backing vocal to throw away.
         /// The two surviving callers are exactly that boundary: <see cref="LrcParser"/> and
         /// <see cref="TimingJsonLoader.TryParse"/> (the aligner's own timing.json), plus the .osu
-        /// writer's import-side sweep in <c>LyricMapImporter.StripBackingVocalLines</c>. The
+        /// writer's import-side sweep in <c>TimingJsonPostProcess.StripBackingVocalLines</c>. The
         /// editor's write paths and the stored-map decode call <see cref="Normalize"/> directly and
         /// keep the brackets.</para>
         /// </summary>

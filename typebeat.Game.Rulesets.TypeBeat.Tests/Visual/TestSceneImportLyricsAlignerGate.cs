@@ -484,7 +484,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             public Task<(LyricImportResult Result, string? TimingJson)> ProduceTimingJsonAsync(string audioPath, string lyricsContent, string artist, string title, Action<string> progress,
                                                                                             CancellationToken token, bool useAutomaticAlignment = true, string? language = null,
-                                                                                            AlignerVocalMode vocalMode = AlignerVocalMode.Aligned)
+                                                                                            AlignerVocalMode vocalMode = AlignerVocalMode.Aligned, bool allowLineFallback = true)
                 => throw new NotSupportedException();
         }
     }

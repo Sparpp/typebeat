@@ -296,11 +296,10 @@ namespace typebeat.Game.Rulesets.Scoring
                 updateScore();
 
                 // Not only on accuracy change (the ctor wiring): RankFromScore reads the RESULT
-                // COUNTS, and in a completion-ranked ruleset those can move rank while accuracy
-                // stands still, e.g. a run whose judged cells all carry the same weight (every cell
-                // a Meh or an unfixed typo). Reachable in practice since an off-time press became a
-                // Meh, and without this the HUD and results rank keep whatever the first judgement
-                // set while the stored row is ranked correctly server-side.
+                // COUNTS, and in a ruleset whose rank reads them (type!beat's missed-cell limit on
+                // SS and S) a judgement can move rank while leaving accuracy where it was. Without
+                // this the HUD and results rank keep whatever the first judgement set while the
+                // stored row is ranked correctly server-side.
                 updateRank();
             }
         }
@@ -671,9 +670,11 @@ namespace typebeat.Game.Rulesets.Scoring
         }
 
         /// <summary>
-        /// The 0..1 value the results-screen grade gauge fills to — the same metric the rank is
+        /// The 0..1 value the results-screen grade gauge fills to: the same metric the rank is
         /// awarded on, so the gauge lands on the shown grade. Accuracy by default; rulesets that
-        /// grade on something else override this.
+        /// grade on something else override this. type!beat does not: since migration 045 its rank
+        /// is accuracy (<c>ACCURACY_CUTOFF_*</c>) plus a missed-cell limit (<c>S_MISS_LIMIT</c>), the
+        /// rule typebeat-web's <c>RankParityTest</c> pins against the server and the browser.
         /// </summary>
         public virtual double GradeProgress(ScoreInfo score) => score.Accuracy;
 

@@ -75,7 +75,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// </summary>
         public static string? Resolve(string? configuredLyricLabPath, IEnumerable<string> startDirectories)
         {
-            string? lyricLabDir = LyricMapImporter.ResolveLyricLabDir(configuredLyricLabPath, startDirectories);
+            string? lyricLabDir = AlignerEnvironment.ResolveLyricLabDir(configuredLyricLabPath, startDirectories);
 
             if (lyricLabDir != null)
             {

@@ -255,7 +255,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // The SECOND flags word (backlog 347) rides its own header at the anchor, and has to
             // survive the derivation the same way.
             stored.Frames.Add(TypeBeatReplayFrame.CreateExtendedConfigFrame(-2000, rushCapCostsAccuracy: true, inputEra2: true, authoredSyllablesOnly: true,
-                japaneseInputEra3: true, japaneseCharacterTiming: true, japaneseInputScoring: true, japaneseKanaInput: true, bestRetypeJudgement: true));
+                japaneseInputEra3: true, japaneseCharacterTiming: true, japaneseInputScoring: true, japaneseKanaInput: true, bestRetypeJudgement: true, keyTimeJudgement: true));
 
             foreach (var frame in run.WallFrames.Skip(1).Where(f => !f.IsConfigExtended))
                 stored.Frames.Add(new TypeBeatReplayFrame(frame.Time, frame.Character));
@@ -271,7 +271,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsTrue(derived[1].JapaneseInputScoring, "Japanese per-input scoring carried");
             Assert.IsTrue(derived[1].JapaneseKanaInput, "furigana kana input carried");
             Assert.IsTrue(derived[1].BestRetypeJudgement, "best retype judgement carried");
-            Assert.AreEqual(7943, derived[1].ToLegacy(map).MouseY, "the whole second word survives");
+            Assert.IsTrue(derived[1].KeyTimeJudgement);
+            Assert.AreEqual(16135, derived[1].ToLegacy(map).MouseY, "the whole second word survives");
             Assert.AreEqual(-2000, derived[1].Time, "at the anchor, beside the CONFIG frame");
 
             Assert.IsTrue(derived[0].IsConfig);

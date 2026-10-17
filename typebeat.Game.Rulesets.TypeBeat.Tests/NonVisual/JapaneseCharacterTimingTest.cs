@@ -19,6 +19,8 @@ using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Screens.Edit;
 
+using typebeat.Game.Rulesets.TypeBeat.Edit;
+
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
     [TestFixture]

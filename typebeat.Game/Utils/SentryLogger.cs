@@ -53,7 +53,7 @@ namespace typebeat.Game.Utils
             if (DebugUtils.IsNUnitRunning)
                 return;
 
-            if (!game.IsDeployedBuild || !game.CreateEndpoints().WebsiteUrl.EndsWith(@".ppy.sh", StringComparison.Ordinal))
+            if (!game.IsDeployedBuild || !game.Endpoints.WebsiteUrl.EndsWith(@".ppy.sh", StringComparison.Ordinal))
                 return;
 
             sentrySession = SentrySdk.Init(options =>

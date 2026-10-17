@@ -3,6 +3,7 @@
 
 using osu.Framework.Localisation;
 using typebeat.Game.Rulesets.Mods;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Mods
 {
@@ -30,7 +31,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// <see cref="UserPlayable"/> is false for the same reason it is on <c>UnknownMod</c>: this is a
     /// record of how a stored play was configured, not a thing anyone can put on a new one.</para>
     /// </summary>
-    public class TypeBeatModLegacyFletcher : Mod
+    public class TypeBeatModLegacyFletcher : Mod, IApplicableToTypingEngine
     {
         public override string Name => "Fletcher (retired)";
 
@@ -53,5 +54,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 #pragma warning disable CS0672 // Member overrides obsolete member
         public override double ScoreMultiplier => 0.98;
 #pragma warning restore CS0672
+
+        /// <summary>
+        /// The mod fact only: an FT run's CONFIG frame carries bit 5 clear, which on its own re-pins
+        /// the caret, so <c>ReplayEngineFeed.Apply</c> ORs
+        /// <see cref="Gameplay.TypingEngine.FlexibleCaretFromMod"/> into
+        /// <see cref="Gameplay.TypingEngine.FletcherEnabled"/> and still takes the snap from the bit.
+        /// The caret itself is left to that header (and to the live factory's unpinned default), so
+        /// this never writes a flag <see cref="TypeBeatModFletcher"/> also writes.
+        /// </summary>
+        public void ApplyToEngine(TypingEngine engine) => engine.FlexibleCaretFromMod = true;
     }
 }

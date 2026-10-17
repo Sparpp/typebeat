@@ -33,6 +33,7 @@ using typebeat.Game.Rulesets.TypeBeat.Replays;
 using typebeat.Game.Rulesets.TypeBeat.Scoring;
 using typebeat.Game.Utils;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
+using CollectionAssert = NUnit.Framework.Legacy.CollectionAssert;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
@@ -230,7 +231,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var mod = new TypeBeatModDyslexia();
 
-            Assert.IsTrue(mod is IApplicableToDrawableRuleset<TypeBeatHitObject>);
+            Assert.IsTrue(mod is IApplicableToTypingEngine);
+            Assert.IsFalse(mod is IApplicableToDrawableRuleset<TypeBeatHitObject>);
             Assert.IsFalse(mod is IApplicableToScoreProcessor);
             Assert.IsFalse(mod is IApplicableToHealthProcessor);
             Assert.IsFalse(mod is IApplicableAfterBeatmapConversion);
@@ -299,11 +301,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var a = without.BuildResults();
             var b = with.BuildResults();
 
-            Assert.AreEqual(a.Score, b.Score);
+            CollectionAssert.AreEquivalent(a.Counts, b.Counts);
             Assert.AreEqual(a.MaxCombo, b.MaxCombo);
             Assert.AreEqual(a.Accuracy, b.Accuracy, 1e-12);
             Assert.AreEqual(a.SyncPercent, b.SyncPercent, 1e-12);
-            Assert.AreEqual(a.Grade, b.Grade);
 
             foreach (JudgementType type in Enum.GetValues<JudgementType>())
                 Assert.AreEqual(a.Counts[type], b.Counts[type], $"{type} count moved");
@@ -525,7 +526,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.AreEqual(mashing.CaretIndex, both.CaretIndex);
             Assert.AreEqual(mashing.Combo, both.Combo);
-            Assert.AreEqual(mashing.Score, both.Score);
+            CollectionAssert.AreEquivalent(mashing.BuildResults().Counts, both.BuildResults().Counts);
             Assert.AreEqual(mashing.Mistypes, both.Mistypes);
 
             for (int i = 0; i < cells(mashing).Count; i++)

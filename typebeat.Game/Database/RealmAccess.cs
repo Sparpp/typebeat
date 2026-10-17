@@ -151,8 +151,16 @@ namespace typebeat.Game.Database
         ///                    strips, so a set that had the stem still read as missing it and the UPDATE
         ///                    offer never cleared. A scalar recorded at import/update and backfilled here is
         ///                    copied by the detach mapper, so the carousel sees the real value.
+        /// 65   2026-10-04    Replaced BeatmapSetInfo's OnlineVersionHasVocalsStem and HasLocalVocalsStem with
+        ///                    OnlineFileManifest and LocalFileManifest (one manifest string over every tracked
+        ///                    set file kind, see SetFileManifest), so the next tracked kind needs no schema
+        ///                    change. LocalFileManifest is backfilled from each set's own file list; the online
+        ///                    value is carried over from the old stem flag where it was set, and left null
+        ///                    ("not reported yet", which offers nothing) elsewhere for the next lookup to fill.
+        ///                    Also dropped BeatmapUserSettings.IntroPoolInclusion, unread since schema 58 (whose
+        ///                    migration now reads the old per-difficulty values off the old realm).
         /// </summary>
-        private const int schema_version = 64;
+        private const int schema_version = 65;
 
         /// <summary>
         /// Lock object which is held during <see cref="BlockAllOperations"/> sections, blocking realm retrieval during blocking periods.
@@ -1412,12 +1420,16 @@ namespace typebeat.Game.Database
                 {
                     // "Use on game intro" moved from each difficulty to the set. Carry every stored
                     // per-difficulty override over to its set (see IntroBeatdropPool.DeriveSetInclusion
-                    // for the rule). The old BeatmapUserSettings field is left in place, unread.
+                    // for the rule). The old BeatmapUserSettings field is gone from the model since
+                    // schema 65, so its values are read off the old realm through the dynamic API; a
+                    // realm older than schema 53 never had the field, and every set follows the beatdrops.
                     // The realm is held in a local for the reason given in case 56 above.
                     Realm realm = migration.NewRealm;
 
+                    var difficultyInclusions = readOldDifficultyIntroPoolInclusions(migration.OldRealm);
+
                     foreach (var set in realm.All<BeatmapSetInfo>())
-                        set.IntroPoolInclusion = Screens.Menu.IntroBeatdropPool.DeriveSetInclusion(set.Beatmaps.Select(b => b.UserSettings?.IntroPoolInclusion));
+                        set.IntroPoolInclusion = Screens.Menu.IntroBeatdropPool.DeriveSetInclusion(set.Beatmaps.Select(b => difficultyInclusions.GetValueOrDefault(b.ID)));
 
                     break;
                 }
@@ -1455,24 +1467,80 @@ namespace typebeat.Game.Database
                     break;
                 }
 
-                case 64:
+                // Case 64 backfilled HasLocalVocalsStem from each set's file list. Schema 65 replaced that
+                // column, and its backfill below covers every realm older than 65, so 64 has no body now.
+
+                case 65:
                 {
-                    // HasLocalVocalsStem is a scalar recorded at import/update from now on, but every set
-                    // installed before this schema has it false and, unlike the unversioned case above, the
-                    // presence IS recoverable from realm here: a set's own Files backlink lists its files,
-                    // so read the stem off it directly. Without this, every pre-existing set that already
-                    // carries a stem would still read as missing it and keep offering UPDATE. The realm is
-                    // held in a local for the reason given in case 56 above.
+                    // LocalFileManifest is a scalar recorded at import/update from now on. Like 64's stem flag
+                    // it IS recoverable from realm here (a set's own Files lists its files), so backfill it
+                    // from the file list, or every pre-existing set that carries a stem would read as missing
+                    // it. The online manifest is carried over from the old online stem flag where that was
+                    // set, so an offer standing at the upgrade stays standing; everywhere else it stays null
+                    // ("not reported yet", which offers nothing, exactly as the old false did) until the next
+                    // lookup records the real value. No installed set gains an offer from the upgrade.
+                    // The realm is held in a local for the reason given in case 56 above.
                     Realm realm = migration.NewRealm;
 
+                    var onlineStems = readOldOnlineVocalsStemSets(migration.OldRealm);
+
                     foreach (var set in realm.All<BeatmapSetInfo>())
-                        set.HasLocalVocalsStem = VocalsStem.FilenameIn(set) != null;
+                    {
+                        set.LocalFileManifest = SetFileManifest.Of(set);
+                        set.OnlineFileManifest = onlineStems.Contains(set.ID) ? SetFileManifest.VOCALS_STEM : null;
+                    }
 
                     break;
                 }
             }
 
             Logger.Log($"Migration completed in {stopwatch.ElapsedMilliseconds}ms");
+        }
+
+        /// <summary>
+        /// The per-difficulty intro pool overrides (<c>BeatmapUserSettings.IntroPoolInclusion</c>, realm schema 53
+        /// to 64) stored in <paramref name="oldRealm"/>, by beatmap ID. Empty for a realm that predates the field.
+        /// </summary>
+        private static Dictionary<Guid, bool?> readOldDifficultyIntroPoolInclusions(Realm oldRealm)
+        {
+            const string property = "IntroPoolInclusion";
+
+            var inclusions = new Dictionary<Guid, bool?>();
+
+            if (!oldRealm.Schema.TryFindObjectSchema(nameof(BeatmapUserSettings), out var settingsSchema) || !settingsSchema.TryFindProperty(property, out _))
+                return inclusions;
+
+            foreach (var beatmap in oldRealm.DynamicApi.All("Beatmap"))
+            {
+                var settings = beatmap.DynamicApi.Get<IEmbeddedObject?>(nameof(BeatmapInfo.UserSettings));
+
+                if (settings != null)
+                    inclusions[beatmap.DynamicApi.Get<Guid>(nameof(BeatmapInfo.ID))] = settings.DynamicApi.Get<bool?>(property);
+            }
+
+            return inclusions;
+        }
+
+        /// <summary>
+        /// The IDs of the sets whose old online stem flag (<c>BeatmapSetInfo.OnlineVersionHasVocalsStem</c>, realm
+        /// schema 63 to 64) is set in <paramref name="oldRealm"/>. Empty for a realm that predates the flag.
+        /// </summary>
+        private static HashSet<Guid> readOldOnlineVocalsStemSets(Realm oldRealm)
+        {
+            const string property = "OnlineVersionHasVocalsStem";
+
+            var sets = new HashSet<Guid>();
+
+            if (!oldRealm.Schema.TryFindObjectSchema("BeatmapSet", out var setSchema) || !setSchema.TryFindProperty(property, out _))
+                return sets;
+
+            foreach (var set in oldRealm.DynamicApi.All("BeatmapSet"))
+            {
+                if (set.DynamicApi.Get<bool>(property))
+                    sets.Add(set.DynamicApi.Get<Guid>(nameof(BeatmapSetInfo.ID)));
+            }
+
+            return sets;
         }
 
         private string? getRulesetShortNameFromLegacyID(long rulesetId)

@@ -12,6 +12,8 @@ using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Replays;
 using typebeat.Game.Rulesets.TypeBeat.Scoring;
 
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
+
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
     [TestFixture]

@@ -109,14 +109,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var spelled = new[] { line(string.Join(' ', Enumerable.Repeat("w-o-r-d", 12))) };
             var plain = new[] { line(string.Join(' ', Enumerable.Repeat("word", 12))) };
-            var spelledEnvelope = LyricDifficulty.ComputeDetail(spelled, enduranceAxis: LyricDifficulty.EnduranceAxis.Envelope);
-            var plainEnvelope = LyricDifficulty.ComputeDetail(plain, enduranceAxis: LyricDifficulty.EnduranceAxis.Envelope);
-            var spelledRating = LyricDifficulty.RateChunked(spelled, 1, false, LyricDifficulty.NoScores, ChunkedEndurance.Active);
-            var plainRating = LyricDifficulty.RateChunked(plain, 1, false, LyricDifficulty.NoScores, ChunkedEndurance.Active);
+            var spelledDetail = LyricDifficulty.ComputeDetail(spelled);
+            var plainDetail = LyricDifficulty.ComputeDetail(plain);
+            var spelledRating = LyricDifficulty.RateChunked(spelled, 1, false, LyricDifficulty.NoScores, ChunkedEndurance.Live);
+            var plainRating = LyricDifficulty.RateChunked(plain, 1, false, LyricDifficulty.NoScores, ChunkedEndurance.Live);
 
-            Assert.That(spelledEnvelope.Cells, Is.EqualTo(95).Within(1e-9));
-            Assert.That(plainEnvelope.Cells, Is.EqualTo(59).Within(1e-9));
-            Assert.That(spelledEnvelope.TargetWpm, Is.GreaterThan(plainEnvelope.TargetWpm));
+            Assert.That(spelledDetail.Cells, Is.EqualTo(95).Within(1e-9));
+            Assert.That(plainDetail.Cells, Is.EqualTo(59).Within(1e-9));
+            Assert.That(spelledDetail.TargetWpm, Is.GreaterThan(plainDetail.TargetWpm));
             Assert.That(spelledRating.Report.Stars, Is.GreaterThan(plainRating.Report.Stars));
             Assert.That(spelledRating.Report.CountedCharacters, Is.GreaterThan(plainRating.Report.CountedCharacters));
         }

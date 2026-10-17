@@ -10,6 +10,10 @@ using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Screens.Edit;
 
+using typebeat.Game.Rulesets.TypeBeat.Edit;
+
+using typebeat.Game.Rulesets.TypeBeat.Import;
+
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
     [TestFixture]

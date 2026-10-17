@@ -159,6 +159,8 @@ namespace typebeat.Game.Screens.Select
         private InputManager inputManager = null!;
 
         private readonly RealmPopulatingOnlineLookupSource onlineLookupSource = new RealmPopulatingOnlineLookupSource();
+        private readonly OnlineMapRefreshPolicy onlineRefreshPolicy = new OnlineMapRefreshPolicy();
+        private IBindable<APIState> refreshApiState = null!;
 
         private Bindable<bool> configBackgroundBlur = null!;
         private Bindable<bool> showConvertedBeatmaps = null!;
@@ -376,6 +378,17 @@ namespace typebeat.Game.Screens.Select
         protected override void LoadComplete()
         {
             base.LoadComplete();
+
+            refreshApiState = api.State.GetBoundCopy();
+            refreshApiState.BindValueChanged(e =>
+            {
+                if (e.NewValue == APIState.Online && e.OldValue != APIState.Online)
+                    Schedule(() =>
+                    {
+                        if (this.IsCurrentScreen() && debounceQueuedSelection == null)
+                            fetchOnlineInfo(force: true);
+                    });
+            });
 
             modSelectOverlayRegistration = overlayManager?.RegisterBlockingOverlay(modSelectOverlay);
 
@@ -596,6 +609,11 @@ namespace typebeat.Game.Screens.Select
 
             if (validSelection)
             {
+                // A cached editor/upload snapshot may still have the same local ID while its
+                // metadata or online status is stale. This also covers a renamed sibling
+                // difficulty: selecting it must use the current row without another web check.
+                if (!OnlineBeatmapDisplayMetadata.HasSameDisplayState(Beatmap.Value.BeatmapInfo, currentBeatmap.BeatmapInfo))
+                    Beatmap.Value = currentBeatmap;
                 carousel.CurrentBeatmap = currentBeatmap.BeatmapInfo;
                 return true;
             }
@@ -727,6 +745,7 @@ namespace typebeat.Game.Screens.Select
                 beginLooping();
             }
 
+            onlineRefreshPolicy.ResetSelection();
             Beatmap.BindValueChanged(updateVariousState, true);
         }
 
@@ -740,11 +759,13 @@ namespace typebeat.Game.Screens.Select
             ensurePlayingSelected();
             updateBackgroundDim();
             updateWedgeVisibility();
-            fetchOnlineInfo(force: ReferenceEquals(e.OldValue, e.NewValue));
+            fetchOnlineInfo();
         }
 
         private void onLeavingScreen()
         {
+            onlineLookupCancellation?.Cancel();
+            onlineLookupSource.InvalidateCache();
             restoreBackground();
 
             Beatmap.ValueChanged -= updateVariousState;
@@ -1107,36 +1128,82 @@ namespace typebeat.Game.Screens.Select
 
         private CancellationTokenSource? onlineLookupCancellation;
         private Task<APIBeatmapSet?>? currentOnlineLookup;
+        private int requestedOnlineSet = -1;
 
         private void fetchOnlineInfo(bool force = false)
         {
             var beatmapSetInfo = Beatmap.Value.BeatmapSetInfo;
 
-            if (lastLookupResult.Value?.Result?.OnlineID == beatmapSetInfo.OnlineID && !force)
-                return;
-
-            onlineLookupCancellation?.Cancel();
-            onlineLookupCancellation = null;
-
-            if (beatmapSetInfo.OnlineID < 0)
+            int setId = beatmapSetInfo.OnlineID;
+            if (requestedOnlineSet != setId || setId <= 0)
             {
+                onlineLookupCancellation?.Cancel();
                 lastLookupResult.Value = BeatmapSetLookupResult.Completed(null);
+            }
+
+            if (setId <= 0)
+            {
+                onlineRefreshPolicy.ResetSelection();
                 return;
             }
 
+            if (api.State.Value is APIState.Connecting or APIState.Failing)
+                return;
+
+            // A return/reconnect during an outstanding check shares that check.
+            if (requestedOnlineSet == setId && currentOnlineLookup?.IsCompleted == false && onlineLookupCancellation?.IsCancellationRequested == false)
+                return;
+
+            if (!onlineRefreshPolicy.ShouldRefresh(setId, force, Time.Current / 1000))
+                return;
+
+            onlineLookupCancellation?.Cancel();
+            onlineLookupCancellation?.Dispose();
+            onlineLookupCancellation = null;
+
             lastLookupResult.Value = BeatmapSetLookupResult.InProgress();
             onlineLookupCancellation = new CancellationTokenSource();
-            currentOnlineLookup = onlineLookupSource.GetBeatmapSetAsync(beatmapSetInfo.OnlineID, onlineLookupCancellation.Token);
+            var cancellation = onlineLookupCancellation;
+            requestedOnlineSet = setId;
+            currentOnlineLookup = onlineLookupSource.GetBeatmapSetAsync(setId, cancellation.Token);
             currentOnlineLookup.ContinueWith(t =>
             {
-                if (t.IsCompletedSuccessfully)
-                    Schedule(() => lastLookupResult.Value = BeatmapSetLookupResult.Completed(t.GetResultSafely()));
-
-                if (t.Exception != null)
+                // Observe even obsolete failures, but never let an old selection replace current UI.
+                var exception = t.Exception;
+                Schedule(() =>
                 {
-                    Logger.Log($"Error when fetching online beatmap set: {t.Exception}", LoggingTarget.Network);
-                    Schedule(() => lastLookupResult.Value = BeatmapSetLookupResult.Completed(null));
-                }
+                    if (cancellation.IsCancellationRequested || onlineLookupCancellation != cancellation)
+                        return;
+                    if (t.IsCompletedSuccessfully)
+                    {
+                        onlineRefreshPolicy.RecordSuccess(setId);
+                        var result = t.GetResultSafely();
+                        // The editor/submission flow may leave a stale detached snapshot here.
+                        // Rebuild from the persisted row, whose local-edit status and hashes were
+                        // checked by the lookup source. Reapplying the API to the old snapshot can
+                        // reject a valid correction, or overwrite a real local edit's display.
+                        if (result != null)
+                        {
+                            var current = Beatmap.Value;
+                            var persisted = beatmaps.QueryBeatmap(b => b.ID == current.BeatmapInfo.ID);
+                            if (persisted?.BeatmapSet?.OnlineID == result.OnlineID
+                                && !OnlineBeatmapDisplayMetadata.HasSameDisplayState(current.BeatmapInfo, persisted))
+                                Beatmap.Value = beatmaps.GetWorkingBeatmap(persisted, true);
+                        }
+                        lastLookupResult.Value = BeatmapSetLookupResult.Completed(result);
+                    }
+                    else if (exception != null)
+                    {
+                        onlineRefreshPolicy.RecordFailure(setId, Time.Current / 1000);
+                        Logger.Log($"Error when fetching online beatmap set: {exception}", LoggingTarget.Network);
+                        lastLookupResult.Value = BeatmapSetLookupResult.Completed(null);
+                    }
+                    else if (t.IsCanceled && this.IsCurrentScreen() && api.State.Value == APIState.Online)
+                    {
+                        // The lookup source discards a response belonging to a previous login.
+                        fetchOnlineInfo(force: true);
+                    }
+                });
             });
         }
 
@@ -1254,6 +1321,8 @@ namespace typebeat.Game.Screens.Select
 
         protected override void Dispose(bool isDisposing)
         {
+            onlineLookupCancellation?.Cancel();
+            onlineLookupCancellation?.Dispose();
             base.Dispose(isDisposing);
             modSelectOverlayRegistration?.Dispose();
         }

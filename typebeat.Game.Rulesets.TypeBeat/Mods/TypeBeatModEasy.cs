@@ -5,9 +5,7 @@ using System;
 using osu.Framework.Localisation;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.Mods;
-using typebeat.Game.Rulesets.TypeBeat.Objects;
-using typebeat.Game.Rulesets.TypeBeat.UI;
-using typebeat.Game.Rulesets.UI;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Mods
 {
@@ -34,18 +32,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// untouched: the cells, their target times, the Great/Ok/Meh names and the points each tier
     /// pays are exactly as they are without the mod.</para>
     ///
-    /// <para>The scale reaches the two sync readouts as well as the two <c>Classify</c> calls, which
-    /// is correct rather than an oversight: <c>SyncQuality</c> measures a delta against the widest
+    /// <para>The scale reaches both sync readouts as well as both <c>Classify</c> calls, which
+    /// is correct rather than an oversight: <c>SyncQuality</c> measures a delta against the Meh
     /// window, so a wider window really is easier to sit inside, and it would be incoherent to grade
-    /// a press Great while the sync readout scored it as though the window were half as wide.</para>
+    /// a press Great while the sync readouts scored it as though the window were half as wide.</para>
     /// </summary>
-    public class TypeBeatModEasy : ModEasy, IApplicableToDrawableRuleset<TypeBeatHitObject>
+    public class TypeBeatModEasy : ModEasy, IApplicableToTypingEngine
     {
         /// <summary>
-        /// What the mod multiplies every judgement window by. Read by
-        /// <see cref="Scoring.TypeBeatReplayScorer"/> too, so a replay is re-judged on the same
-        /// ladder the live run was, alongside <see cref="Gameplay.TypingEngine.WordShelter"/> for
-        /// the span it measures a press against.
+        /// What the mod multiplies every judgement window by, in <see cref="ApplyToEngine"/>, which
+        /// every engine factory calls, so a replay is re-judged on the same ladder the live run was,
+        /// alongside <see cref="Gameplay.TypingEngine.WordShelter"/> for the span it measures a press
+        /// against.
         /// </summary>
         public const double WINDOW_SCALE = 2.0;
 
@@ -59,14 +57,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 #pragma warning restore CS0672
 
         /// <summary>
-        /// Nothing in this ruleset conflicts with a wider window today, so the list is narrowed to
-        /// the one mod that would: an eventual Hard Rock, which tightens the same windows. Both
-        /// entries osu's <see cref="ModEasy"/> declares are dropped rather than inherited.
-        /// <see cref="ModDifficultyAdjust"/> moves CircleSize / ApproachRate / DrainRate, none of
-        /// which a typing game has (see <see cref="ApplyToDifficulty"/>), so no type!beat mod can
-        /// ever derive from it. <see cref="ModHardRock"/> is kept as the SEAM: no type!beat mod
-        /// derives from it yet either, so the entry is inert until one does, at which point Easy
-        /// and Hard Rock exclude each other from both sides without this file being reopened.
+        /// The list is narrowed to Hard Rock, the one mod kept apart from Easy:
+        /// <see cref="TypeBeatModHardRock"/> derives from <see cref="ModHardRock"/> and declares the
+        /// reciprocal exclusion. Both entries osu's <see cref="ModEasy"/> declares are dropped rather than
+        /// inherited. <see cref="ModDifficultyAdjust"/> moves CircleSize / ApproachRate / DrainRate,
+        /// none of which a typing game has (see <see cref="ApplyToDifficulty"/>), so no type!beat
+        /// mod can ever derive from it.
         /// </summary>
         public override Type[] IncompatibleMods => new[] { typeof(ModHardRock) };
 
@@ -80,9 +76,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         {
         }
 
-        public void ApplyToDrawableRuleset(DrawableRuleset<TypeBeatHitObject> drawableRuleset)
+        public void ApplyToEngine(TypingEngine engine)
         {
-            var engine = ((DrawableTypeBeatRuleset)drawableRuleset).Engine;
             engine.WindowScale *= WINDOW_SCALE;
             // Assignment and not a multiply: the shelter is a boolean reading of the span rule, so
             // applying the mod twice cannot compound it (unlike WindowScale, which multiplies).

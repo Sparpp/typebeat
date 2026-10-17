@@ -112,6 +112,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 config.SetValue(TypeBeatRulesetSetting.SyllableBrightness, 50f);
             });
             base.SetUpSteps();
+
+            // The highlight follows the judge, and the live judge narrows a group's FIRST cell to
+            // the span's start (TypingEngine.FirstCharTiming), so under it "o" would light for its
+            // own Great window only. What is pinned here is the group highlight's independence from
+            // the playhead style, so every cell of a group is judged on its whole span instead; the
+            // narrowing itself is pinned by JudgedSpanHighlightTest.
+            AddStep("judge every cell of a group on its span", () => playfield.Engine.FirstCharTiming = false);
         }
 
         private void setSungStyle(CaretStyle style)

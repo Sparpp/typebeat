@@ -1,8 +1,10 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using osu.Framework.Allocation;
@@ -38,33 +40,117 @@ namespace typebeat.Game.Screens.Select
         [Resolved]
         private RealmAccess realm { get; set; } = null!;
 
+        // Keep a small bounded cache: revisiting a set still revalidates, but unchanged sets need
+        // only the tiny state response. Cache entries carry revisions from the full response,
+        // never the earlier check, so an upload racing the two requests cannot mark old data fresh.
+        private readonly Dictionary<int, APIBeatmapSet> cachedSets = new Dictionary<int, APIBeatmapSet>();
+        private readonly Queue<int> cacheOrder = new Queue<int>();
+        private int? cachedUserId;
+        private double cacheExpiresAt;
+
+        public void InvalidateCache()
+        {
+            cachedSets.Clear();
+            cacheOrder.Clear();
+            // Revisions do not cover play counts, ratings, or other mutable statistics.
+            cacheExpiresAt = Time.Current + 60000;
+        }
+
         public Task<APIBeatmapSet?> GetBeatmapSetAsync(int id, CancellationToken token = default)
         {
-            var request = new GetBeatmapSetRequest(id);
-            var tcs = new TaskCompletionSource<APIBeatmapSet?>();
-
-            token.Register(request.Cancel);
-
-            // async request success callback is a bit of a dangerous game, but there's some reasoning for it.
-            // - don't really want to use `IAPIAccess.PerformAsync()` because we still want to respect request queueing & online status checks
-            // - we want the realm write here to be async because it is known to be slow for some users with large beatmap collections
-            // - at the time of writing `RealmAccess.WriteAsync()` can only be safely called from update thread,
-            //   and API request completion callbacks are automatically marshaled onto update thread scheduler,
-            //   so calling `WriteAsync()` within the callback is a somewhat "nice" way of guaranteeing that the call is safe
-            //   (rather than having to enforce that `GetBeatmapSetAsync()` can only be called from update thread, or locally scheduling)
-            request.Success += async onlineBeatmapSet =>
+            int userId = api.LocalUser.Value.Id;
+            if (cachedUserId != userId || Time.Current >= cacheExpiresAt)
             {
-                if (token.IsCancellationRequested)
+                InvalidateCache();
+                cachedUserId = userId;
+            }
+            var tcs = new TaskCompletionSource<APIBeatmapSet?>();
+            APIRequest? activeRequest = null;
+            var registration = token.Register(() =>
+            {
+                activeRequest?.Cancel();
+                tcs.TrySetCanceled(token);
+            });
+            _ = tcs.Task.ContinueWith(_ => registration.Dispose(), TaskScheduler.Default);
+
+            // API callbacks run on the update thread, as required by RealmAccess.WriteAsync.
+            async void finish(APIBeatmapSet set)
+            {
+                try
                 {
-                    tcs.SetCanceled(token);
+                    token.ThrowIfCancellationRequested();
+                    if (api.LocalUser.Value.Id != userId)
+                    {
+                        tcs.TrySetCanceled();
+                        return;
+                    }
+                    await realm.WriteAsync(r => updateRealmBeatmapSet(r, set)).ConfigureAwait(true);
+                    token.ThrowIfCancellationRequested();
+                    if (api.LocalUser.Value.Id != userId)
+                    {
+                        tcs.TrySetCanceled();
+                        return;
+                    }
+                    if (!cachedSets.ContainsKey(id))
+                    {
+                        if (cachedSets.Count >= 16)
+                            cachedSets.Remove(cacheOrder.Dequeue());
+                        cacheOrder.Enqueue(id);
+                    }
+                    cachedSets[id] = set;
+                    tcs.TrySetResult(set);
+                }
+                catch (OperationCanceledException)
+                {
+                    tcs.TrySetCanceled(token);
+                }
+                catch (Exception e)
+                {
+                    tcs.TrySetException(e);
+                }
+            }
+
+            void fetchDetails()
+            {
+                if (token.IsCancellationRequested) return;
+                if (api.LocalUser.Value.Id != userId)
+                {
+                    tcs.TrySetCanceled();
                     return;
                 }
+                var request = new GetBeatmapSetRequest(id);
+                activeRequest = request;
+                request.Success += finish;
+                request.Failure += e => tcs.TrySetException(e);
+                api.Queue(request);
+            }
 
-                await realm.WriteAsync(r => updateRealmBeatmapSet(r, onlineBeatmapSet)).ConfigureAwait(true);
-                tcs.SetResult(onlineBeatmapSet);
+            if (!cachedSets.ContainsKey(id))
+            {
+                fetchDetails();
+                return tcs.Task;
+            }
+
+            var stateRequest = new GetBeatmapSetStateRequest(id);
+            activeRequest = stateRequest;
+            stateRequest.Success += state =>
+            {
+                if (token.IsCancellationRequested) return;
+                if (cachedSets.TryGetValue(id, out var cached) && state.Matches(cached))
+                    finish(cached);
+                else
+                    fetchDetails();
             };
-            request.Failure += tcs.SetException;
-            api.Queue(request);
+            stateRequest.Failure += e =>
+            {
+                // Server-first deployment is preferred; older servers have no state route.
+                if (stateRequest.ResponseStatusCode == HttpStatusCode.NotFound || e is APIException { StatusCode: HttpStatusCode.NotFound })
+                    fetchDetails();
+                else
+                    tcs.TrySetException(e);
+            };
+            if (!token.IsCancellationRequested)
+                api.Queue(stateRequest);
             return tcs.Task;
         }
 
@@ -72,9 +158,7 @@ namespace typebeat.Game.Screens.Select
         {
             var onlineBeatmaps = onlineBeatmapSet.Beatmaps.ToDictionary(b => b.OnlineID);
 
-            var dbBeatmapSets = r.All<BeatmapSetInfo>().Where(b => b.OnlineID == onlineBeatmapSet.OnlineID);
-
-            foreach (var dbBeatmapSet in dbBeatmapSets)
+            foreach (var dbBeatmapSet in r.All<BeatmapSetInfo>().Where(b => b.OnlineID == onlineBeatmapSet.OnlineID))
             {
                 // note that every single write to realm models is preceded by a guard, even if it technically would write the same value back.
                 // the reason this matters is that doing so avoids triggering realm subscription callbacks.
@@ -91,15 +175,16 @@ namespace typebeat.Game.Screens.Select
                 // the online version without manufacturing an offer for a set never versioned before.
                 dbBeatmapSet.AdoptOnlineVersion(onlineBeatmapSet.LastUpdated);
 
-                // The online version's stem presence (backlog 396), the same flag the metadata lookup
-                // records. Song select's set fetch is the other refresh point, so the UPDATE offer is
-                // correct whichever lookup ran last.
-                dbBeatmapSet.RecordOnlineVocalsStem(onlineBeatmapSet.HasVocalsStem);
+                // The online version's tracked-file manifest (backlog 396), the same value the metadata
+                // lookup records. Song select's set fetch is the other refresh point, so the UPDATE offer
+                // is correct whichever lookup ran last.
+                dbBeatmapSet.RecordOnlineFileManifest(SetFileManifest.Online(onlineBeatmapSet.FileManifest, onlineBeatmapSet.HasVocalsStem));
 
                 foreach (var dbBeatmap in dbBeatmapSet.Beatmaps)
                 {
                     if (onlineBeatmaps.TryGetValue(dbBeatmap.OnlineID, out var onlineBeatmap))
                     {
+                        OnlineBeatmapDisplayMetadata.Apply(dbBeatmap, onlineBeatmapSet, onlineBeatmap);
                         // compare `BeatmapUpdaterMetadataLookup`
                         if (dbBeatmap.OnlineMD5Hash != onlineBeatmap.MD5Hash)
                             dbBeatmap.OnlineMD5Hash = onlineBeatmap.MD5Hash;
@@ -107,7 +192,7 @@ namespace typebeat.Game.Screens.Select
                         if (dbBeatmap.LastOnlineUpdate != onlineBeatmap.LastUpdated)
                             dbBeatmap.LastOnlineUpdate = onlineBeatmap.LastUpdated;
 
-                        if (dbBeatmap.MatchesOnlineVersion && dbBeatmap.Status != onlineBeatmap.Status)
+                        if (dbBeatmap.MatchesOnlineVersion && dbBeatmap.Status != BeatmapOnlineStatus.LocallyModified && dbBeatmap.Status != onlineBeatmap.Status)
                             dbBeatmap.Status = onlineBeatmap.Status;
 
                         onlineBeatmap.BeatmapSet = onlineBeatmapSet;

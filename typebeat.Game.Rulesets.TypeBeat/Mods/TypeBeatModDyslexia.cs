@@ -4,9 +4,7 @@
 using System;
 using osu.Framework.Localisation;
 using typebeat.Game.Rulesets.Mods;
-using typebeat.Game.Rulesets.TypeBeat.Objects;
-using typebeat.Game.Rulesets.TypeBeat.UI;
-using typebeat.Game.Rulesets.UI;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Mods
 {
@@ -34,15 +32,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// <para>A MOD, not an ERA: it needs no CONFIG frame bit, because a bit exists to tell runs
     /// recorded BEFORE a rule existed apart from ones recorded after it, and no stored run can carry
     /// a mod that did not exist when it was played. Re-derivation rides the score's mod list, which
-    /// is why both engine factories read it (<c>DrawableTypeBeatRuleset.createEngine</c>, the
-    /// authoritative one, and <c>TypeBeatReplayScorer.createEngine</c>, the one that re-scores a
-    /// stored replay), and <see cref="ApplyToDrawableRuleset"/> re-asserts the same value derived
-    /// from the same question so it cannot disagree. That last one exists mainly to make the mod
-    /// <c>HasImplementation</c>, hence selectable, exactly as
-    /// <see cref="TypeBeatModFletcher"/> documents for itself. <see cref="TypeBeatModMashing"/> is
-    /// the precedent for the whole shape: a mod-only engine flag with no bit at all.</para>
+    /// is why the flag is set in <see cref="ApplyToEngine"/>, the one place every engine factory
+    /// (<c>DrawableTypeBeatRuleset.createEngine</c> and <c>TypeBeatReplayScorer.CreateEngine</c>)
+    /// asks. <see cref="TypeBeatModMashing"/> is the precedent for the whole shape: a mod-only engine
+    /// flag with no bit at all.</para>
     /// </summary>
-    public class TypeBeatModDyslexia : Mod, IApplicableToDrawableRuleset<TypeBeatHitObject>
+    public class TypeBeatModDyslexia : Mod, IApplicableToTypingEngine
     {
         public override string Name => "Dyslexia";
 
@@ -82,7 +77,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         public override double ScoreMultiplier => 1.0;
 #pragma warning restore CS0672
 
-        public void ApplyToDrawableRuleset(DrawableRuleset<TypeBeatHitObject> drawableRuleset) =>
-            ((DrawableTypeBeatRuleset)drawableRuleset).Engine.AnyOrderWithinWord = true;
+        public void ApplyToEngine(TypingEngine engine) => engine.AnyOrderWithinWord = true;
     }
 }

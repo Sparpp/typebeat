@@ -68,13 +68,13 @@ namespace typebeat.Game.Beatmaps
 
         /// <summary>
         /// The pace to sustain: the map's PEAK difficulty window read at a fixed duration, i.e.
-        /// <c>LyricPaceStatistics.TargetWpm</c>, which is the same figure the Star Rating Sandbox
-        /// prints beside every map. The peak's difficulty is a ratio (WPM over what a typist can
+        /// <c>LyricPaceStatistics.TargetWpm</c>, read off the chunked rating axis's own windows. The
+        /// peak's difficulty is a ratio (WPM over what a typist can
         /// sustain for that many seconds), so reading it at one duration keeps maps comparable; it
         /// replaced a per-line mean over the map's fastest lines, which answered a different
-        /// question and is kept as <c>LyricPaceStatistics.LineAverageWpm</c>. Typability and the
-        /// rhythm bonus are left out of both the window choice and the conversion, so this figure
-        /// does not move when either experiment does.
+        /// question and is kept as <c>LyricPaceStatistics.LineAverageWpm</c>. Typability, the
+        /// judgement windows and the rhythm boost are left out of both the window choice and the
+        /// conversion, so this figure does not move when any of them does.
         /// </summary>
         public required double TargetWpm { get; init; }
 

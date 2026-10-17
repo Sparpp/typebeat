@@ -64,7 +64,7 @@ namespace typebeat.Game.Updater
 
                 // NOTE: upstream posts a "not an official build" notification here when the entry
                 // assembly lacks OfficialBuildAttribute. type!beat's own signed releases ARE the
-                // official build and DO submit scores, so that warning is false for us — removed.
+                // official build and DO submit scores, so that warning is false for us, removed.
             }
 
             config.BindWith(OsuSetting.ReleaseStream, releaseStream);

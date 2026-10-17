@@ -49,7 +49,7 @@ namespace typebeat.Game.Rulesets.TypeBeat
         /// gestures would mean either it never sees a chord the typing path consumed (so a rebind
         /// onto a key the typing path owns would be silently dead in one direction) or it fires
         /// before typing (so a rebind onto a letter would kill that letter). One owner, one
-        /// precedence order, written out in the key handler: see its <c>OnKeyDown</c>.</para>
+        /// precedence order, written out in the key handler's gate: see <see cref="UI.TypeBeatKeyGate"/>.</para>
         ///
         /// <para>The bindings themselves are still entirely the framework's: this reads the very
         /// list the container resolves actions from (realm-backed and live-updating through

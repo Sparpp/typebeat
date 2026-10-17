@@ -13,8 +13,8 @@ using typebeat.Game.Scoring;
 namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 {
     /// <summary>
-    /// type!beat scores use pp's accuracy, missed-cell and longest-streak quality, normalised to
-    /// one million for a perfect play. Grades use accuracy with additional missed-cell limits
+    /// type!beat's total score is 300000 x accuracy x combo progress plus 700000 x accuracy^5 x map
+    /// progress, so a perfect play totals one million. Grades use accuracy with additional missed-cell limits
     /// for SS and S. An unfixed typo counts as a missed cell; recovered wrong keypresses remain
     /// a separate, scoring-neutral statistic. The server scoring contract must mirror these rules.
     /// </summary>
@@ -101,7 +101,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <summary>
         /// Records one wrong KEYPRESS. Counting is ALL this does: no score, no accuracy, no
         /// completion, no rank, no health, no hit event, and deliberately not the combo break
-        /// either, which <c>TypeBeatPlayfield.onMistyped</c> carries by hand for both input models
+        /// either, which <c>TypeBeatComboFeed.OnMistyped</c> carries by hand for both input models
         /// (backlog 109) at the same seam that calls this. Keeping the two separate keeps this a
         /// pure counter: the break is a plain <see cref="ScoreProcessor.Combo"/> write, whereas
         /// anything routed through <see cref="JudgementProcessor.ApplyResult"/> would also move
@@ -145,7 +145,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// resumes at what it was before that keypress, plus everything earned since. The engine
         /// decides WHETHER and BY HOW MUCH (<see cref="Gameplay.TypingEngine.ComboRestored"/>); this is the
         /// hand-mirror into the score processor, the exact counterpart of the hand-mirrored break
-        /// on <c>TypeBeatPlayfield.onMistyped</c>, and it exists here rather than at either caller
+        /// on <c>TypeBeatComboFeed.OnMistyped</c>, and it exists here rather than at either caller
         /// so live play and <see cref="TypeBeatReplayScorer"/> cannot restore differently.
         ///
         /// <para>Applied as a DELTA, not as the engine's own combo value: the two counters are kept
@@ -172,7 +172,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// Declares that the result ABOUT TO BE APPLIED to one cell must leave combo exactly as it
         /// finds it: neither break it nor extend it, and take its combo-weighted score portion from
         /// the combo it found. The cell's combo consequence was already taken, by hand, at the
-        /// keypress that spoiled it (<c>TypeBeatPlayfield.onMistyped</c>).
+        /// keypress that spoiled it (<c>TypeBeatComboFeed.OnMistyped</c>).
         ///
         /// <para>Two results are ever marked, and both are marked at the seam that applies them (the
         /// seal), never at the keypress: <see cref="TypeBeatResultMapping.UNFIXED_TYPO"/>, and since

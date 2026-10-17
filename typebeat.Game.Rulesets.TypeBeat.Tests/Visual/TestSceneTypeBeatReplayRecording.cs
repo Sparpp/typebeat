@@ -385,7 +385,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                                                    && Nullable.Equals(pair.First.JudgedDelta, pair.Second.JudgedDelta));
 
                 return cellsMatch
-                       && replayed.Score == live.Score
                        && replayed.MaxCombo == live.MaxCombo
                        && replayed.CaretIndex == live.CaretIndex
                        && replayed.ConsecutiveWrongKeys == live.ConsecutiveWrongKeys

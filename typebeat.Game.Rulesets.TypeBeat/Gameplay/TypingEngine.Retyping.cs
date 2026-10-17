@@ -13,7 +13,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public bool BestRetypeJudgement { get; set; } = true;
 
         private static bool betterTier(JudgementType candidate, JudgementType previous)
-            => SyncWindows.BasePoints(candidate) > SyncWindows.BasePoints(previous);
+            => tierValue(candidate) > tierValue(previous);
+
+        private static int tierValue(JudgementType tier) => tier switch
+        {
+            JudgementType.Great => 300,
+            JudgementType.Ok => 100,
+            JudgementType.Meh => 50,
+            _ => 0,
+        };
 
         private int inputAccuracyPoints(JudgementType tier) => tier switch
         {
@@ -26,18 +34,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         private JudgementType awardedRetypeTier(TypingCell cell, double delta, bool pastRushCap)
         {
-            var tier = TypeBeatResultMapping.AwardedTier(WindowsFor(cell).Classify(delta), cell.HeldWrongBeforeJudged, CorrectionCredit);
-            return pastRushCap ? TypeBeatResultMapping.RushCapTier(tier) : tier;
+            var tier = EraRules.AwardedTier(WindowsFor(cell).Classify(delta), cell.HeldWrongBeforeJudged, CorrectionCredit);
+            return pastRushCap ? EraRules.RushCapTier(tier) : tier;
         }
 
-        private int improveRetypedAward(TypingCell cell, JudgementType tier, double delta, double time, bool finish = false)
+        private void improveRetypedAward(TypingCell cell, JudgementType tier, double delta, double time, bool finish = false)
         {
             var previous = finish ? cell.EndJudgedTier!.Value : cell.JudgedTier!.Value;
             counts[previous]--;
             counts[tier]++;
-            int award = (int)Math.Round(SyncWindows.BasePoints(tier) * (finish ? cell.EndAwardMultiplier : cell.AwardMultiplier));
-            int points = award - (finish ? cell.EndAwardedPoints : cell.AwardedPoints);
-            score += points;
             int sample = finish ? cell.EndSyncSampleIndex : cell.SyncSampleStart;
             if (sample >= 0)
                 syncTimeline[sample] = new SyncSample(time, delta);
@@ -45,18 +50,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             {
                 cell.FirstEndDelta = delta;
                 cell.EndJudgedTier = tier;
-                cell.EndAwardedPoints = award;
             }
             else
             {
                 cell.FirstCorrectDelta = delta;
                 cell.JudgedTier = tier;
-                cell.AwardedPoints = award;
             }
-            return points;
         }
 
-        private (int Points, bool Upgraded) improveJapaneseRetype(TypingLine line, TypingCell cell, int cellIndex, double time)
+        private bool improveJapaneseRetype(TypingLine line, TypingCell cell, int cellIndex, double time)
         {
             var previous = cell.InputJudgements!;
             double end = line.JapaneseCharacterEnd(cellIndex);
@@ -81,12 +83,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     }
                 }
                 if (!changed)
-                    return (0, false);
+                    return false;
             }
             // Different valid spellings have different input counts. Keep the complete attempt
             // with better accuracy rather than inventing a correspondence between its keystrokes.
             else if (candidate.Average(i => inputAccuracyPoints(i.Type)) <= previous.Average(i => inputAccuracyPoints(i.Type)))
-                return (0, false);
+                return false;
 
             foreach (var input in previous)
                 counts[input.Type]--;
@@ -105,11 +107,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             cell.InputJudgements = candidate;
             cell.FirstCorrectDelta = candidate[0].Delta;
             cell.JudgedTier = candidate[0].Type;
-            int award = candidate.Sum(i => (int)Math.Round(SyncWindows.BasePoints(i.Type) * cell.AwardMultiplier));
-            int points = award - cell.AwardedPoints;
-            score += points;
-            cell.AwardedPoints = award;
-            return (points, true);
+            return true;
         }
     }
 }

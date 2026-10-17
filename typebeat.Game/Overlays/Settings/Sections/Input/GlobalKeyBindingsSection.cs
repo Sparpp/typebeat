@@ -30,7 +30,7 @@ namespace typebeat.Game.Overlays.Settings.Sections.Input
                 new GlobalKeyBindingsSubsection(InputSettingsStrings.SongSelectSection, GlobalActionCategory.SongSelect),
                 new GlobalKeyBindingsSubsection(InputSettingsStrings.InGameSection, GlobalActionCategory.InGame),
                 new GlobalKeyBindingsSubsection(InputSettingsStrings.ReplaySection, GlobalActionCategory.Replay),
-                // type!beat's editor is stripped to lyric authoring — only the actions it actually
+                // type!beat's editor is stripped to lyric authoring: only the actions it actually
                 // wires are shown here (the rest of type!beat's editor bindings stay registered but are
                 // inert: no blueprint selection, control points, beat grid, design/timing/verify).
                 new GlobalKeyBindingsSubsection(InputSettingsStrings.EditorSection, GlobalActionCategory.Editor, new[]

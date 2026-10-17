@@ -34,7 +34,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
     /// colour, never what the delta is.</para>
     ///
     /// <para>This scene's line is a single syllable group sung from the first frame, so its UNTYPED
-    /// cells wear the sung-group highlight (backlog 177) rather than the plain untyped grey. Backlog
+    /// cells wear the sung-group highlight (backlog 177) rather than the plain untyped grey. The
+    /// highlight follows the judge, so the exception is cell 0: the group's first cell is judged on
+    /// the span's start alone (backlog 247), whose Great window has closed by the time the scene is
+    /// up, which is why the untyped baseline is read from cell 1 and the backspace below reverts it. Backlog
     /// 178 demoted that highlight from the palette white to <see cref="TypeBeatStyle.SungChar"/>, a
     /// grey BELOW the ramp's floor, so this fixture re-baselines to it: "untyped" here means
     /// <c>SungChar</c>, and every point of the ramp, floor included, now differs from it. The presses
@@ -179,11 +182,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // the first cell's target, so that group is being sung for every step in this fixture.
             // Since backlog 177 the sung group lights its UNTYPED cells whatever the playhead style
             // is, so the highlight grey, not the plain untyped grey, is what "untyped" looks like
-            // here. That costs this fixture nothing: its subject is what a CORRECT cell reads as, and
+            // here (from cell 1 on; cell 0 is judged on the span's start alone, see above). That costs this fixture nothing: its subject is what a CORRECT cell reads as, and
             // a Correct cell rides the sync-tint ramp everywhere, a rule the highlight does not touch
             // (see LyricLineDisplay.CellFillColour).
             AddUntilStep("the line's one group is being sung", () => display.SungSyllable == 0);
-            AddAssert("so every cell starts on the highlight grey", () => same(colour(0), TypeBeatStyle.SungChar));
+            AddAssert("so every cell after the first starts on the highlight grey", () => same(colour(1), TypeBeatStyle.SungChar) && same(colour(4), TypeBeatStyle.SungChar));
             // Brightness is adjustable independently of sync quality; the default highlight
             // remains distinct from the ramp floor without requiring a brightness ordering.
             AddAssert("and the ramp floor is distinct", () => !same(LyricLineDisplay.CorrectCharColour(0), TypeBeatStyle.SungChar));
@@ -212,9 +215,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // window tier, which is the only way this lands on exactly half quality.
             AddAssert("the late char sits at exactly half the ramp", () => same(colour(1), LyricLineDisplay.CorrectCharColour(0.5)));
 
-            // The untyped suffix waits for the preceding freestyle character's window to open.
-            // The scored characters' sync tint must not reach it during that wait.
-            AddAssert("the waiting suffix keeps its untyped grey", () => same(colour(4), TypeBeatStyle.UntypedChar));
+            // The untyped suffix after the freestyle slot is judged on the group's open span, so it
+            // is lit like the rest of the group. The scored characters' sync tint must not reach it.
+            AddAssert("the suffix keeps the sung group's highlight", () => same(colour(4), TypeBeatStyle.SungChar));
             AddAssert("and it did not pick up the late char's tint", () => !same(colour(4), colour(1)));
         }
 
@@ -266,16 +269,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         public void TestBackspaceReturnsTheCharToItsUntypedColour()
         {
             // Half a window late, not dead on: a mid-ramp colour is distinct from both ends, so the
-            // paint and the revert are each visible without leaning on either endpoint.
-            AddStep("type 'a' half a window late", () => press(0, 'a', halfQualityLateDelta(0)));
-            AddUntilStep("painted at half the ramp", () => same(colour(0), LyricLineDisplay.CorrectCharColour(0.5)));
+            // paint and the revert are each visible without leaning on either endpoint. Cell 1, not
+            // cell 0, because cell 1 is the one still inside its Great window (see the class notes).
+            AddStep("type 'a' dead on", () => press(0, 'a', 0));
+            AddStep("type 'b' half a window late", () => press(1, 'b', halfQualityLateDelta(1)));
+            AddUntilStep("painted at half the ramp", () => same(colour(1), LyricLineDisplay.CorrectCharColour(0.5)));
 
             AddStep("backspace", () => engine.ProcessBackspace());
-            AddAssert("cell state and delta both cleared", () => cell(0).State == CellState.Untyped && cell(0).JudgedDelta == null);
+            AddAssert("cell state and delta both cleared", () => cell(1).State == CellState.Untyped && cell(1).JudgedDelta == null);
 
             // The ramp is gone and the cell is an ordinary untyped cell again, which in this scene
             // is one the song is on, so it goes back to the highlight grey it started at.
-            AddUntilStep("char is back to its untyped colour", () => same(colour(0), TypeBeatStyle.SungChar));
+            AddUntilStep("char is back to its untyped colour", () => same(colour(1), TypeBeatStyle.SungChar));
         }
 
         /// <summary>

@@ -35,9 +35,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     {
 
         /// <summary>
-        /// The axis is actually WIRED behind the switch: <c>LyricDifficulty.ComputeDetail</c>
-        /// reads the chunked arm's own figure on the chunked axis, and the envelope's on the default
-        /// one. The map is nonsense text so the shipped index cannot score it, which is the state the
+        /// The axis is actually WIRED: <c>LyricDifficulty.ComputeDetail</c> reads the chunked arm's
+        /// own figure, by default and by name, and its Target WPM is the scan the pace figures read.
+        /// The map is nonsense text so the shipped index cannot score it, which is the state the
         /// fixture's own snapshot is in - so the two paths are directly comparable.
         /// </summary>
         [Test]
@@ -53,16 +53,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             LyricDifficulty.ModelResult shipped = LyricDifficulty.ComputeDetail(lines, 1, false);
             LyricDifficulty.ModelResult chunked = LyricDifficulty.ComputeDetail(lines, 1, false, LyricDifficulty.EnduranceAxis.Chunked);
-            LyricDifficulty.ModelResult envelope = LyricDifficulty.ComputeDetail(lines, 1, false, LyricDifficulty.EnduranceAxis.Envelope);
-            ChunkedEndurance.Report direct = LyricDifficulty.RateChunked(lines, 1, false, LyricDifficulty.ShippedScores, ChunkedEndurance.Active).Report;
+            ChunkedEndurance.Report direct = LyricDifficulty.RateChunked(lines, 1, false, LyricDifficulty.ShippedScores, ChunkedEndurance.Live).Report;
 
             Assert.That(shipped.Stars, Is.EqualTo(chunked.Stars).Within(1e-12), "the DEFAULT has to be the axis the game ships");
             Assert.That(chunked.Stars, Is.EqualTo(direct.Stars).Within(1e-9), "the axis switch has to return the chunked arm's own figure");
             Assert.That(chunked.DifficultCharacters, Is.EqualTo(direct.LengthCharacters).Within(1e-9), "a miss on this axis is priced against the weighted length count");
             Assert.That(chunked.ComplexityMultiplier, Is.EqualTo(direct.RhythmMultiplier).Within(1e-12));
             Assert.That(chunked.ComplexityLoad, Is.EqualTo(direct.Load).Within(1e-12));
-            Assert.That(Math.Abs(chunked.Stars - envelope.Stars), Is.GreaterThan(1e-6), "the chunked axis is a different reading, so the two must not agree by accident");
-            Assert.That(envelope.Stars, Is.EqualTo(LyricDifficulty.ComputeDetail(lines, 1, false, LyricDifficulty.EnduranceAxis.Envelope).Stars).Within(1e-12));
+            Assert.That(chunked.TargetWpm, Is.EqualTo(LyricDifficulty.TargetWpm(lines)), "the rating carries the same Target WPM the pace figures read");
+            Assert.That(chunked.TargetWpm, Is.GreaterThan(0), "and the fixture clears the target's character floor");
             Assert.That(LyricDifficulty.Live, Is.EqualTo(LyricDifficulty.EnduranceAxis.Chunked), "the sandbox's live enduranceAxis is the chunked one");
         }
 
@@ -80,7 +79,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             });
         }
 
-        /// <summary>One line of a synthetic map, the same helper the envelope model's own pins use.</summary>
+        /// <summary>One line of a synthetic map, the same helper LyricDifficultyTest's pins use.</summary>
         private static LyricLine line(double start, double end, params (string Text, double Start, double End)[] units) => new LyricLine
         {
             RawText = string.Join(" ", units.Select(u => u.Text)),

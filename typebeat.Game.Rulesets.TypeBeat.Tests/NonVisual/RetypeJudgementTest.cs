@@ -41,22 +41,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(cell.JudgedDelta, Is.EqualTo(retainedDelta));
             Assert.That(engine.Combo, Is.EqualTo(1));
             Assert.That(engine.MaxCombo, Is.EqualTo(1));
-            Assert.That(engine.Score, Is.EqualTo(SyncWindows.BasePoints(expected)));
             var summary = engine.BuildResults();
             Assert.That(summary.Counts[expected], Is.EqualTo(1));
             Assert.That(summary.Counts.Values.Sum(), Is.EqualTo(1));
             Assert.That(summary.SyncTimeline, Has.Count.EqualTo(1));
             Assert.That(summary.SyncTimeline.Single().Delta, Is.EqualTo(retainedDelta));
-            Assert.That(events.Last().Upgraded, Is.EqualTo(SyncWindows.BasePoints(expected) > SyncWindows.BasePoints(SyncWindows.Default.Classify(first))));
+            Assert.That(events.Last().Upgraded, Is.EqualTo(expected != SyncWindows.Default.Classify(first)));
         }
 
         [Test]
-        public void RepeatedImprovementsDoNotFarmComboOrUseTheLaterComboMultiplier()
+        public void RepeatedImprovementsDoNotFarmComboOrJudgements()
         {
             var engine = create();
             engine.ProcessKey('a', 600);
             engine.ProcessKey('b', engine.Lines[0].Cells[1].TargetTime);
-            long before = engine.Score;
             engine.ProcessBackspace();
             engine.ProcessBackspace();
             engine.ProcessKey('a', 800);
@@ -67,7 +65,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 engine.ProcessBackspace();
                 engine.ProcessKey('a', 1400);
             }
-            Assert.That(engine.Score, Is.EqualTo(before + 250));
             Assert.That(engine.Combo, Is.EqualTo(2));
             Assert.That(engine.MaxCombo, Is.EqualTo(2));
             Assert.That(engine.BuildResults().Counts[JudgementType.Great], Is.EqualTo(2));

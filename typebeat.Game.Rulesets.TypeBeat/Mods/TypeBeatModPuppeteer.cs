@@ -118,7 +118,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// <c>PuppeteerReplayTransform</c>). <see cref="WallStampMs"/> is the axis, and the reason every
     /// constant in this file is now a contract.</para>
     /// </summary>
-    public class TypeBeatModPuppeteer : Mod, IUpdatableByPlayfield, IApplicableToTrack, IApplicableToDrawableRuleset<TypeBeatHitObject>
+    public class TypeBeatModPuppeteer : Mod, IUpdatableByPlayfield, IApplicableToTrack, IApplicableToDrawableRuleset<TypeBeatHitObject>, IApplicableToTypingEngine
     {
         /// <summary>
         /// The label only. The class is still <c>TypeBeatModPuppeteer</c> and the acronym is still
@@ -398,8 +398,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 
         /// <summary>
         /// What the mod multiplies every judgement window by, so that every press landing on the
-        /// right character judges Great. Read by <see cref="Scoring.TypeBeatReplayScorer"/> too, so
-        /// a stored replay is re-judged on the same ladder the live run was.
+        /// right character judges Great. Applied by <see cref="ApplyToEngine"/>, which every engine
+        /// factory calls, so a stored replay is re-judged on the same ladder the live run was.
         ///
         /// <para>A big round number rather than an infinity, because
         /// <see cref="Gameplay.TypingEngine.WindowScale"/> requires a FINITE positive scale (an
@@ -408,7 +408,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// is total in practice while staying an ordinary double.</para>
         ///
         /// <para>Why a window scale and not a "judge everything Great" flag: the scale is the
-        /// existing, general, composable knob (Easy, Hard Rock and the rate mods all multiply their
+        /// existing, general, composable knob (Easy and the rate mods all multiply their
         /// own factor into it), it needs no engine edit at all, and it keeps the sync readouts
         /// coherent with the grades instead of reporting a quality nobody was graded on.</para>
         /// </summary>
@@ -562,7 +562,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         private readonly BindableDouble frequencyAdjustment = new BindableDouble(1);
 
         private IAdjustableAudioComponent? track;
-        private DrawableTypeBeatRuleset? drawableRuleset;
 
         /// <summary>
         /// Wall clock, and the model's whole time base. Nothing derived from it reaches a target
@@ -618,31 +617,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         }
 
         /// <summary>
-        /// Three jobs. FORGIVE THE TIMING by multiplying the window scale (see
-        /// <see cref="WINDOW_SCALE"/>), which is done here because this is where the engine exists
-        /// and before the first keypress, exactly as Easy, Hard Rock and the rate mods do it. EXEMPT
-        /// THE RUSH CAP (<see cref="Gameplay.TypingEngine.RushCapExempt"/>, backlog 261), set at the
-        /// same seam for the same reason: it is read at every press rather than at construction, and
-        /// no replay recorder stamps it. And capture the drawable ruleset so the live rate can be
-        /// published, the <see cref="DrawableTypeBeatRuleset.ConductorRate"/>
-        /// half of the <c>FlashlightVisibleRadius</c> pattern: the mod writes to the ruleset and no
-        /// mod type is named by the consumer.
+        /// Two jobs, both on the engine every factory builds. FORGIVE THE TIMING by multiplying the
+        /// window scale (see <see cref="WINDOW_SCALE"/>), exactly as Easy and the rate mods do it.
+        /// EXEMPT THE RUSH CAP (<see cref="Gameplay.TypingEngine.RushCapExempt"/>, backlog 261), set
+        /// at the same seam for the same reason: it is read at every press rather than at
+        /// construction, and no replay recorder stamps it.
         /// </summary>
-        public void ApplyToDrawableRuleset(DrawableRuleset<TypeBeatHitObject> drawableRuleset)
+        public void ApplyToEngine(TypingEngine engine)
         {
-            var typeBeatRuleset = (DrawableTypeBeatRuleset)drawableRuleset;
-
-            typeBeatRuleset.Engine.WindowScale *= WINDOW_SCALE;
+            engine.WindowScale *= WINDOW_SCALE;
 
             // THE RUSH CAP CANNOT MEASURE A TAPE (backlog 261). The playhead here is the tape the
             // player is dragging, and it is walled at the preset's ceiling, so a player faster than
             // that opens a lead with no bound: the cap broke their combo on a press it was still
             // judging Great, and could not re-arm while the sprint continued. The flag's own doc has
             // the whole argument, including why no finite cap value fixes it.
-            typeBeatRuleset.Engine.RushCapExempt = true;
+            engine.RushCapExempt = true;
+        }
 
-            this.drawableRuleset = typeBeatRuleset;
-
+        /// <summary>Publish the starting rate from the first frame.</summary>
+        public void ApplyToDrawableRuleset(DrawableRuleset<TypeBeatHitObject> drawableRuleset)
+        {
             reset();
             publish();
         }
@@ -891,9 +886,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
             wallClock.Restart();
 
             SpeedChange.Value = 1;
-
-            if (drawableRuleset != null)
-                drawableRuleset.ConductorRate = 1;
         }
 
         private void addAdjustments(IAdjustableAudioComponent target, bool adjustPitch)
@@ -940,9 +932,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
                 : 1;
 
             SpeedChange.Value = rate;
-
-            if (drawableRuleset != null)
-                drawableRuleset.ConductorRate = rate;
         }
     }
 }

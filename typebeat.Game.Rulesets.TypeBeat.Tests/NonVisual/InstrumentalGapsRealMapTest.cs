@@ -36,12 +36,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             string dir = Environment.GetEnvironmentVariable("TYPEBEAT_GAP_OSU_DIR") ?? string.Empty;
 
             if (string.IsNullOrEmpty(dir))
-                Assert.Ignore("TYPEBEAT_GAP_OSU_DIR is not set; skipping real-map instrumental-gap pin.");
+                StandaloneMaps.MissingFixture("TYPEBEAT_GAP_OSU_DIR is not set; skipping real-map instrumental-gap pin.");
 
             string path = Path.Combine(dir, fileName);
 
             if (!File.Exists(path))
-                Assert.Ignore($"Real map file not present (expected {path}); skipping pin.");
+                StandaloneMaps.MissingFixture($"Real map file not present (expected {path}); skipping pin.");
 
             return path;
         }

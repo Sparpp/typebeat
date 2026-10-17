@@ -56,10 +56,10 @@ namespace typebeat.Game.Screens.ImportLyrics
         /// installed (backlog 409). The path is the one the settings overlay shows: the "Experimental"
         /// section, its "Lyric timing" heading, where the install button sits.
         /// </summary>
-        public const string ALIGNER_NOT_INSTALLED_TOOLTIP = "Install the local auto-aligner in Settings > Experimental > Lyric timing to use automatic alignment.";
+        public const string ALIGNER_NOT_INSTALLED_TOOLTIP = "Install the local auto-aligner in " + LocalAlignerVersion.SETTINGS_PATH + " to use automatic alignment.";
 
         /// <summary>As <see cref="ALIGNER_NOT_INSTALLED_TOOLTIP"/>, for an install that never finished (the button there reads "Repair").</summary>
-        public const string ALIGNER_NEEDS_REPAIR_TOOLTIP = "The local auto-aligner's install is incomplete. Repair it in Settings > Experimental > Lyric timing to use automatic alignment.";
+        public const string ALIGNER_NEEDS_REPAIR_TOOLTIP = "The local auto-aligner's install is incomplete. Repair it in " + LocalAlignerVersion.SETTINGS_PATH + " to use automatic alignment.";
 
         /// <summary>As <see cref="ALIGNER_NOT_INSTALLED_TOOLTIP"/>, for a build with no aligner installer at all (headless, tests).</summary>
         public const string ALIGNER_UNAVAILABLE_TOOLTIP = "The local auto-aligner is not available in this build.";
@@ -578,7 +578,9 @@ namespace typebeat.Game.Screens.ImportLyrics
             progressDisplay.FadeIn(200, Easing.OutQuint);
             report(string.IsNullOrEmpty(lyricsPath) ? "starting import (blank map)" : "starting import");
 
-            Task.Factory.StartNew(async () =>
+            // Task.Run, not Task.Factory.StartNew with an async lambda: that returns a Task<Task>
+            // whose inner task nothing observes.
+            Task.Run(async () =>
             {
                 LyricImportResult result;
 
@@ -593,7 +595,15 @@ namespace typebeat.Game.Screens.ImportLyrics
                     result = LyricImportResult.Fail(e.Message);
                 }
 
-                if (result.Success && result.OszPath != null)
+                if (!result.Success || result.OszPath == null)
+                {
+                    Schedule(() => finishFailure(result.Error));
+                    return;
+                }
+
+                // The import half fails the same way as the build: a throw here must not leave the
+                // screen importing, with the button disabled and the exit prompting about it.
+                try
                 {
                     Schedule(() => report("importing beatmap"));
 
@@ -618,11 +628,11 @@ namespace typebeat.Game.Screens.ImportLyrics
 
                     Schedule(finishSuccess);
                 }
-                else
+                catch (Exception e)
                 {
-                    Schedule(() => finishFailure(result.Error));
+                    Schedule(() => finishFailure(e.Message));
                 }
-            }, cancellation.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            });
         }
 
         /// <summary>

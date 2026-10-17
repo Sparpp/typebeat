@@ -25,7 +25,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var ruleset = new TypeBeatRuleset();
             var beatmap = new TestWorkingBeatmap(new TypeBeatBeatmap());
             var calculator = new TypeBeatDifficultyCalculator(ruleset.RulesetInfo, beatmap);
-            Assert.That(calculator.Version, Is.EqualTo(16));
+            Assert.That(calculator.Version, Is.EqualTo(17));
         }
 
         [TestCase(0.5, 2.9307039332939406)]

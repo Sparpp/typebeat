@@ -95,8 +95,14 @@ namespace typebeat.Game.Screens.Edit.Submission
         private APIUploadRequest? activeUploadRequest;
 
         /// <summary>
-        /// The same payload the single-request upload sends, assembled once per submission so the chunked
-        /// fallback can send it in pieces without recomputing anything.
+        /// Assembles the same payload the single-request upload sends, for the chunked fallback to send in
+        /// pieces. Only run once the direct upload has failed, because most submissions never need it.
+        /// </summary>
+        private ChunkedPackageUpload.DeferredPayload? deferredSessionPayload;
+
+        /// <summary>
+        /// The payload <see cref="deferredSessionPayload"/> built, kept so a resumed session sends the very
+        /// same bytes (session creation is idempotent on their SHA-256).
         /// </summary>
         private ChunkedPackageUpload.UploadPayload? uploadSessionPayload;
 
@@ -399,8 +405,6 @@ namespace typebeat.Game.Screens.Edit.Submission
             foreach (string file in filesDeleted)
                 log($@"deleted file: {file}");
 
-            var sessionPayload = await ChunkedPackageUpload.BuildPatchPayloadAsync(changedFiles, filesDeleted).ConfigureAwait(true);
-
             beginPackageUpload(() =>
             {
                 var patchRequest = new PatchBeatmapPackageRequest(setId);
@@ -412,10 +416,10 @@ namespace typebeat.Game.Screens.Edit.Submission
                     patchRequest.FilesDeleted.Add(file);
 
                 return patchRequest;
-            }, sessionPayload);
+            }, new ChunkedPackageUpload.DeferredPayload(() => ChunkedPackageUpload.BuildPatchPayloadAsync(changedFiles, filesDeleted)));
         }
 
-        private async Task replaceBeatmapSet()
+        private Task replaceBeatmapSet()
         {
             log("Performing full package upload...");
 
@@ -426,9 +430,8 @@ namespace typebeat.Game.Screens.Edit.Submission
             // snapshotted once so a retry does not depend on the package stream still being around.
             byte[] package = beatmapPackageStream.ToArray();
 
-            var sessionPayload = await ChunkedPackageUpload.BuildFullPayloadAsync(package).ConfigureAwait(true);
-
-            beginPackageUpload(() => new ReplaceBeatmapPackageRequest(setId, package), sessionPayload);
+            beginPackageUpload(() => new ReplaceBeatmapPackageRequest(setId, package), new ChunkedPackageUpload.DeferredPayload(() => ChunkedPackageUpload.BuildFullPayloadAsync(package)));
+            return Task.CompletedTask;
         }
 
         /// <summary>
@@ -439,15 +442,16 @@ namespace typebeat.Game.Screens.Edit.Submission
         /// is single-use, and must build from inputs already held in memory rather than recompute them.
         /// </param>
         /// <param name="sessionPayload">
-        /// The same body assembled as a standalone payload, for the chunked fallback to send in pieces
-        /// if the first direct attempt dies in transport. See <see cref="ChunkedPackageUpload"/>.
+        /// The same body as a standalone payload, for the chunked fallback to send in pieces if the first
+        /// direct attempt dies in transport. See <see cref="ChunkedPackageUpload"/>. Only built then.
         /// </param>
-        private void beginPackageUpload(Func<APIUploadRequest> requestFactory, ChunkedPackageUpload.UploadPayload sessionPayload)
+        private void beginPackageUpload(Func<APIUploadRequest> requestFactory, ChunkedPackageUpload.DeferredPayload sessionPayload)
         {
             Debug.Assert(ThreadSafety.IsUpdateThread);
 
             uploadRequestFactory = requestFactory;
-            uploadSessionPayload = sessionPayload;
+            deferredSessionPayload = sessionPayload;
+            uploadSessionPayload = null;
             lastChunkedFailure = null;
             chunkedResumes = 0;
             uploadAttempt = 0;
@@ -504,10 +508,10 @@ namespace typebeat.Game.Screens.Edit.Submission
             // reaching the chunked machinery, whose slow gateway ladder is what rides a restart out.
             if (!exiting
                 && uploadAttempt == 1
-                && uploadSessionPayload != null
+                && deferredSessionPayload != null
                 && UploadRetryPolicy.SwitchesToChunked(exception))
             {
-                beginChunkedUpload();
+                _ = buildSessionPayloadThenBeginChunkedUpload();
                 return;
             }
 
@@ -532,6 +536,46 @@ namespace typebeat.Game.Screens.Edit.Submission
 
                 queueUploadAttempt();
             }, delay);
+        }
+
+        /// <summary>
+        /// Assembles the chunked payload off the update thread, the first time the chunked fallback is
+        /// needed, then starts the session.
+        /// </summary>
+        /// <remarks>
+        /// A payload that cannot be built, or a session that fails to start, is handled as a chunked session
+        /// that failed with nothing held, so the direct ladder carries on if it has attempts left and the
+        /// screen can always be left.
+        /// </remarks>
+        private async Task buildSessionPayloadThenBeginChunkedUpload()
+        {
+            Debug.Assert(ThreadSafety.IsUpdateThread);
+            Debug.Assert(deferredSessionPayload != null);
+
+            var deferred = deferredSessionPayload;
+
+            uploadStep.SetRetrying("upload failed, switching to chunked upload");
+
+            try
+            {
+                uploadSessionPayload = await deferred.GetAsync().ConfigureAwait(true);
+
+                // the screen may have been left, or the upload finished another way, while this was building.
+                if (exiting || !ReferenceEquals(deferredSessionPayload, deferred))
+                    return;
+
+                beginChunkedUpload();
+            }
+            catch (Exception ex)
+            {
+                log($"Starting the chunked upload failed: {ex}");
+
+                // never tried again: the inputs have not changed, so neither would the outcome.
+                deferredSessionPayload = null;
+                chunkedUpload?.Cancel();
+                chunkedUpload = null;
+                chunkedUploadFailed(ex, false, 0, 0);
+            }
         }
 
         /// <summary>
@@ -711,6 +755,7 @@ namespace typebeat.Game.Screens.Edit.Submission
         {
             activeUploadRequest = null;
             uploadRequestFactory = null;
+            deferredSessionPayload = null;
             uploadSessionPayload = null;
             chunkedUpload = null;
             lastChunkedFailure = null;

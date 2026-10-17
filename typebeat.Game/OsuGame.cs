@@ -1155,7 +1155,7 @@ namespace typebeat.Game
 
             // Bundled maps are a FRESH-INSTALL payload, so only import them while the first-run
             // setup is still pending. An app update re-lays Bundled/ next to the exe, so without
-            // this gate every update would re-import the whole set — resurrecting maps the player
+            // this gate every update would re-import the whole set, resurrecting maps the player
             // had deleted, on a launch they never asked for.
             if (LocalConfig.Get<bool>(OsuSetting.ShowFirstRunSetup))
                 importBundledBeatmaps();
@@ -1267,7 +1267,7 @@ namespace typebeat.Game
         /// <summary>
         /// Imports any beatmap packages shipped in the install's <c>Bundled</c> directory
         /// (next to the executable). The import pipeline deletes each package after a
-        /// successful import — including a dedup skip — so this is naturally one-shot;
+        /// successful import (including a dedup skip), so this is naturally one-shot;
         /// realm hash-dedup makes a re-run (e.g. after re-unzipping over an install)
         /// a harmless no-op. The packages carry their server ids/checksums, so the
         /// post-import online lookup stamps whatever status the server holds right now.
@@ -1290,11 +1290,13 @@ namespace typebeat.Game
                     return;
 
                 // Import silently: no boot-time "Imported ... Click to view" toast and no jump to
-                // the map. Driving the importer with a notification we never post skips both — the
-                // toast text and its click-to-present action live on that notification. The
-                // packages are deleted afterwards as cleanup; the caller's first-run gate is what
-                // actually keeps this one-shot (an update re-lays them next to the exe).
-                var tasks = packages.Select(p => new ImportTask(p)).ToArray();
+                // the map. Driving the importer with a notification we never post skips both: the
+                // toast text and its click-to-present action live on that notification. The importer
+                // deletes each package itself once that package has imported (or deduplicated), so a
+                // package whose import failed stays put and is retried on the next launch while the
+                // first-run setup is still pending. That gate is what actually keeps this one-shot
+                // (an update re-lays them next to the exe).
+                var tasks = packages.Select(p => new BundledImportTask(p)).ToArray();
 
                 Task.Run(async () =>
                 {
@@ -1306,18 +1308,37 @@ namespace typebeat.Game
                     {
                         Logger.Error(e, "Failed to import bundled beatmaps.");
                     }
-
-                    foreach (string package in packages)
-                    {
-                        try { File.Delete(package); }
-                        catch { /* best-effort cleanup; dedup makes a leftover package a no-op */ }
-                    }
                 });
             }
             catch (Exception e)
             {
                 // Bundled content must never block startup.
                 Logger.Error(e, "Failed to import bundled beatmaps.");
+            }
+        }
+
+        /// <summary>
+        /// A bundled package the importer deletes after a successful import, as with any archive, but best-effort:
+        /// the bundled folder can be read-only (an AppImage mount), and a leftover package is a deduplicated no-op
+        /// on the next launch, so a failed delete must not surface as an error notification.
+        /// </summary>
+        private sealed class BundledImportTask : ImportTask
+        {
+            public BundledImportTask(string path)
+                : base(path)
+            {
+            }
+
+            public override void DeleteFile()
+            {
+                try
+                {
+                    base.DeleteFile();
+                }
+                catch
+                {
+                    // best-effort cleanup, see above
+                }
             }
         }
 

@@ -7,18 +7,19 @@ using System.Collections.Generic;
 namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 {
     /// <summary>
-    /// The rhythmic-complexity bonus: stars for the extent to which keeping perfect timing means
-    /// CHANGING typing pace, weighted toward the map's demanding passages.
+    /// The rhythmic-complexity scan: the extent to which keeping perfect timing means CHANGING
+    /// typing pace, weighted toward the map's demanding passages. The chunked endurance axis reads
+    /// it as a load on its timeline and boosts each window by the load inside it.
     ///
-    /// <para>THE QUESTION IT ASKS. Not "how fast is this map" (the envelope already prices that)
-    /// but "how much timing does one constant pace <c>t = a + b*key</c> fail to reach". A stretch
-    /// a player can cover at a single constant speed pays EXACTLY nothing, however much its word
-    /// durations wobble, because the game's judgement windows absorb the wobble. Only timing
+    /// <para>THE QUESTION IT ASKS. Not "how fast is this map" (the window strain already prices
+    /// that) but "how much timing does one constant pace <c>t = a + b*key</c> fail to reach". A
+    /// stretch a player can cover at a single constant speed pays EXACTLY nothing, however much its
+    /// word durations wobble, because the game's judgement windows absorb the wobble. Only timing
     /// outside the allowed intervals is charged, and it is charged through a WEIGHTED MINIMAX: the
     /// smallest <c>E</c> for which one pace fits every interval once each is widened by
-    /// <c>E / weight</c>, with <c>weight</c> fixed before the search as that keypress's own demand
-    /// over the map's peak. An easy keypress therefore gives up its own timing cheaply, and no
-    /// single hardest word can price a whole passage.</para>
+    /// <c>E / weight</c>, with <c>weight</c> fixed before the search from that keypress's own
+    /// demand (see <see cref="ChunkedEndurance.BuildLoadPrefix"/>). An easy keypress therefore
+    /// gives up its own timing cheaply, and no single hardest word can price a whole passage.</para>
     ///
     /// <para>THE ROLLING METHOD (the shipped one). Every timed character is visited, and the
     /// constraint at index <c>i</c> asks whether a STRAIGHT pace line can pass through three
@@ -43,25 +44,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// </summary>
     public static class RhythmicComplexity
     {
-        /// <summary>How much forced pace change raises the rating; 0 leaves the rating alone.</summary>
-        public const double Strength = 0.3;
-
-        /// <summary>
-        /// The Great window the scan judges with, in milliseconds: 150 is the shipped ladder's own
-        /// Great rung, so the proxy charges only the pace changes the engine cannot absorb.
-        /// </summary>
-        public const double Tolerance = 150;
-
         /// <summary>Rolling distance in characters; checks run at this distance and 2x, 4x and 8x it.</summary>
         public const int Horizon = 3;
-
-        /// <summary>Rolling load that fills 63% of the available bonus.</summary>
-        public const double RollingScale = 0.2;
 
         /// <summary>Never zero, so the weighted bracket stays finite.</summary>
         public const double WeightFloor = 0.02;
 
-        /// <summary>The bonus's own cap, the multiplier it approaches as forced change grows.</summary>
+        /// <summary>The cap on any rhythm multiplier read off the load, the one it approaches as forced change grows.</summary>
         public const double MaxMultiplier = 2.0;
 
         /// <summary>
@@ -71,22 +60,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// </summary>
         public readonly record struct Press(double Lo, double Hi, double Target, double Idle, double Weight, int WordIndex = -1);
 
-        /// <summary>What a scan found: the load, how many checks forced something, and the worst margin.</summary>
-        public readonly record struct Report(double Load, int Checks, int Changed, double Worst, double Multiplier);
-
         /// <summary>
         /// The scan's load AND the same load split back onto the keypresses it was measured on: each
         /// check's contribution is shared equally by its three checkpoints and by the four distances,
         /// so <see cref="Press"/> sums to <see cref="Load"/> and a caller can read the load at a POINT
-        /// rather than only across the whole map. The combined model uses that to place the load on
-        /// the timeline (see <see cref="ChunkedEndurance"/>); the sections/rolling bonus ignores it.
+        /// rather than only across the whole map. The chunked endurance axis uses that to place the
+        /// load on its timeline (see <see cref="ChunkedEndurance"/>).
         /// </summary>
         public readonly record struct Split(double Load, double[] Press, int Checks, int Changed, double Worst);
 
         /// <summary>
         /// The rolling load of a press stream (see the type's own remarks), split onto the presses.
-        /// <see cref="Compute"/> reads this and applies the multiplier; callers that need the local
-        /// load read the split directly.
         /// </summary>
         public static Split Scan(IReadOnlyList<Press> presses, int horizon = Horizon)
         {
@@ -148,31 +132,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             }
 
             return new Split(load, split, checks, changed, worst);
-        }
-
-        /// <summary>
-        /// The rolling load of a press stream (see the type's own remarks), and the multiplier for
-        /// the strength and saturation the caller chose.
-        /// </summary>
-        public static Report Compute(IReadOnlyList<Press> presses, double strength = Strength, int horizon = Horizon, double scale = RollingScale)
-        {
-            Split scan = Scan(presses, horizon);
-
-            return new Report(scan.Load, scan.Checks, scan.Changed, scan.Worst, Multiplier(scan.Load, strength, scale));
-        }
-
-        /// <summary>
-        /// The rating multiplier the load earns: <c>1 + strength * (1 - exp(-load / scale))</c>,
-        /// clamped between 1 and the bonus's own cap. At strength 0 this is exactly 1, so the
-        /// rating is what the envelope (and typability) computed.
-        /// </summary>
-        public static double Multiplier(double load, double strength = Strength, double scale = RollingScale)
-        {
-            if (!(strength > 0) || !(scale > 0) || double.IsNaN(load) || double.IsInfinity(load))
-                return 1;
-
-            double raw = 1 + strength * (1 - Math.Exp(-load / scale));
-            return Math.Min(Math.Min(MaxMultiplier, 1 + strength), Math.Max(1, raw));
         }
     }
 }

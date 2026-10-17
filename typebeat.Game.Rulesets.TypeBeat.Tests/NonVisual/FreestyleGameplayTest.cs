@@ -99,13 +99,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             run.CharJudged += judged.Add;
             run.ProcessKey('a', 1000);
             run.ProcessKey('q', 2250);
-            long firstScore = run.Score;
+            var firstTally = run.BuildResults().Counts;
             Assert.That(run.LiveSyncPercent, Is.EqualTo(100 * (1 + 1 - 250 / 1200.0) / 2).Within(1e-9));
             Assert.That(run.ProcessBackspace(), Is.True);
             run.ProcessKey('x', 2600);
             Assert.That(judged.Last().Type, Is.EqualTo(JudgementType.Great), "first award is kept after retype");
             Assert.That(judged.Last().Delta, Is.EqualTo(250));
-            Assert.That(run.Score, Is.EqualTo(firstScore), "retypes do not farm score");
+            Assert.That(run.BuildResults().Counts, Is.EquivalentTo(firstTally), "retypes do not farm score");
             run.ProcessKey('b', 3000);
             Assert.That(run.BuildResults().SyncPercent, Is.EqualTo(100 * (3 - 250 / 1200.0) / 3).Within(1e-9));
         }
@@ -233,7 +233,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 ReplayEngineFeed.Apply(playback, frame);
             }
             Assert.That(playback.BuildResults().Counts, Is.EquivalentTo(live.BuildResults().Counts));
-            Assert.That(playback.Score, Is.EqualTo(live.Score));
             Assert.That(playback.BuildResults().SyncPercent, Is.EqualTo(live.BuildResults().SyncPercent));
             Assert.That(playback.Lines[0].Cells.Select(c => c.TypedChar), Is.EqualTo(new char?[] { 'a', 'q', 'c' }));
         }

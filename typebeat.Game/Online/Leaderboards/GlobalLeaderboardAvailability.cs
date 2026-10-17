@@ -31,7 +31,8 @@ namespace typebeat.Game.Online.Leaderboards
 
     /// <summary>
     /// The single decision of which global board a beatmap has, kept pure and away from the fetch
-    /// so it can be pinned by tests. Mirrors the server's own status switch in ScoreEndpoints:
+    /// so it can be pinned by tests. Mirrors the server's own status switch, BeatmapLeaderboard.BoardFor
+    /// (pinned against this by the server's WireCompat LeaderboardAvailabilityParityTest):
     /// a ranked set serves the ranked board, a published-but-not-ranked one ('pending' /
     /// 'unranked', i.e. <see cref="BeatmapOnlineStatus.Pending"/> / <see cref="BeatmapOnlineStatus.Unranked"/>)
     /// serves the unranked board, and everything else has no board.

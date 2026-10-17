@@ -213,7 +213,7 @@ namespace typebeat.Game.Screens.Play
                 return;
 
             // A deferred (mid-song) skip stays fully hidden until its skip period begins, then fades
-            // its button in once — the same entrance the intro overlay gets at load.
+            // its button in once, the same entrance the intro overlay gets at load.
             if (skipStartTime != null && gameplayClock.CurrentTime < skipStartTime.Value)
             {
                 inSkipPeriod.Value = false;

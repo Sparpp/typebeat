@@ -3,9 +3,7 @@
 
 using osu.Framework.Localisation;
 using typebeat.Game.Rulesets.Mods;
-using typebeat.Game.Rulesets.TypeBeat.Objects;
-using typebeat.Game.Rulesets.TypeBeat.UI;
-using typebeat.Game.Rulesets.UI;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Mods
 {
@@ -18,12 +16,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     ///
     /// <para>Implemented by clearing one engine flag
     /// (<see cref="Gameplay.TypingEngine.AllowWrongInput"/>) through
-    /// <see cref="IApplicableToDrawableRuleset{T}"/>, which is the pattern
-    /// <see cref="TypeBeatModMashing"/> and <see cref="TypeBeatModFlashlight"/> use. Deliberately
-    /// NOT the <see cref="TypeBeatModLiterate"/> pattern (stamping the hit objects and reading the
-    /// mod list back in <c>DrawableTypeBeatRuleset.createEngine</c>): Literate needs that because it
-    /// changes the CELL LIST and so must be known before the engine is constructed, whereas this is
-    /// a per-keypress judgement flag the engine reads fresh on every key. Nothing else writes the
+    /// <see cref="IApplicableToTypingEngine"/>, which is the pattern <see cref="TypeBeatModMashing"/>
+    /// uses. Deliberately NOT the <see cref="TypeBeatModLiterate"/> pattern (stamping the hit objects
+    /// and passing the mod to the engine's constructor): Literate needs that because it changes the
+    /// CELL LIST and so must be known before the engine is constructed, whereas this is a
+    /// per-keypress judgement flag the engine reads fresh on every key. A stored replay carries the
+    /// flag in its CONFIG frame (bit 0), which is fed after this and wins. Nothing else writes the
     /// flag any more (the ruleset setting it used to come from is gone), so there is no ordering
     /// question left for a later playfield load to lose.</para>
     ///
@@ -40,7 +38,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// accrues on the rejection path (see <c>TypingEngine.ProcessKey</c>). That guard exists to stop
     /// a masher farming a model that will not take a wrong char, so it belongs here.</para>
     /// </summary>
-    public class TypeBeatModGatekeeper : Mod, IApplicableToDrawableRuleset<TypeBeatHitObject>
+    public class TypeBeatModGatekeeper : Mod, IApplicableToTypingEngine
     {
         public override string Name => "Gatekeeper";
 
@@ -64,7 +62,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         public override double ScoreMultiplier => 1.0;
 #pragma warning restore CS0672
 
-        public void ApplyToDrawableRuleset(DrawableRuleset<TypeBeatHitObject> drawableRuleset) =>
-            ((DrawableTypeBeatRuleset)drawableRuleset).Engine.AllowWrongInput = false;
+        public void ApplyToEngine(TypingEngine engine) => engine.AllowWrongInput = false;
     }
 }

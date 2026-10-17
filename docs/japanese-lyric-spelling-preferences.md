@@ -6,7 +6,7 @@ The generator prefers hiragana for a curated set of everyday demonstratives, gre
 
 ## Research basis
 
-The [Agency for Cultural Affairs' writing guidance](https://www.bunka.go.jp/seisaku/bunkashingikai/kokugo/hokoku/pdf/93651301_01.pdf), printed pages 12–13, describes kana conventions for these categories and distinguishes auxiliary expressions from literal meanings. This is general writing guidance, not a study of song-lyric frequency.
+The [Agency for Cultural Affairs' writing guidance](https://www.bunka.go.jp/seisaku/bunkashingikai/kokugo/hokoku/pdf/93651301_01.pdf), printed pages 12 to 13, describes kana conventions for these categories and distinguishes auxiliary expressions from literal meanings. This is general writing guidance, not a study of song-lyric frequency.
 
 Official published lyrics provide examples of these conventions in songs: Yorushika's [雲と幽霊](https://yorushika.com/lyrics/detail/5/), [夕凪、某、花惑い](https://yorushika.com/lyrics/detail/23/) and [ルバート](https://yorushika.com/lyrics/detail/66/), and Southern All Stars' [愛はスローにちょっとずつ](https://southernallstars.jp/lyrics/detail/579/). These examples support conservative editorial defaults; they do not establish a universal spelling rule or an exhaustive frequency ranking. No lyric passages are bundled with the implementation.
 

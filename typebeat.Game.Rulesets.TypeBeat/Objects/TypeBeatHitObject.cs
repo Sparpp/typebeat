@@ -72,7 +72,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects
             base.CreateNestedHitObjects(cancellationToken);
 
             // The engine's flattening (TypingLine.FromLyricLine) is the single source of truth for
-            // per-cell target times; the nested objects mirror its typeable cells.
+            // per-cell target times; the nested objects mirror its typeable cells. They are built with
+            // ForMods' era defaults, though, so on a subdivided word without split_chars a StartTime
+            // here can differ from the live engine's aligned TargetTime: anything that has to agree
+            // with judgement reads the engine's cells instead (see TypeBeatPlayfield's seal grant).
 
             var typingLine = TypingLine.ForMods(Line, Literate, Polyglot, PolyglotLanguage, japaneseCharacterTiming: true);
 

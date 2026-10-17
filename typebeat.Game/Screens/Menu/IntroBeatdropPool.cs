@@ -162,7 +162,7 @@ namespace typebeat.Game.Screens.Menu
 
         /// <summary>
         /// The set-level override a migration derives from the old per-difficulty ones
-        /// (<see cref="BeatmapUserSettings.IntroPoolInclusion"/>): any difficulty explicitly opted in opts the set
+        /// (<c>BeatmapUserSettings.IntroPoolInclusion</c>, realm schema 53 to 64): any difficulty explicitly opted in opts the set
         /// in; every difficulty explicitly kept out keeps the set out; anything else (no overrides, or a mix of
         /// <c>false</c> and <c>null</c>) has no override and follows the beatdrops.
         /// </summary>

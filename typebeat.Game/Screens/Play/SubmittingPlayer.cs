@@ -133,21 +133,30 @@ namespace typebeat.Game.Screens.Play
                 return false;
             }
 
+            // A debug build plays against production but never submits to it (see ScoreSubmissionGate): no token is
+            // requested, so nothing can be submitted, and the play is still saved locally.
+            if (!ScoreSubmissionGate.AllowsSubmission(ScoreSubmissionGate.IsDevelopmentBuild, api.Endpoints.APIUrl))
+            {
+                Logger.Log($"Score submission disabled: development build targeting {api.Endpoints.APIUrl}");
+                handleTokenFailure(new InvalidOperationException(ScoreSubmissionGate.REFUSAL_MESSAGE), displayNotification: true);
+                return false;
+            }
+
             string routeWhenSent = api.Endpoints.APIUrl;
-            var failure = runTokenRequest(req, out bool stalled);
+            var failure = runTokenRequest(req);
 
             // If that attempt is what moved the session on to the fallback API host, the token was
             // lost to a route the game has now abandoned, and the play would go unsubmitted for a
             // reason that has already stopped being true. One repeat, on the new host, with a fresh
             // request (a completed one can never fire again).
-            if (failure != null && (stalled || ApiHostSelector.IsFailoverRetryable(failure)) && api.Endpoints.APIUrl != routeWhenSent)
+            if (failure != null && FailureClassifier.TOKEN_FAILOVER.Matches(failure) && api.Endpoints.APIUrl != routeWhenSent)
             {
                 var retry = CreateTokenRequest();
 
                 if (retry != null)
                 {
                     Logger.Log($"Score submission token retrieval failed on {routeWhenSent}, retrying on {api.Endpoints.APIUrl}");
-                    failure = runTokenRequest(retry, out _);
+                    failure = runTokenRequest(retry);
                 }
             }
 
@@ -193,12 +202,12 @@ namespace typebeat.Game.Screens.Play
         /// Run one token request through to completion, populating <see cref="token"/> on success.
         /// </summary>
         /// <param name="req">The request to run. Must not have been performed before.</param>
-        /// <param name="stalled">
-        /// Whether the wait expired rather than the request reporting anything, which is
+        /// <returns>
+        /// The failure to report, or <see langword="null"/> if the token was retrieved. A wait that expired rather
+        /// than the request reporting anything is a <see cref="RequestStalledException"/>, which is
         /// transport-class by construction: nothing answered and nothing was refused.
-        /// </param>
-        /// <returns>The failure to report, or <see langword="null"/> if the token was retrieved.</returns>
-        private Exception runTokenRequest(APIRequest<APIScoreToken> req, out bool stalled)
+        /// </returns>
+        private Exception runTokenRequest(APIRequest<APIScoreToken> req)
         {
             var tcs = new TaskCompletionSource<Exception>();
 
@@ -218,13 +227,11 @@ namespace typebeat.Game.Screens.Play
             // Generally a timeout would not happen here as APIAccess will timeout first.
             if (!tcs.Task.Wait(30000))
             {
-                var timeout = new InvalidOperationException("Token retrieval timed out (request never run)");
+                var timeout = new RequestStalledException("Token retrieval timed out (request never run)");
                 req.TriggerFailure(timeout);
-                stalled = true;
                 return timeout;
             }
 
-            stalled = false;
             return tcs.Task.GetResultSafely();
         }
 

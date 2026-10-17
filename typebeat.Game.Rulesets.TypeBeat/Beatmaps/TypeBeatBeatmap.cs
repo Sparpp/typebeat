@@ -125,12 +125,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             double baseWpm = pace.AverageWpm;
 
             // The pace to SUSTAIN: the map's hardest window BY RAW SPEED, re-expressed at a fixed
-            // duration (LyricPaceStatistics.TargetWpm). Typability and the rhythm bonus are left out
-            // of both the window choice and the conversion, so a slower-to-type or rhythmically
-            // forced stretch can win the rating while a plainly faster one still asks for more speed;
-            // it is therefore not always the rating's own peak window. It is the figure the Star
-            // Rating Sandbox prints beside every map, and it reads 0 when no window clears the
-            // model's own duration and character floors.
+            // duration (LyricPaceStatistics.TargetWpm). Typability, the judgement windows and the
+            // rhythm boost are left out of both the window choice and the conversion, so a
+            // slower-to-type or rhythmically forced stretch can weigh most in the rating while a
+            // plainly faster one still asks for more speed. It is read off the chunked rating axis's
+            // own windows, and the model's figure is 0 when no window clears its character floor.
             double baseTargetWpm = pace.TargetWpm;
 
             // Both rate-sensitive pace figures are recomputed at the selected clock: a pause is

@@ -9,8 +9,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using NUnit.Framework;
 using osu.Framework.Graphics.Containers;
+using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Overlays.Settings;
+using typebeat.Game.Overlays.Settings.Sections;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Screens.ImportLyrics;
@@ -149,6 +151,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
                 Assert.That(captions, Does.Not.Contain("Use local auto-aligner"));
                 Assert.That(captions.Where(c => c.Contains("server", StringComparison.OrdinalIgnoreCase)), Is.Empty);
+            }
+        }
+
+        /// <summary>
+        /// The path every aligner sentence names ("Update it in Settings &gt; Experimental &gt; Lyric
+        /// timing") is the section's title and the heading the install button sits under, read off the
+        /// drawables themselves, so renaming either moves the sentences with it.
+        /// </summary>
+        [Test]
+        public void TheSettingsPathIsTheHeadersOnScreen()
+        {
+            var ruleset = new TypeBeatRuleset();
+            var subsection = (TypeBeatExperimentalSettingsSubsection)ruleset.CreateExperimentalSettings()!;
+
+            using (var config = new TypeBeatRulesetConfigManager(null, ruleset.RulesetInfo))
+            {
+                var controls = subsection.BuildControls(config);
+                int button = Array.FindIndex(controls, c => c is Container { Child: FormButton });
+                string heading = controls.Take(button).OfType<OsuSpriteText>().Last().Text.ToString();
+
+                Assert.That(heading, Is.EqualTo(LocalAlignerVersion.SETTINGS_HEADING));
+                Assert.That(LocalAlignerVersion.SETTINGS_PATH, Is.EqualTo($"Settings > {new ExperimentalSection().Header} > {heading}"));
             }
         }
 

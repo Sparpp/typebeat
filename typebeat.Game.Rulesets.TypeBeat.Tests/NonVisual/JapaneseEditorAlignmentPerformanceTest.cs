@@ -9,6 +9,8 @@ using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Import;
 
+using typebeat.Game.Rulesets.TypeBeat.Edit;
+
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
     [TestFixture]
