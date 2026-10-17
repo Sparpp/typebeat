@@ -46,6 +46,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         {
             var result = new bool[words.Length];
             var known = words.Select(w => englishWords.GetOrAdd(w.Value.ToLowerInvariant().Replace('’', '\''), isEnglishWord)).ToArray();
+            var decodable = words.Select(w => JapaneseRomaji.ReadAuthored(w.Value) != null).ToArray();
+            bool japaneseMajority = Enumerable.Range(0, words.Length).Count(i => !known[i] && decodable[i]) > words.Length / 2;
             for (int first = 0; first < words.Length;)
             {
                 if (!known[first])
@@ -63,7 +65,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 for (int i = first; i < end; i++)
                 {
                     string word = words[i].Value;
-                    undecodable |= JapaneseRomaji.ReadAuthored(word) == null;
+                    undecodable |= !decodable[i];
                     if (englishPhraseMarkers.Contains(word))
                     {
                         marker = true;
@@ -73,8 +75,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                         content++;
                 }
                 int next = end;
-                bool phrase = end - first >= 2 && (undecodable || content > 0 && (marker || content > 1
-                    || words[first].Value.Equals("no", StringComparison.OrdinalIgnoreCase)) || markers > 1);
+                // In a mostly Japanese line, dictionary overlap such as "no saki" or "no hate"
+                // needs stronger English evidence than adjacent content words or a leading "no".
+                bool phrase = end - first >= 2 && (undecodable || content > 0 && marker || markers > 1
+                    || !japaneseMajority && content > 0 && (content > 1 || words[first].Value.Equals("no", StringComparison.OrdinalIgnoreCase)));
                 if (phrase)
                 {
                     // A trailing Japanese particle is outside the English phrase. Preserve "to"

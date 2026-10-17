@@ -53,6 +53,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [TestCase("kimi ni love, love, love", "love, love, love")]
         [TestCase("kimi ni let me go", "let me go")]
         [TestCase("kimi ni take it easy", "take it easy")]
+        [TestCase("boku wa kimi no soba ni I love you", "I love you")]
         public void EnglishPhrasesSurviveJapaneseConversion(string lyric, string english)
         {
             string? generated = JapaneseLyricGenerator.Generate(lyric);
@@ -64,7 +65,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [TestCase("koi no uta", "歌")]
         [TestCase("take no oto", "音")]
         [TestCase("yoru no taiyou ni", "太陽")]
+        [TestCase("Doa no saki ni boku no senaka ga mieta", "ドア")]
+        [TestCase("Jigoku no hate nado doko ni aru no ka", "の 果て")]
         public void EnglishDictionaryOverlapDoesNotProtectJapanesePhrases(string lyric, string japanese)
-            => Assert.That(JapaneseLyricGenerator.Generate(lyric), Does.Contain(japanese));
+            => Assert.That(JapaneseLyricGenerator.Generate(lyric), Does.Contain(japanese).And.Not.Match("[A-Za-z]"));
     }
 }
