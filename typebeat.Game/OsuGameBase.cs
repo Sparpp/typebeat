@@ -24,6 +24,7 @@ using osu.Framework.Graphics.Textures;
 using osu.Framework.Input;
 using osu.Framework.Input.Handlers;
 using osu.Framework.Input.Handlers.Joystick;
+using osu.Framework.Input.Handlers.Keyboard;
 using osu.Framework.Input.Handlers.Midi;
 using osu.Framework.Input.Handlers.Mouse;
 using osu.Framework.Input.Handlers.Pen;
@@ -719,6 +720,10 @@ namespace typebeat.Game
             {
                 case MouseHandler mh:
                     return new MouseSettings(mh);
+
+                // Its one setting is SDL's Windows raw keyboard switch, so it is absent elsewhere.
+                case KeyboardHandler kh when RuntimeInfo.OS == RuntimeInfo.Platform.Windows:
+                    return new KeyboardSettings(kh);
 
                 // return null for handlers that shouldn't have settings.
                 default:
