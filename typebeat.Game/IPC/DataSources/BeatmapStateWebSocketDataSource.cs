@@ -88,7 +88,8 @@ namespace typebeat.Game.IPC.DataSources
             var beatmap = working.Value.BeatmapInfo;
             var metadata = beatmap.Metadata;
 
-            var adjustedDifficulty = ruleset.Value.CreateInstance().GetAdjustedDisplayDifficulty(beatmap, mods.Value);
+            var rulesetInstance = ruleset.Value.CreateInstance();
+            var adjustedDifficulty = rulesetInstance.GetAdjustedDisplayDifficulty(beatmap, mods.Value);
             var starDifficulty = await difficultyCache.GetDifficultyAsync(beatmap, ruleset.Value, mods.Value).ConfigureAwait(false);
 
             BroadcastMessage(new BeatmapStateWebSocketMessage
@@ -124,7 +125,7 @@ namespace typebeat.Game.IPC.DataSources
                     MaxCombo = starDifficulty?.MaxCombo ?? 0,
                     Status = beatmap.Status,
                     TotalLength = (int)Math.Round(beatmap.Length / rate),
-                    DrainLength = (int)Math.Round(working.Value.Beatmap.CalculateDrainLength() / rate),
+                    DrainLength = (int)Math.Round(rulesetInstance.CalculateDrainLength(working.Value.Beatmap) / rate),
                     ObjectCount = beatmap.TotalObjectCount,
                 },
                 RulesetId = ruleset.Value.OnlineID,

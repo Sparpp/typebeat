@@ -372,6 +372,15 @@ namespace typebeat.Game.Rulesets
         /// </summary>
         public virtual string? GetSubmissionRefusal(IBeatmap beatmap) => null;
 
+        /// <summary>
+        /// The drain length of <paramref name="beatmap"/> in milliseconds: the time that is actually
+        /// gameplay, which song select and the IPC data source show beside the map length. Defaults
+        /// to <see cref="BeatmapExtensions.CalculateDrainLength"/> (the playable length minus break
+        /// time). type!beat maps carry no breaks, so that ruleset subtracts its instrumental
+        /// stretches instead.
+        /// </summary>
+        public virtual double CalculateDrainLength(IBeatmap beatmap) => beatmap.CalculateDrainLength();
+
         public virtual Drawable CreateIcon() => new SpriteIcon { Icon = FontAwesome.Solid.QuestionCircle };
 
         public virtual IResourceStore<byte[]> CreateResourceStore() => new NamespacedResourceStore<byte[]>(new DllResourceStore(GetType().Assembly), @"Resources");

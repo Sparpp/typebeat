@@ -249,6 +249,7 @@ namespace typebeat.Game.Screens.Select
             lengthCancellationSource = new CancellationTokenSource();
 
             var token = lengthCancellationSource.Token;
+            var rulesetInstance = ruleset.Value.CreateInstance();
 
             Task.Run(() =>
             {
@@ -258,7 +259,8 @@ namespace typebeat.Game.Screens.Select
 
                 double rate = ModUtils.CalculateRateWithMods(mods.Value);
 
-                double drainLength = Math.Round(beatmap.CalculateDrainLength() / rate);
+                // Ruleset-aware: type!beat's drain leaves its instrumental stretches out.
+                double drainLength = Math.Round(rulesetInstance.CalculateDrainLength(beatmap) / rate);
                 double hitLength = Math.Round(beatmapInfo.Length / rate);
 
                 Schedule(() =>

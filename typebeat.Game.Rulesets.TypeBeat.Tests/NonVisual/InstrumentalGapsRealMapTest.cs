@@ -160,5 +160,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             foreach (var g in gaps)
                 Assert.That(g.SkipTarget - g.GapStartTime, Is.GreaterThanOrEqualTo(InstrumentalGaps.MIN_SKIP_WINDOW_MS));
         }
+
+        /// <summary>
+        /// Backlog 423 on maps that shipped: the drain song select shows (the ruleset's
+        /// <see cref="TypeBeatRuleset.CalculateDrainLength"/> over the DECODED beatmap, which is what
+        /// the wedge holds) is the engine lines' <see cref="InstrumentalGaps.DrainLengthMs"/>, and it
+        /// is shorter than the old figure (the playable length, since these maps carry no breaks) by
+        /// more than every skip window together.
+        /// </summary>
+        [TestCase("immortal-flame.osu")]
+        [TestCase("neon-rain.osu")]
+        public void DrainLengthLeavesTheInstrumentalsOut(string fileName)
+        {
+            string path = requireOsu(fileName);
+
+            LyricBeatmapDecoder.Register();
+
+            typebeat.Game.Beatmaps.Beatmap decoded;
+
+            using (var stream = new MemoryStream(Encoding.UTF8.GetBytes(File.ReadAllText(path))))
+            using (var reader = new LineBufferedReader(stream))
+                decoded = typebeat.Game.Beatmaps.Formats.Decoder.GetDecoder<typebeat.Game.Beatmaps.Beatmap>(reader).Decode(reader);
+
+            var lines = realPipelineLines(path);
+            double drain = new TypeBeatRuleset().CalculateDrainLength(decoded);
+            double oldDrain = typebeat.Game.Beatmaps.BeatmapExtensions.CalculateDrainLength(decoded);
+            double skippable = InstrumentalGaps.Compute(lines).Sum(g => g.SkipTarget - g.GapStartTime);
+
+            TestContext.Out.WriteLine($"{fileName}: length {oldDrain:F0} ms, drain {drain:F0} ms, instrumentals {InstrumentalGaps.InstrumentalMs(lines):F0} ms, skippable {skippable:F0} ms");
+
+            Assert.That(drain, Is.EqualTo(InstrumentalGaps.DrainLengthMs(lines)).Within(1e-6), "the wedge's path agrees with the engine's lines");
+            Assert.That(skippable, Is.GreaterThan(0), "the fixture has a skippable instrumental at all");
+            Assert.That(drain, Is.LessThan(oldDrain - skippable), "drain leaves out more than the skip windows");
+        }
     }
 }
