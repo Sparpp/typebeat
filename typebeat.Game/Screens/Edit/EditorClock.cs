@@ -69,8 +69,7 @@ namespace typebeat.Game.Screens.Edit
             this.beatDivisor = beatDivisor ?? new BindableBeatDivisor();
 
             AudioAdjustments.AddAdjustment(AdjustableProperty.Tempo, PlaybackRate);
-            // Author timings against the raw audio; calibration offsets belong to gameplay.
-            underlyingClock = new FramedBeatmapClock(applyOffsets: false, requireDecoupling: true);
+            underlyingClock = new FramedBeatmapClock(applyOffsets: true, requireDecoupling: true);
             AddInternal(underlyingClock);
 
             track.BindValueChanged(_ => TrackChanged?.Invoke());

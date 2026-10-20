@@ -29,42 +29,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         [TearDownSteps]
         public void TearDownSteps() => AddStep("restore audio offset", () => config.SetValue(OsuSetting.AudioOffset, previousOffset));
 
-        [TestCase(-125, 0.5)]
-        [TestCase(-125, 1)]
-        [TestCase(-125, 2)]
-        [TestCase(125, 0.5)]
-        [TestCase(125, 1)]
-        [TestCase(125, 2)]
-        public void EditorSeeksAndPlaysAtRawAudioTime(double offset, double rate)
+        /// <summary>
+        /// The editor's audio follows the global audio offset exactly as gameplay does (as in lazer):
+        /// the offset compensates the player's own hardware latency, so authoring against it keeps
+        /// what the mapper hears in step with what the player will hear.
+        /// </summary>
+        [TestCase(-125)]
+        [TestCase(125)]
+        public void EditorAppliesTheAudioOffset(double offset)
         {
             EditorClock editor = null!;
-            AddStep("load editor with nonzero audio offset", () =>
+            double atZero = 0;
+            AddStep("load editor with zero audio offset", () =>
             {
-                config.SetValue(OsuSetting.AudioOffset, offset);
+                config.SetValue(OsuSetting.AudioOffset, 0.0);
                 Child = editor = new EditorClock();
-                editor.ChangeSource(new StopwatchClock { Rate = rate });
+                editor.ChangeSource(new StopwatchClock());
             });
             AddUntilStep("editor loaded", () => editor.IsLoaded);
-            AddStep("seek to lyric time", () => editor.Seek(10000));
-            AddAssert("audio seeks to the authored time", () => editor.Source.CurrentTime, () => Is.EqualTo(10000));
-            AddAssert("editor displays the authored time", () => editor.CurrentTime, () => Is.EqualTo(10000));
-
-            AddStep("change offset while editor is open", () => config.SetValue(OsuSetting.AudioOffset, -offset));
-            AddAssert("editor stays at raw audio time", () => editor.CurrentTime, () => Is.EqualTo(editor.Source.CurrentTime));
-            AddStep("replace audio source", () => editor.ChangeSource(new StopwatchClock { Rate = rate }));
-            AddStep("seek with new source", () => editor.Seek(20000));
-            AddAssert("replacement audio also seeks without offset", () => editor.Source.CurrentTime, () => Is.EqualTo(20000));
-
-            AddStep("play editor audio", () => editor.Start());
-            AddUntilStep("audio advances", () => editor.CurrentTime > 21000);
-            AddStep("stop editor audio", () => editor.Stop());
-            AddAssert("playback stays aligned with audio", () => editor.CurrentTime, () => Is.EqualTo(editor.Source.CurrentTime).Within(1));
-            AddAssert("gameplay setting is retained", () => config.Get<double>(OsuSetting.AudioOffset), () => Is.EqualTo(-offset));
+            AddStep("seek at zero offset", () =>
+            {
+                editor.Seek(10000);
+                atZero = editor.Source.CurrentTime;
+            });
+            AddStep("set audio offset", () => config.SetValue(OsuSetting.AudioOffset, offset));
+            AddStep("seek again", () => editor.Seek(10000));
+            AddAssert("audio seeks by the offset", () => editor.Source.CurrentTime, () => Is.EqualTo(atZero - offset).Within(1));
+            AddAssert("editor shows the lyric time", () => editor.CurrentTime, () => Is.EqualTo(10000).Within(1));
         }
 
         [TestCase(-125)]
         [TestCase(125)]
-        public void GameplayStillAppliesTheAudioOffset(double offset)
+        public void GameplayAppliesTheAudioOffset(double offset)
         {
             TestGameplayClock gameplay = null!;
             double baseline = 0;
