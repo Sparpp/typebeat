@@ -44,6 +44,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             yield return new TestCaseData(new GetScoresRequest(new BeatmapInfo { OnlineID = 1 }, ruleset)).SetName("global leaderboard");
             yield return new TestCaseData(new GetUserRequest(2)).SetName("profile by id");
             yield return new TestCaseData(new GetUserRequest("someone")).SetName("profile by name");
+            yield return new TestCaseData(new LookupUsersRequest(new[] { 2, 3 })).SetName("user lookup");
             yield return new TestCaseData(new GetUserScoresRequest(2, ScoreType.Best, new PaginationParameters(5))).SetName("profile scores");
             yield return new TestCaseData(new GetUserBeatmapsRequest(2, BeatmapSetType.Ranked, new PaginationParameters(5))).SetName("profile maps");
             yield return new TestCaseData(new GetUserMostPlayedBeatmapsRequest(2, new PaginationParameters(5))).SetName("profile most played");

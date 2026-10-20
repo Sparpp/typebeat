@@ -7,6 +7,7 @@ using osu.Framework.Extensions.Color4Extensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
+using typebeat.Game.Beatmaps;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Online.API.Requests.Responses;
@@ -19,7 +20,8 @@ namespace typebeat.Game.Overlays.BeatmapSet
     {
         private APIBeatmapSet beatmapSet;
 
-        private bool downloadDisabled => BeatmapSet?.Availability.DownloadDisabled ?? false;
+        // A set with no uploaded package is undownloadable too, and says why (OnlineSetDownload).
+        private bool downloadDisabled => BeatmapSet != null && !OnlineSetDownload.IsDownloadable(BeatmapSet);
         private bool hasExternalLink => !string.IsNullOrEmpty(BeatmapSet?.Availability.ExternalLink);
 
         private readonly LinkFlowContainer textContainer;
@@ -71,7 +73,7 @@ namespace typebeat.Game.Overlays.BeatmapSet
         {
             textContainer.Clear();
             textContainer.AddParagraph(downloadDisabled
-                ? BeatmapsetsStrings.AvailabilityDisabled
+                ? OnlineSetDownload.UnavailableNotice(BeatmapSet)
                 : BeatmapsetsStrings.AvailabilityPartsRemoved, t => t.Colour = Color4.Orange);
 
             if (hasExternalLink)
