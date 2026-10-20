@@ -2408,6 +2408,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <param name="unitIndex">The word unit within that line.</param>
         /// <param name="caretTime">The editor's caret (playhead) in song time, or null when the
         /// caller has none to offer. Only used when it falls inside the word.</param>
+        /// <param name="originalLyrics">The editor shows the original-script lyrics, so the cut is placed on the original.</param>
         public static double? AddSyllableBoundary(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, double? caretTime = null, bool originalLyrics = false)
         {
             var line = hitObject.Line;
