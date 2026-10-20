@@ -434,7 +434,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// included) in the star rating's cells, so the ratings and difficult-character counts a
         /// price reads can move, and the bump reprices every stored row against them.
         /// </summary>
-        public const int VERSION = 26;
+        /// <summary>
+        /// v27 is PR 43: the combo terms clamp to a combo maximum (<c>comboNotes</c>, the note count
+        /// unless a Japanese Polyglot play passes its minimum-romaji full combo), the star rating is
+        /// retuned for every map, and Polyglot is ranked on its own input stream, so every stored row
+        /// reprices.
+        /// </summary>
+        public const int VERSION = 27;
 
         // ---- formula constants (the PP Sandbox's active dials) ----
 
