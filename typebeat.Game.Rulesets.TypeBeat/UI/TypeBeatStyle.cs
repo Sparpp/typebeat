@@ -82,6 +82,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public static Color4 PaceSlowAccent { get; } = new Color4((byte)110, (byte)210, (byte)110, (byte)255); // #6ed26e
 
         /// <summary>
+        /// The DEFAULT colour of the EARLY end of the timing tint (see
+        /// <see cref="LyricLineDisplay.TimingTintColour"/>; players can pick their own through
+        /// <see cref="Configuration.TypeBeatRulesetSetting.TimingTintEarlyColour"/>). Warm for early:
+        /// rushing reads as burning, and it matches the pace underline, whose FAST end is the warm one
+        /// (<see cref="ErrorChar"/>) and whose slow end is cool (<see cref="PaceSlowAccent"/>). An
+        /// orange well clear of <see cref="Caret"/>'s yellow and of <see cref="ErrorChar"/>'s red, so an
+        /// early char never reads as the caret or as a typo. Orange/blue rather than red/green so the
+        /// pair survives the common red-green colour blindnesses.
+        /// </summary>
+        public static Color4 EarlyTint { get; } = new Color4((byte)255, (byte)138, (byte)61, (byte)255); // #ff8a3d
+
+        /// <summary>
+        /// The DEFAULT colour of the LATE end of the timing tint, the counterpart of
+        /// <see cref="EarlyTint"/> (player setting:
+        /// <see cref="Configuration.TypeBeatRulesetSetting.TimingTintLateColour"/>). Cool for late:
+        /// dragging reads as frozen. A purer, deeper blue than <see cref="SungAccent"/>'s cyan, so a
+        /// tinted trail does not read as the sung highlight.
+        /// </summary>
+        public static Color4 LateTint { get; } = new Color4((byte)77, (byte)139, (byte)255, (byte)255); // #4d8bff
+
+        /// <summary>
         /// The RETYPE SELECTION wash (backlog 182): the block a Ctrl+A paints behind the characters
         /// it has offered to erase and retype. The caret's own yellow at 22% alpha, so the highlight
         /// reads as "the caret is holding this run" rather than as a sixth character state, and so it
