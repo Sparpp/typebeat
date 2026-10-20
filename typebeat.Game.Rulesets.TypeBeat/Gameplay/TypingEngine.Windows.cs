@@ -325,7 +325,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 foreach (var cell in line.Cells)
                 {
                     if (isTimed(cell))
-                        totalTimedCells++;
+                        totalTimedCells += JapaneseInputScoring && JapaneseCharacterTiming && cell.MinimumRomajiInputs > 0
+                            ? cell.InputJudgements?.Count ?? cell.MinimumRomajiInputs : JapaneseCharacterTiming && cell.EndTargetTime.HasValue ? 2 : 1;
                 }
             }
         }

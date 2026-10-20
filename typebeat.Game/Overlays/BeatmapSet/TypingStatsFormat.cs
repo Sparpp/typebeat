@@ -4,6 +4,7 @@
 using System;
 using System.Globalization;
 using System.Linq;
+using typebeat.Game.Beatmaps;
 
 namespace typebeat.Game.Overlays.BeatmapSet
 {
@@ -36,12 +37,17 @@ namespace typebeat.Game.Overlays.BeatmapSet
 
         /// <summary>"Peak 95 · Target 70 · Avg 62": hardest first, whole numbers, as on the website.</summary>
         public static string PaceLine(double? peak, double? target, double? average)
-            => $@"Peak {wpm(peak)} · Target {wpm(target)} · Avg {wpm(average)}";
+        {
+            if (peak is double p && average is double a)
+                peak = TypingPaceProfile.ApplyPeakFloor(p, a);
+
+            return $@"Peak {wpm(peak)} · Target {wpm(target)} · Avg {wpm(average)}";
+        }
 
         /// <summary>
         /// The raw WPM curve scaled so its tallest point is 1, for <see cref="Beatmaps.Drawables.PaceGraph"/>. Null when
         /// there is nothing to draw (no curve, or no point above 0). Non-finite points (NaN, infinity) read as 0.
-        /// Scaled by the array's own maximum rather than <c>peak_wpm</c>, which is the same number by construction but can be null.
+        /// Scaled by the array's own maximum because the displayed peak may be raised to the average or unavailable.
         /// </summary>
         public static float[]? NormalisedCurve(float[]? curve)
         {

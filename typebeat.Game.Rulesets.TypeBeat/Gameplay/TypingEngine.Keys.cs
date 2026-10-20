@@ -7,6 +7,8 @@
 using System.Collections.Generic;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 
+using System;
+
 namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 {
     public sealed partial class TypingEngine
@@ -349,7 +351,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         private void timeThePress(ref KeyPress press)
         {
-            press.Delta = judgedDeltaFor(press.Line, press.TargetIndex, press.Time);
+            press.Delta = IsJapaneseCharacter(activeLineIndex, press.TargetIndex)
+                ? press.Time - press.Cell.TargetTime : judgedDeltaFor(press.Line, press.TargetIndex, press.Time);
 
             // SPACES ARE UNTIMED (backlog 148), decided here rather than after the match so that
             // EVERY reading of this press agrees on what its cell was worth: the correct press
@@ -533,86 +536,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             raise(WrongKeyRejected, press.Char);
             return true;
         }
-
-        /// <summary>
-        /// A press that fits the cell it landed on: the combo restore, the judgement, and the caret advance.
-        /// </summary>
         private bool judgeACorrectKey(ref KeyPress press)
         {
             consecutiveWrongKeys = 0;
-
-            // SPACES ARE UNTIMED (backlog 148); the zeroing itself is done above the match, where a
-            // typed-through gap typo can read the same value. Reaching HERE on a space CELL means a
-            // SPACE was typed on it: Fold is only ToLowerInvariant, so nothing but ' ' folds onto
-            // ' ', a freestyle cell refuses space outright, and under Mashing the press was already
-            // rewritten to the cell's expected char, which is the space it stood for anyway. The
-            // spacebar is deliberately outside the timing challenge (the word gap is where a
-            // typist's hands reset, not a note to hit), so the press is judged as though it landed
-            // dead on the cell's target: top tier whatever the clock said, and never one of the two
-            // zero-point tiers that break combo.
-            //
-            // Written as a ZEROED DELTA rather than as a forced JudgementType so every reader of
-            // this press agrees with the judgement it was handed: the ladder below (Classify(0) is
-            // Great, the top tier since backlog 147 dropped Perfect), the sync tint (which reads
-            // JudgedDelta back, see LyricLineDisplay), LiveSyncPercent and the results SyncPercent
-            // (both average SyncQuality over that same field), and the inert retype, which
-            // re-classifies the stored FirstCorrectDelta. Forcing only the tier would leave a space
-            // graded Great while its real delta still dragged down the sync readout the final grade
-            // is computed from, which is the same timing hazard wearing a different hat.
-            //
-            // Scoped to the CELL and not to the KEY, which is what keeps the three ways a space can
-            // be pressed apart. A space that lands on a LYRIC character never reaches here: with
-            // SpaceSkipsWord off it is rejected above (combo break, mistype, and the
-            // consecutive-wrong-key streak that fails a masher at 13), and with it on it was
-            // consumed by the word skip, which misses the abandoned cells and takes its one combo
-            // break before the caret ever reaches the gap. And an untimed space is not a FREE one:
-            // a space cell nobody pressed is still a character of the map left untyped, and seals a
-            // Miss alongside every other one (the seal loop in Update tests IsTypeable, which a
-            // space cell is; only IsCountable excludes it). Since backlog 181 the cell has a fourth
-            // way of being resolved, a wrong LETTER typed into it, and that one takes the zeroed
-            // delta too, for the reason the block above states: a typo is priced at what a correct
-            // press on the same cell would have been priced at.
-            //
-            // Gated on SpaceTiming, the era switch, for the same reason ComboRestore is: a replay is
-            // re-judged from scratch, so a run stored before backlog 148 has to be graded with the
-            // spacebar back inside the timing challenge or its tier counts and its max_combo come
-            // back as a ladder it was never played on. Live play never selects the other arm.
-
-            // COMBO RESTORE (backlog 140, widened to the word skip by backlog 167), before anything
-            // about this press is judged: if this is the cell a wrong keypress spoiled or a skip
-            // abandoned, the run resumes at the streak that break cost plus everything earned since.
-            // Placed here so the press below is scored, and announced, at the RESUMED streak. Not a
-            // scoring-inert operation even for an inert retype: the streak belongs to the return, not
-            // to the cell's judgement.
-            // Keyed on the cell the press LANDED on and not on the caret, which is the same thing
-            // everywhere but under AnyOrderWithinWord: the claim is a (line, cell, streak) triple
-            // redeemed by typing THAT cell, so a typo fixed out of order has to restore its streak
-            // exactly as one fixed in order does.
             resumeStreakIfThisRedeemsTheBreak(press.TargetIndex);
 
-            // Correctly re-typing a cell that was EVER judged correct (reached again via backspace,
-            // which resets State but not FirstCorrectDelta) is scoring-inert: no counters, no
-            // points/combo, no timeline sample, and the first judgement stands; otherwise
-            // backspace-retype farms score, combo and accuracy without bound.
+            // A retype keeps the existing award unless its timing earns a higher tier.
+            // It never earns another combo increment or an extra scoring cell.
             bool inertRetype = press.Cell.FirstCorrectDelta is not null;
 
+            if (usesJapaneseInputScoring(activeLineIndex, press.TargetIndex))
+                return judgeJapaneseInputs(press.Line, press.Cell, press.TargetIndex, press.Char, press.Time, inertRetype);
+
             JudgementType type;
+            bool upgraded = false;
 
             if (inertRetype)
             {
+                type = press.Cell.JudgedTier ?? awardedRetypeTier(press.Cell, press.Cell.FirstCorrectDelta!.Value, press.Cell.JudgedPastRushCap);
+                bool pastCap = FletcherEnabled && !RushCapExempt && !InputEra2 && rushesPastCap(press.Cell, press.Time, caretIndex);
+                var candidate = awardedRetypeTier(press.Cell, press.Delta, pastCap && RushCapCostsAccuracy);
+                if (BestRetypeJudgement && betterTier(candidate, type))
+                {
+                    improveRetypedAward(press.Cell, candidate, press.Delta, press.Time);
+                    type = candidate;
+                    press.Cell.JudgedPastRushCap = pastCap && RushCapCostsAccuracy;
+                    upgraded = true;
+                }
                 press.Delta = press.Cell.FirstCorrectDelta!.Value;
-
-                // The SAME award the first judgement took, re-derived: the stored delta through the
-                // same ladder, and through the same backlog 210 cap, because the flag it reads is
-                // set only before a cell is judged and never cleared. Announcing anything else here
-                // would show a Great on a cell whose stored result is the capped Ok.
-                type = EraRules.AwardedTier(WindowsFor(press.Cell).Classify(press.Delta), press.Cell.HeldWrongBeforeJudged, CorrectionCredit);
-
-                // ...and through backlog 347's rush-cap award, for the same reason: the flag records
-                // that the first judgement was made out past the cap, and the delta alone would
-                // re-read that Meh as whatever the clock said.
-                if (press.Cell.JudgedPastRushCap)
-                    type = EraRules.RushCapTier(type);
 
                 press.Cell.State = CellState.Correct;
                 press.Cell.TypedChar = press.Char;
@@ -632,8 +583,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // at min(that tier, Ok), so a corrected cell can never be worth what a clean one is
                 // (see EraRules.AwardedTier for why the cap sits on the TIER rather
                 // than on the osu result). Applied here, above everything the tier decides, so the
-                // tier counts, the announced CharJudged and the cell's osu result all follow the
-                // one decision and cannot say different things. The delta itself is untouched, so the sync timeline and the sync readouts see the press the
+                // engine's point ladder, the tier counts, the announced CharJudged and the cell's
+                // osu result all follow the one decision and cannot say different things. The delta
+                // itself is untouched, so the sync timeline and the sync readouts see the press the
                 // player actually made.
                 type = EraRules.AwardedTier(WindowsFor(press.Cell).Classify(press.Delta), press.Cell.HeldWrongBeforeJudged, CorrectionCredit);
 
@@ -657,8 +609,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // live rule it costs the JUDGEMENT and nothing else: the press is awarded the lowest
                 // hit tier (RushCapTier, a min over the ladder, so an off-time press is never lifted
                 // by it) and then flows through every arm below exactly as a Meh struck by the clock
-                // would, combo credit included. Applied here, above everything the tier decides, for the
-                // reason backlog 210's cap is: the tier counts, the announced CharJudged and the
+                // would, combo credit included. Applied here, above the point ladder, for the reason
+                // backlog 210's cap is: the points, the tier counts, the announced CharJudged and the
                 // cell's osu result all follow one decision. The delta is untouched. Under the
                 // pre-347 rule the tier stands and the combo arm below takes the break instead.
                 bool rushCostsTheJudgement = rushedPastCap && RushCapCostsAccuracy;
@@ -670,8 +622,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 }
 
                 // Premature / Lagging (an OFF-TIME press: the right character, outside the outermost
-                // Meh window) earns no tier, and since backlog 199 that is the whole of what it
-                // costs the tier ladder. Whether it also costs the RUN is the OffTime era axis:
+                // Meh window) earns nothing above, and since backlog 199 that is the whole of what it
+                // costs the score ladder. Whether it also costs the RUN is the OffTime era axis:
                 //
                 //   MehHit (live)      the press is a hit. It extends the combo like any other
                 //                      accepted character, raises no ComboBroken, and leaves an
@@ -736,7 +688,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 press.Cell.State = CellState.Correct;
                 press.Cell.TypedChar = press.Char;
                 press.Cell.JudgedDelta = press.Delta;
-                press.Cell.FirstCorrectDelta = press.Delta; // the one awarded judgement; retypes are inert.
+                press.Cell.FirstCorrectDelta = press.Delta; // retained through erasure and improved only by a better retype.
 
                 // SyncTimeline records every AWARDED correct-char judgement, incl. Premature/
                 // Lagging, and since backlog 148 EXCEPT an untimed space. This series is offset and
@@ -749,13 +701,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // ones, and the lyric characters (which the player is still timing) are the whole
                 // of what the analysis is about.
                 if (!press.UntimedSpace)
+                {
+                    press.Cell.SyncSampleStart = syncTimeline.Count;
+                    press.Cell.SyncSampleCount = 1;
                     syncTimeline.Add(new SyncSample(press.Time, press.Delta));
+                }
 
                 counts[type]++;
             }
 
-            // A retype cannot replace the original awarded result, including if window settings changed.
-            // Retain it for visual feedback through silent replay reconstruction too.
+            // Retain the best awarded result for visual feedback and silent replay reconstruction.
             press.Cell.JudgedTier ??= type;
 
             // Log the press for the HUD's rolling WPM. Both branches above land the cell Correct, so a
@@ -784,12 +739,40 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             advanceCaretToFrontier();
 
-            raise(CharJudged, new CharJudgement(activeLineIndex, judgedCellIndex, type, press.Delta, combo));
-            rollForwardIfFinishedEarly(press.Time);
+            raise(CharJudged, new CharJudgement(activeLineIndex, judgedCellIndex, type, press.Delta, combo, Upgraded: upgraded));
+            if (JapaneseCharacterTiming && press.Cell.EndTargetTime is double endTarget && press.Cell.FirstEndDelta == null)
+            {
+                double endTime = japaneseCommitEndTime ?? press.Time;
+                // Finishing early is allowed, just like completing a syllable before its end.
+                // Only lateness contributes to the finish grade and its timing feedback;
+                // the independently judged start still uses its signed timing delta.
+                double endDelta = Math.Max(0, endTime - endTarget);
+                var endType = EraRules.AwardedTier(WindowsFor(press.Cell).Classify(endDelta), press.Cell.HeldWrongBeforeJudged, CorrectionCredit);
+                press.Cell.FirstEndDelta = endDelta;
+                press.Cell.EndJudgedTier = endType;
+                counts[endType]++;
+                creditCombo(judgedCellIndex);
+                press.Cell.EndSyncSampleIndex = syncTimeline.Count;
+                syncTimeline.Add(new SyncSample(endTime, endDelta));
+                raise(CharJudged, new CharJudgement(activeLineIndex, judgedCellIndex, endType, endDelta, combo, Phase: 1));
+            }
+            else if (BestRetypeJudgement && JapaneseCharacterTiming && press.Cell.EndTargetTime is double retypeEnd && press.Cell.FirstEndDelta.HasValue)
+            {
+                double endTime = japaneseCommitEndTime ?? press.Time;
+                double endDelta = Math.Max(0, endTime - retypeEnd);
+                var endType = awardedRetypeTier(press.Cell, endDelta, false);
+                if (betterTier(endType, press.Cell.EndJudgedTier!.Value))
+                {
+                    improveRetypedAward(press.Cell, endType, endDelta, endTime, finish: true);
+                    raise(CharJudged, new CharJudgement(activeLineIndex, judgedCellIndex, endType, endDelta, combo, Phase: 1, Upgraded: true));
+                }
+            }
+            rollForwardIfFinishedEarly(japaneseCommitEndTime ?? press.Time);
             if (completedJapanese)
                 protectJapaneseCompletion();
             return true;
         }
+
 
         /// <summary>
         /// One press as it travels through the steps of <see cref="processKey"/>: the key (rewritten by
@@ -814,7 +797,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             public bool SkipLeftAClaimOutstanding;
 
             /// <summary>
-            /// 
+            ///
             /// Backlog 260: the caret as it stood BEFORE a word skip moved it, which is what the rush
             /// cap measures this press against under LosslessSkipReclaim. Negative when this press
             /// skipped nothing, which is every press but one and leaves the cap exactly where it was.

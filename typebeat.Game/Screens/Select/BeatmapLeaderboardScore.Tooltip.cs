@@ -298,7 +298,7 @@ namespace typebeat.Game.Screens.Select
                     // CURRENT worth; the archived number covers the plays it cannot price (see
                     // PerformanceStatistic). The ruleset's own gate is asked rather than the shared one,
                     // which a stored value alone already satisfies.
-                    if (score.Ruleset?.CreateInstance().ScoreEarnsPerformancePoints(score) != true)
+                    if (score.Ruleset?.CreateInstance().ScoreCanDisplayPerformancePoints(score) != true)
                     {
                         if (score.PP is double archived)
                             setPerformanceValue(archived);

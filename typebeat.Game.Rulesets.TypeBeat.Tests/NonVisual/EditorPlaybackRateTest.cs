@@ -107,13 +107,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void EditorPreviewDoesNotMakeUnrankedOrCustomRateModsEligible()
+        public void EditorPreviewPricesUnrankedModsAndStillRejectsRankedCustomRates()
         {
             var map = new TypeBeatBeatmap();
             var customRate = new TypeBeatModDoubleTime();
             customRate.SpeedChange.Value = 1.25;
             Assert.That(PerformancePointsDisplay.DifficultyFor(map, new Mod[] { customRate }, requireRankedMap: false, playbackRate: 0.8), Is.Null);
-            Assert.That(PerformancePointsDisplay.DifficultyFor(map, new Mod[] { new TypeBeatModAutoplay() }, requireRankedMap: false, playbackRate: 0.5), Is.Null);
+            Assert.That(PerformancePointsDisplay.DifficultyFor(map, new Mod[] { new TypeBeatModAutoplay() }, requireRankedMap: false, playbackRate: 0.5), Is.Not.Null);
         }
 
         [Test]

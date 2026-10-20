@@ -95,17 +95,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         }
 
         /// <summary>Derives the Polyglot line of <paramref name="line"/> (see the class summary).</summary>
-        public static Result Derive(LyricLine line, string? language, bool japaneseWordTiming = true)
+        public static Result Derive(LyricLine line, string? language, bool japaneseWordTiming = true, bool japaneseCharacterTiming = false)
         {
+            if (japaneseCharacterTiming && isJapanese(language))
+            {
+                japaneseWordTiming = false;
+                line = characterAlignedLine(line, language);
+            }
             var units = line.Units;
             bool wordLevel = line.UnromanisedWords.Count > 0 || units.Any(u => u.Original != null);
 
             List<Piece> pieces;
 
             if (wordLevel)
-                pieces = wordPieces(line, language, japaneseWordTiming);
+                pieces = wordPieces(line, language, japaneseWordTiming, japaneseCharacterTiming);
             else if (line.Original != null && units.Count > 0)
-                pieces = linePieces(line, language, japaneseWordTiming);
+                pieces = linePieces(line, language, japaneseWordTiming, japaneseCharacterTiming);
             else
                 return new Result(line, null, null);
 
@@ -157,7 +162,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             return new Result(derived, pieces.Select(p => p.Natural).ToArray(), rawCluster.ToArray());
         }
 
-        private static List<Piece> wordPieces(LyricLine line, string? language, bool japaneseWordTiming)
+        private static LyricLine characterAlignedLine(LyricLine line, string? language)
+        {
+            var originals = line.Original == null ? new string?[line.Units.Count]
+                : Import.OriginalLyricGenerator.MatchWords(line, line.Original, typebeat.Game.Beatmaps.BeatmapLanguage.Japanese);
+            var units = line.Units.Select((authored, index) =>
+            {
+                var unit = authored.Original == null && originals[index] != null ? LrcParser.WithOriginal(authored, originals[index]) : authored;
+                if (unit.Original == null)
+                    return unit;
+                var cuts = SyllableSegments.SplitsFor(unit);
+                var mapped = cuts.Select((cut, i) => (Cut: cut, Index: i, Source: OriginalLyricSubdivisions.SourceCut(unit, cut, language)))
+                    .Where(c => c.Source.HasValue).ToArray();
+                return new TimedUnit
+                {
+                    Text = unit.Text, Original = unit.Original, OriginalSplits = unit.OriginalSplits, StartTime = unit.StartTime, EndTime = unit.EndTime,
+                    Source = unit.Source, Confidence = unit.Confidence,
+                    SyllableSplits = mapped.Select(c => c.Cut).ToArray(),
+                    SyllableBoundaries = mapped.Select(c => unit.SyllableBoundaries[c.Index]).ToArray(),
+                    Pauses = unit.Pauses,
+                };
+            }).ToArray();
+            return new LyricLine
+            {
+                RawText = line.RawText, Original = line.Original, Units = units, UnromanisedWords = line.UnromanisedWords,
+                StartTime = line.StartTime, EndTime = line.EndTime, SingEndTime = line.SingEndTime, SealGraceMs = line.SealGraceMs, Estimated = line.Estimated,
+            };
+        }
+
+        private static List<Piece> wordPieces(LyricLine line, string? language, bool japaneseWordTiming, bool japaneseCharacterTiming)
         {
             var pieces = new List<Piece>();
             var unromanised = line.UnromanisedWords.OrderBy(w => w.Position).ToList();
@@ -173,7 +206,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 while (next < unromanised.Count && unromanised[next].Position <= m)
                 {
                     var word = unromanised[next++];
-                    pieces.Add(originalPiece(word.Original, word.StartTime, word.EndTime, null, language, japaneseWordTiming: japaneseWordTiming));
+                    pieces.Add(originalPiece(word.Original, word.StartTime, word.EndTime, null, language, japaneseWordTiming: japaneseWordTiming, japaneseCharacterTiming: japaneseCharacterTiming));
                 }
 
                 if (m < line.Units.Count)
@@ -181,7 +214,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     var unit = line.Units[m];
 
                     pieces.Add(unit.Original != null && PolyglotText.CellText(unit.Original).Length > 0
-                        ? originalPiece(unit.Original, unit.StartTime, unit.EndTime, unit, language, japaneseWordTiming: japaneseWordTiming)
+                        ? originalPiece(unit.Original, unit.StartTime, unit.EndTime, unit, language, japaneseWordTiming: japaneseWordTiming, japaneseCharacterTiming: japaneseCharacterTiming)
                         : plainPiece(unit, tokensMatch ? tokens[m] : unit.Text));
                 }
             }
@@ -192,7 +225,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private static Piece plainPiece(TimedUnit unit, string token)
             => new Piece { Unit = unit, TextOverride = token, Natural = null, Cluster = Enumerable.Repeat(-1, token.Length).ToArray() };
 
-        private static List<Piece> linePieces(LyricLine line, string? language, bool japaneseWordTiming)
+        private static List<Piece> linePieces(LyricLine line, string? language, bool japaneseWordTiming, bool japaneseCharacterTiming)
         {
             var units = line.Units;
             string[] words = LyricOriginals.CollapseWhitespace(line.Original).Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -200,14 +233,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (words.Length == units.Count)
             {
                 // The original tokenises the way the romanised line does: word i over unit i.
-                return words.Select((w, i) => originalPiece(w, units[i].StartTime, units[i].EndTime, units[i], language, carryCuts: false, japaneseWordTiming: japaneseWordTiming)).ToList();
+                return words.Select((w, i) => originalPiece(w, units[i].StartTime, units[i].EndTime, units[i], language, carryCuts: false, japaneseWordTiming: japaneseWordTiming, japaneseCharacterTiming: japaneseCharacterTiming)).ToList();
             }
 
             // An older line may only store its original on the line. If Kawazu's words match
             // the romanised units, keep those units' times before removing untyped spaces.
             if (isJapanese(language) && words.Length == 1 && JapaneseReading.Segment(words[0], language) is { } segments
                 && segments.Count == units.Count)
-                return segments.Select((w, i) => originalPiece(w, units[i].StartTime, units[i].EndTime, units[i], language, carryCuts: false, japaneseWordTiming: japaneseWordTiming)).ToList();
+                return segments.Select((w, i) => originalPiece(w, units[i].StartTime, units[i].EndTime, units[i], language, carryCuts: false, japaneseWordTiming: japaneseWordTiming, japaneseCharacterTiming: japaneseCharacterTiming)).ToList();
 
             // It does not: spread the whole original over the line's sung span by character count.
             double start = units[0].StartTime;
@@ -222,7 +255,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 double s = start + (end - start) * before / total;
                 before += counts[i];
                 double e = start + (end - start) * before / total;
-                pieces.Add(originalPiece(words[i], s, e, null, language, japaneseWordTiming: japaneseWordTiming));
+                pieces.Add(originalPiece(words[i], s, e, null, language, japaneseWordTiming: japaneseWordTiming, japaneseCharacterTiming: japaneseCharacterTiming));
             }
 
             return pieces;
@@ -460,7 +493,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <paramref name="source"/> is the romanised unit it stands in for (its subdivision and its
         /// romanised spelling), or null for a word that has none.
         /// </summary>
-        private static Piece originalPiece(string original, double start, double end, TimedUnit? source, string? language, bool carryCuts = true, bool japaneseWordTiming = true)
+        private static Piece originalPiece(string original, double start, double end, TimedUnit? source, string? language, bool carryCuts = true, bool japaneseWordTiming = true, bool japaneseCharacterTiming = false)
         {
             var sourceIndex = new List<int>();
             var cluster = new List<int>();
@@ -478,7 +511,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 int segments = boundaries.Count + 1;
 
                 int[]? carried = carryCuts && source != null
-                    ? carry(SyllableSegments.SplitsFor(source), source.Text, nfc, text, sourceIndex, language)
+                    ? carry(SyllableSegments.SplitsFor(source), source.Text, nfc, text, sourceIndex, language, japaneseCharacterTiming ? source : null)
                     : null;
 
                 if (carried != null && carried.Length == segments - 1)
@@ -501,8 +534,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     : new NaturalSplit(Array.Empty<int>());
             }
 
+            var pauses = new List<WordPause>();
+            if (japaneseCharacterTiming && source != null)
+            {
+                foreach (var pause in source.Pauses)
+                {
+                    int[]? mapped = carry(new[] { pause.SplitChar }, source.Text, nfc, text, sourceIndex, language, source);
+                    if (mapped is { Length: 1 })
+                        pauses.Add(pause with { SplitChar = mapped[0] });
+                }
+            }
             var unit = new TimedUnit
             {
+                Pauses = pauses,
                 Text = text,
                 StartTime = start,
                 EndTime = end,
@@ -517,7 +561,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         }
 
         /// <summary>Whether <see cref="carry"/> has already logged a romanisation failure this session.</summary>
-        private static bool carryFailureLogged;
 
         /// <summary>
         /// Carries romanised <paramref name="cuts"/> (indices into <paramref name="romanised"/>) onto
@@ -525,40 +568,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// NFC original, then onto the first cell that source character produced. Null when any cut
         /// cannot be carried (see the class summary), which sends the caller to its fallback.
         /// </summary>
-        internal static int[]? carry(IReadOnlyList<int> cuts, string romanised, string nfcOriginal, string cellText, IReadOnlyList<int> sourceIndex, string? language)
+        internal static int[]? carry(IReadOnlyList<int> cuts, string romanised, string nfcOriginal, string cellText, IReadOnlyList<int> sourceIndex, string? language, TimedUnit? authored = null)
         {
             if (cuts.Count == 0)
                 return Array.Empty<int>();
-
-            LyricOriginals.RomanisedWord word;
-
-            try
-            {
-                word = LyricOriginals.RomaniseWord(nfcOriginal, language);
-            }
-            catch (Exception e)
-            {
-                // Logged once per session rather than per failure: this runs for every word with a
-                // cut while a Polyglot line is built, so a systematic failure would otherwise post
-                // one error per word. The fallback is unchanged.
-                if (!carryFailureLogged)
-                {
-                    carryFailureLogged = true;
-                    Logger.Error(e, "Romanising a Polyglot word failed; its syllable cuts were not carried");
-                }
-
-                return null;
-            }
-
-            if (word.Flagged || !string.Equals(word.Text, romanised, StringComparison.Ordinal))
-                return null;
 
             int[] carried = new int[cuts.Count];
             int previous = 0;
 
             for (int k = 0; k < cuts.Count; k++)
             {
-                if (word.SourceIndexOfTextSplit(cuts[k]) is not int source)
+                int? mapped = authored == null ? OriginalLyricAlignment.SourceCut(nfcOriginal, romanised, cuts[k], language)
+                    : OriginalLyricSubdivisions.SourceCut(authored, cuts[k], language);
+                if (mapped is not int source)
                     return null;
 
                 int cell = -1;

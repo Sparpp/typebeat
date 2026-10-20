@@ -57,8 +57,8 @@ namespace typebeat.Game.Screens.Select
             private OsuSpriteText mapperText = null!;
 
             /// <summary>
-            /// What a selected mod says about the figures shown (<see cref="Mod.RatingNote"/>, backlog 331):
-            /// under Polyglot the star rating and the WPM are the ROMANISED map's, and say so here.
+            /// An optional clarification from the selected mods about the displayed rating figures.
+            /// Supported Polyglot scripts are calculated from their required inputs.
             /// </summary>
             private OsuSpriteText ratingNoteText = null!;
 
@@ -235,14 +235,14 @@ namespace typebeat.Game.Screens.Select
                     string? note = m.NewValue.Select(mod => mod.RatingNote.ToString()).FirstOrDefault(n => !string.IsNullOrEmpty(n));
                     ratingNoteText.Text = string.IsNullOrEmpty(note) ? string.Empty : $"  ({note})";
 
-                    // A mod that rewrites the converted beatmap (Literate) moves the count
-                    // statistics' OWN numbers (Words / Average WPM / Target WPM / Chars per word),
+                    // Mods that rewrite the converted beatmap (Literate / Polyglot) move the count
+                    // statistics' OWN numbers (Words / Average WPM / Target WPM / Complexity / Rhythm),
                     // so those have to be recomputed from a beatmap converted with the new mod
                     // list, exactly as the star rating and pp are priced from a converted map.
                     // updateDisplay does that, and cancels the in-flight computation on its own.
-                    // Every other mod either changes the clock (handled by re-applying the cached
-                    // statistics' rate) or touches only the live playfield.
-                    if (shapesBeatmap(m.OldValue) != shapesBeatmap(m.NewValue))
+                    // Other mods can change the clock or the judgement arm (HR/Easy); re-read the
+                    // cached statistics with the current mod snapshot in both cases.
+                    if (beatmapShapingKey(m.OldValue) != beatmapShapingKey(m.NewValue))
                         Scheduler.AddOnce(updateDisplay);
                     else
                     {
@@ -292,103 +292,114 @@ namespace typebeat.Game.Screens.Select
             }
 
             /// <summary>
-            /// Whether the given mod list carries a mod that rewrites the converted beatmap.
-            /// Literate and Polyglot are the ones this ruleset ships and neither carries a setting, so
-            /// the presence of a shaping mod is the whole of the state the count statistics depend on.
+            /// Identifies the shaping mod combination. Literate and Polyglot have no settings,
+            /// but adding either one changes the statistics even when the other is already selected.
             /// </summary>
-            private static bool shapesBeatmap(IEnumerable<Mod> mods)
-                => ModUtils.BeatmapShapingMods(mods).Count > 0;
+            private static string beatmapShapingKey(IEnumerable<Mod> mods)
+                => string.Join(",", ModUtils.BeatmapShapingMods(mods).Select(m => m.GetType().FullName).OrderBy(name => name, StringComparer.Ordinal));
 
-            // The raw per-beatmap statistics (Words / WPM / CPM), cached so a mod toggle can re-apply
-            // the clock rate to the pace stats without reloading the playable beatmap.
+            // Per-beatmap statistics, cached so a mod toggle can re-read pace and rhythm at the new
+            // clock without reloading the playable beatmap.
             private IReadOnlyList<BeatmapStatistic> countStatistics = Array.Empty<BeatmapStatistic>();
 
             private void updateCountStatistics(CancellationToken cancellationToken)
             {
+                int displayVersion = ++statisticsDisplayVersion;
+                countStatistics = Array.Empty<BeatmapStatistic>();
                 if (beatmap.IsDefault)
                 {
-                    countStatistics = Array.Empty<BeatmapStatistic>();
                     countStatisticsDisplay.FadeOut(300, Easing.OutQuint);
                     return;
                 }
 
                 // Read on the update thread, before the conversion task: the mod list is the one
                 // the request was made for, not whatever the bindable holds by the time it runs.
-                var conversionMods = ModUtils.BeatmapShapingMods(mods.Value);
-                double rate = clockRate();
+                var selectedMods = mods.Value.Select(mod => mod.DeepClone()).ToArray();
+                var conversionMods = ModUtils.BeatmapShapingMods(selectedMods);
+                double rate = clockRate(selectedMods);
+                var workingBeatmap = beatmap.Value;
+                var selectedRuleset = ruleset.Value;
 
                 Task.Run(() =>
                 {
                     // This can take time as it is a synchronous task.
                     // TODO: We're calling `GetPlayableBeatmap` multiple times every map load at song select.
-                    var playableBeatmap = beatmap.Value.GetPlayableBeatmap(ruleset.Value, conversionMods);
+                    var playableBeatmap = workingBeatmap.GetPlayableBeatmap(selectedRuleset, conversionMods);
                     var statistics = playableBeatmap.GetStatistics().ToList();
 
                     // Rendered HERE rather than on the update thread: a rate-adjustable row is allowed to
                     // be expensive (the target WPM goes back through the difficulty model), and it is
                     // this task's job to keep that off the frame.
-                    var rendered = render(statistics, rate);
+                    var rendered = RenderStatistics(statistics, rate, selectedMods);
 
                     Schedule(() =>
                     {
-                        if (cancellationToken.IsCancellationRequested)
+                        if (cancellationToken.IsCancellationRequested || displayVersion != statisticsDisplayVersion)
                             return;
 
                         countStatistics = statistics;
                         appliedRate = rate;
+                        appliedStatisticsMods = selectedMods;
                         countStatisticsDisplay.Statistics = rendered;
                         countStatisticsDisplay.FadeIn(200, Easing.OutQuint);
+                        reapplyCountStatistics();
                     });
                 }, cancellationToken);
             }
 
             /// <summary>The clock the selected mods play at: DT/NC 1.5x, HT 0.75x, custom rates as asked.</summary>
-            private double clockRate()
+            private static double clockRate(IEnumerable<Mod> selectedMods)
             {
                 double rate = 1;
 
-                foreach (var mod in mods.Value.OfType<IApplicableToRate>())
+                foreach (var mod in selectedMods.OfType<IApplicableToRate>())
                     rate = mod.ApplyToRate(0, rate);
 
                 return rate;
             }
 
             /// <summary>The rows at that clock: rate-adjustable statistics re-read, the rest as authored.</summary>
-            private static List<StatisticDifficulty.Data> render(IReadOnlyList<BeatmapStatistic> statistics, double rate)
+            internal static List<StatisticDifficulty.Data> RenderStatistics(IReadOnlyList<BeatmapStatistic> statistics, double rate, IReadOnlyList<Mod> selectedMods)
                 => statistics.Select(s =>
                 {
-                    (string content, float? bar) = s.RateAdjusted != null ? s.RateAdjusted(rate) : (s.Content, s.BarDisplayLength);
+                    (string content, float? bar) = s.GetDisplayValue(rate, selectedMods);
                     return new StatisticDifficulty.Data(s.Name, bar ?? 0, bar ?? 0, 1, content);
                 }).ToList();
 
             /// <summary>
             /// Re-renders the cached statistics at a new clock, OFF the update thread. The rate walk is
-            /// only reached when the rate actually changed, and the rows are swapped in whole once they
+            /// only reached when the rate or mod stack changed, and the rows are swapped in whole once they
             /// are ready, so a toggle cannot leave half a row priced at the old clock.
             /// </summary>
             private void reapplyCountStatistics()
             {
-                double rate = clockRate();
+                var selectedMods = mods.Value.Select(mod => mod.DeepClone()).ToArray();
+                double rate = clockRate(selectedMods);
 
-                if (rate == appliedRate || countStatistics.Count == 0)
+                if (countStatistics.Count == 0 || rate == appliedRate && selectedMods.SequenceEqual(appliedStatisticsMods))
                     return;
 
                 appliedRate = rate;
+                appliedStatisticsMods = selectedMods;
+                int displayVersion = ++statisticsDisplayVersion;
+                var statistics = countStatistics;
 
                 Task.Run(() =>
                 {
-                    var rendered = render(countStatistics, rate);
+                    var rendered = RenderStatistics(statistics, rate, selectedMods);
 
                     Schedule(() =>
                     {
-                        if (rate == appliedRate)
+                        // A same-rate mod toggle or a map switch can supersede this background pass.
+                        if (displayVersion == statisticsDisplayVersion && cancellationSource?.IsCancellationRequested != true)
                             countStatisticsDisplay.Statistics = rendered;
                     });
                 });
             }
 
-            /// <summary>The clock <see cref="countStatisticsDisplay"/> was last rendered at.</summary>
             private double appliedRate = double.NaN;
+            private IReadOnlyList<Mod> appliedStatisticsMods = Array.Empty<Mod>();
+            private int statisticsDisplayVersion;
 
             private void updateDifficultyStatistics() => Scheduler.AddOnce(() =>
             {

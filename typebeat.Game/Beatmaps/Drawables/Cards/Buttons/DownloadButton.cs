@@ -67,10 +67,10 @@ namespace typebeat.Game.Beatmaps.Drawables.Cards.Buttons
                     break;
 
                 case DownloadState.NotDownloaded:
-                    if (beatmapSet.Availability.DownloadDisabled)
+                    if (!OnlineSetDownload.IsDownloadable(beatmapSet))
                     {
                         Enabled.Value = false;
-                        TooltipText = BeatmapsetsStrings.AvailabilityDisabled;
+                        TooltipText = OnlineSetDownload.UnavailableTooltip(beatmapSet);
                         return;
                     }
 

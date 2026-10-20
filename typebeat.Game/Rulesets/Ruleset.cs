@@ -286,6 +286,14 @@ namespace typebeat.Game.Rulesets
         /// <returns>A performance calculator instance for the provided score.</returns>
         public virtual PerformanceCalculator? CreatePerformanceCalculator() => null;
 
+        /// <summary>Whether this play has a supported performance model. Unlike ranking eligibility,
+        /// a refusal also suppresses archived pp estimates.</summary>
+        public virtual bool ScoreSupportsPerformancePoints(ScoreInfo score) => true;
+
+        /// <summary>Whether a local pp estimate can be displayed. Rulesets may allow estimates
+        /// for unranked mods without changing whether the score earns ranked pp.</summary>
+        public virtual bool ScoreCanDisplayPerformancePoints(ScoreInfo score) => ScoreEarnsPerformancePoints(score);
+
         /// <summary>
         /// Whether <paramref name="score"/> is a play that CAN earn performance points, i.e. whether
         /// any number a <see cref="PerformanceCalculator"/> produces for it is one the player could
@@ -320,7 +328,7 @@ namespace typebeat.Game.Rulesets
             if (score.IsLegacyScore)
                 modsToCheck = modsToCheck.Where(m => m is not ModClassic);
 
-            return modsToCheck.All(m => m.Ranked);
+            return modsToCheck.All(m => m.IsRankedFor(score.BeatmapInfo));
         }
 
         /// <summary>

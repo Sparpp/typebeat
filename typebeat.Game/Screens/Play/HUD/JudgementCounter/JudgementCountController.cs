@@ -57,6 +57,7 @@ namespace typebeat.Game.Screens.Play.HUD.JudgementCounter
             base.LoadComplete();
 
             scoreProcessor.OnResetFromReplayFrame += updateAllCountsFromReplayFrame;
+            scoreProcessor.ResultsUpdated += updateAllCounts;
             scoreProcessor.NewJudgement += judgement => updateCount(judgement, false);
             scoreProcessor.JudgementReverted += judgement => updateCount(judgement, true);
         }
@@ -68,9 +69,15 @@ namespace typebeat.Game.Screens.Play.HUD.JudgementCounter
             if (hasUpdatedCountsFromReplayFrame)
                 return;
 
+            updateAllCounts();
+            hasUpdatedCountsFromReplayFrame = true;
+        }
+
+        private void updateAllCounts()
+        {
             // Accumulated, not assigned, because a ruleset may fold several stored results into one
             // displayed counter (Ruleset.GetDisplayResultFor). Zeroing first keeps this the absolute
-            // set it has always been: it runs once, at a seek, and must not add to what is showing.
+            // set it has always been. Refresh from the account after seeking or amending a result.
             foreach (var counter in counters)
                 counter.ResultCount.Value = 0;
 
@@ -81,8 +88,6 @@ namespace typebeat.Game.Screens.Play.HUD.JudgementCounter
 
                 count.ResultCount.Value += kvp.Value;
             }
-
-            hasUpdatedCountsFromReplayFrame = true;
         }
 
         private void updateCount(JudgementResult judgement, bool revert)

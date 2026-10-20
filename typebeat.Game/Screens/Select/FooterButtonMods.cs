@@ -228,7 +228,7 @@ namespace typebeat.Game.Screens.Select
             }
             else
             {
-                if (Mods.Value.Any(m => !m.Ranked))
+                if (Mods.Value.Any(m => !m.IsRankedFor(beatmap.Value.BeatmapInfo)))
                 {
                     unrankedBadge.MoveToX(0, duration, easing);
                     unrankedBadge.FadeIn(duration, easing);

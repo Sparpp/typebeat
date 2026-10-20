@@ -8,6 +8,7 @@ using NUnit.Framework;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
+using typebeat.Game.Rulesets.TypeBeat.Mods;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
@@ -68,6 +69,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(slow.AverageWpm, Is.EqualTo(raw.AverageWpm * 0.75).Within(1e-9), "down as well as up");
 
             });
+        }
+
+        [TestCase(0.75)]
+        [TestCase(1.0)]
+        [TestCase(1.5)]
+        public void PeakBelowTheAverageIsRaisedAtEachPlaybackRate(double rate)
+        {
+            var beatmap = new TypeBeatBeatmap();
+            addLine(beatmap, 0, 0, 1000, new List<TimedUnit>
+            {
+                new TimedUnit { Text = new string('a', 16), StartTime = 0, EndTime = 1000 },
+            });
+
+            var lines = beatmap.HitObjects.Select(h => h.Line).ToArray();
+            var curve = LyricWpmCurve.Compute(lines, rate: rate);
+            TypingPaceProfile pace = beatmap.GetTypingPace(rate)!;
+
+            Assert.That(curve.PeakWpm, Is.LessThan(pace.AverageWpm), "the short burst is diluted by the peak's minimum window");
+            Assert.That(pace.PeakWpm, Is.EqualTo(pace.AverageWpm).Within(1e-9));
+            Assert.That(pace.WpmCurve, Is.EqualTo(curve.Curve), "the display floor must preserve the raw curve");
         }
 
         [TestCase(1.0, 128.0)]
@@ -142,6 +163,65 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(row.RateAdjusted!(rate).Content, Is.EqualTo(chartTarget.ToString("0")),
                     $"the wedge and the chart disagree at {rate}x");
             }
+        }
+
+        [TestCase(BeatmapLanguage.Japanese, "shi", "し", 2, false, 1)]
+        [TestCase(BeatmapLanguage.Japanese, "shi", "し", 2, true, 1.5)]
+        [TestCase(BeatmapLanguage.German, "strasse", "straße", 6, false, 0.75)]
+        [TestCase(BeatmapLanguage.French, "ee!", "éê！", 4, true, 1.5)]
+        public void PolyglotPaceCountsRequiredInputsAcrossTheChartAndRows(BeatmapLanguage language, string romaji,
+                                                                 string original, int inputs, bool literate, double rate)
+        {
+            var beatmap = new TypeBeatBeatmap();
+            beatmap.Metadata.Language = language;
+            string text = string.Concat(Enumerable.Repeat(romaji, 20));
+            string script = string.Concat(Enumerable.Repeat(original, 20));
+            addLine(beatmap, 0, 0, 6000, new List<TimedUnit>
+            {
+                new TimedUnit { Text = text, Original = script, StartTime = 0, EndTime = 6000 },
+            });
+            var reference = new TypeBeatBeatmap();
+            addLine(reference, 0, 0, 6000, new List<TimedUnit>
+            {
+                new TimedUnit { Text = new string('a', inputs * 20), StartTime = 0, EndTime = 6000 },
+            });
+            if (literate)
+                new TypeBeatModLiterate().ApplyToBeatmap(beatmap);
+            new TypeBeatModPolyglot().ApplyToBeatmap(beatmap);
+
+            var expected = reference.GetTypingPace(rate)!;
+            var actual = beatmap.GetTypingPace(rate)!;
+            Assert.Multiple(() =>
+            {
+                Assert.That(actual.PeakWpm, Is.EqualTo(expected.PeakWpm).Within(1e-9));
+                Assert.That(actual.AverageWpm, Is.EqualTo(expected.AverageWpm).Within(1e-9));
+                Assert.That(actual.TargetWpm, Is.EqualTo(expected.TargetWpm).Within(1e-9));
+                Assert.That(beatmap.HitObjects.Single().Line.RawText, Is.EqualTo(text));
+                Assert.That(beatmap.HitObjects.Single().Line.Units.Single().Original, Is.EqualTo(script));
+            });
+            var rows = beatmap.GetStatistics().ToDictionary(row => row.Name.ToString());
+            Assert.That(rows["Average WPM"].RateAdjusted!(rate).Content, Is.EqualTo(actual.AverageWpm.ToString("0")));
+            Assert.That(rows["Target WPM"].RateAdjusted!(rate).Content, Is.EqualTo(actual.TargetWpm.ToString("0")));
+        }
+
+        [TestCase(BeatmapLanguage.Chinese, "中文")]
+        [TestCase(BeatmapLanguage.Korean, "한국")]
+        [TestCase(BeatmapLanguage.Japanese, null)]
+        public void UnsupportedOrMissingOriginalsKeepTheirAuthoredPace(BeatmapLanguage language, string? original)
+        {
+            var beatmap = map();
+            beatmap.Metadata.Language = language;
+            foreach (var hit in beatmap.HitObjects)
+                hit.Line = new LyricLine
+                {
+                    RawText = hit.Line.RawText, Original = original, Units = hit.Line.Units,
+                    StartTime = hit.Line.StartTime, EndTime = hit.Line.EndTime, SingEndTime = hit.Line.SingEndTime,
+                };
+            var expected = beatmap.GetTypingPace()!;
+            new TypeBeatModPolyglot().ApplyToBeatmap(beatmap);
+            var actual = beatmap.GetTypingPace()!;
+            Assert.That((actual.PeakWpm, actual.TargetWpm, actual.AverageWpm),
+                Is.EqualTo((expected.PeakWpm, expected.TargetWpm, expected.AverageWpm)));
         }
 
         private static TypeBeatBeatmap map()

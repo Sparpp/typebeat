@@ -109,17 +109,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             // Ruby must never reveal a word hidden by Flashlight or Recite. A dictionary compound
             // can span several kanji, so all of its cells must be visible before its reading is.
-            foreach (var (group, ruby) in furigana)
+            foreach (var run in furigana)
             {
+                var (group, ruby, progress) = run;
                 if (i < group.StartCell || i >= group.EndCellExclusive)
                     continue;
                 float alpha = 0.85f;
                 for (int at = group.StartCell; at < group.EndCellExclusive; at++)
                     alpha = Math.Min(alpha, cellStateAlpha[at] * cellHidingFactor(at));
+                refreshFurigana(run);
                 if (animate)
+                {
                     ruby.FadeTo(alpha, flashlight_fade_ms, Easing.OutQuint);
+                    progress.FadeTo(alpha, flashlight_fade_ms, Easing.OutQuint);
+                }
                 else
-                    ruby.Alpha = alpha;
+                    ruby.Alpha = progress.Alpha = alpha;
             }
 
             if (animate)

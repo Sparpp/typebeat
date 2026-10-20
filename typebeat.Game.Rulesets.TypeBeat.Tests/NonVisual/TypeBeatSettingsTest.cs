@@ -61,6 +61,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     "Use typing font in Editor",
                     "Use space error dot",
                     "Approach bars",
+                    "Character timing for indicators",
                     "Text pop-in",
                     "Show syllable markers",
                     "Show word pace colours",
@@ -77,6 +78,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     TypeBeatRulesetSetting.UseTypingFontInEditor,
                     TypeBeatRulesetSetting.UseSpaceErrorDot,
                     TypeBeatRulesetSetting.ApproachBars,
+                    TypeBeatRulesetSetting.CharacterIndicatorTiming,
                     TypeBeatRulesetSetting.TextPopIn,
                     TypeBeatRulesetSetting.ShowSyllableMarkers,
                     TypeBeatRulesetSetting.ShowPaceColours,
@@ -96,10 +98,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 }
 
                 // And the defaults the game ships with, which the move must not have reset either.
-                // All nine checkboxes ship on by default: space-skip, manual newlines, map fonts, the
-                // editor typing font, the space error dot, approach bars, text pop-in, syllable markers
-                // and pace colours.
-                Assert.That(checkboxes.Select(c => c.Current.Value), Is.EqualTo(new[] { true, true, true, true, true, true, true, true, true }));
+                // Character timing is opt-in; the other settled checkboxes ship enabled.
+                Assert.That(checkboxes.Select(c => c.Current.Value), Is.EqualTo(new[] { true, true, true, true, true, true, false, true, true, true }));
             }
         }
 
@@ -145,6 +145,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     "Use space error dot",
                     "Approach bars",
                     "Judgement Indicator",
+                    "Character timing for indicators",
                     "Indicator Alignment",
                     "Indicator Lead-In",
                     "Indicator Brightness",

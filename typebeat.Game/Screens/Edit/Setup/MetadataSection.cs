@@ -61,13 +61,11 @@ namespace typebeat.Game.Screens.Edit.Setup
                 difficultyTextBox = createTextBox<FormTextBox>(EditorSetupStrings.DifficultyName),
                 sourceTextBox = createTextBox<FormTextBox>(BeatmapsetsStrings.ShowInfoSource),
                 tagsTextBox = createTextBox<FormTextBox>(BeatmapsetsStrings.ShowInfoMapperTags),
-                // Every member INCLUDING Unspecified: it is the "not chosen yet" state a new map
-                // starts in, and the mapper has to be able to see that they are still on it. What
-                // stops it being submitted is the guard in Editor.submitBeatmap, not a hidden
-                // dropdown entry.
+                // Keep the unset metadata state for new maps without offering it as a language choice.
                 languageDropdown = new FormEnumDropdown<BeatmapLanguage>
                 {
                     Caption = EditorSetupStrings.Language,
+                    Items = BeatmapLanguageExtensions.DisplayOrder,
                     HintText = EditorSetupStrings.LanguageDescription,
                     Current = { Value = Beatmap.Metadata.Language },
                 },

@@ -65,17 +65,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void CorrectOffTimeInputsUseTheirActualMehResult(JudgementType tier)
             => Assert.That(LyricLineDisplay.JudgementBarColourFor(tier), Is.EqualTo(Color4.Orange));
 
-        [Test]
-        public void RetypingCannotReplaceTheOriginalAwardAfterWindowsChange()
+        [TestCase(false)]
+        [TestCase(true)]
+        public void RetypingUsesRecordedRuleAfterWindowsChange(bool bestRetype)
         {
             var engine = create();
+            engine.BestRetypeJudgement = bestRetype;
             engine.Update(1000);
             engine.ProcessKey('a', 1225);
             Assert.That(engine.Lines[0].Cells[0].JudgedTier, Is.EqualTo(JudgementType.Ok));
             engine.WindowScale = 10;
             engine.ProcessBackspace();
             engine.ProcessKey('a', 1000);
-            Assert.That(engine.Lines[0].Cells[0].JudgedTier, Is.EqualTo(JudgementType.Ok));
+            Assert.That(engine.Lines[0].Cells[0].JudgedTier, Is.EqualTo(bestRetype ? JudgementType.Great : JudgementType.Ok));
         }
 
         [Test]

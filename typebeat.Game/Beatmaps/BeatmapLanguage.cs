@@ -2,6 +2,8 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using osu.Framework.Localisation;
 using typebeat.Game.Resources.Localisation.Web;
 
@@ -28,7 +30,7 @@ namespace typebeat.Game.Beatmaps
     /// <c>typebeat.Game.Rulesets.TypeBeat/Beatmaps/LyricOsuFormat.cs</c>) and that the website
     /// stores in <c>beatmapsets.language</c>. Keep this list in lockstep with the server's
     /// <c>Typebeat.Web/Packages/BeatmapLanguages.cs</c>; <c>tests/Typebeat.WireCompat</c> pins the
-    /// two against each other. Declaration order is the editor dropdown's display order.
+    /// two against each other. Dropdown display order is separate from these persisted IDs.
     /// </remarks>
     public enum BeatmapLanguage
     {
@@ -69,17 +71,82 @@ namespace typebeat.Game.Beatmaps
         [LocalisableDescription(typeof(BeatmapsStrings), nameof(BeatmapsStrings.LanguageSwedish))]
         Swedish,
 
+        // Append new persisted IDs; never renumber the original language choices.
+        Afrikaans = 14,
+
+        Bavarian = 15,
+
+        Danish = 16,
+
+        Dutch = 17,
+
+        [System.ComponentModel.Description("Low German")]
+        LowGerman = 18,
+
+        Norwegian = 19,
+
+        [System.ComponentModel.Description("Swiss German")]
+        SwissGerman = 20,
+
+        Belarusian = 21,
+
+        Bulgarian = 22,
+
+        Croatian = 23,
+
+        Czech = 24,
+
+        Serbian = 25,
+
+        Slovak = 26,
+
+        Ukrainian = 27,
+
+        Finnish = 28,
+
+        Hungarian = 29,
+
+        Catalan = 30,
+
+        Neapolitan = 31,
+
+        Portuguese = 32,
+
+        Romanian = 33,
+
         /// <summary>The song has no sung words (the map types something else, e.g. onomatopoeia).</summary>
         [LocalisableDescription(typeof(BeatmapsStrings), nameof(BeatmapsStrings.LanguageInstrumental))]
-        Instrumental,
+        Instrumental = 12,
 
         /// <summary>A real language that is not on this list.</summary>
         [LocalisableDescription(typeof(BeatmapsStrings), nameof(BeatmapsStrings.LanguageOther))]
-        Other,
+        Other = 13,
     }
 
     public static class BeatmapLanguageExtensions
     {
+        /// <summary>
+        /// Shared order for the editor and lyric import language dropdowns.
+        /// Prioritise common choices, then sort the remaining languages alphabetically with Instrumental and Other last.
+        /// </summary>
+        public static IReadOnlyList<BeatmapLanguage> DisplayOrder { get; } = Array.AsReadOnly(
+            Enum.GetValues<BeatmapLanguage>()
+                .Where(language => language is not (BeatmapLanguage.Unspecified or BeatmapLanguage.LowGerman or BeatmapLanguage.SwissGerman))
+                .OrderBy(language => language switch
+                {
+                    BeatmapLanguage.English => 0,
+                    BeatmapLanguage.Japanese => 1,
+                    BeatmapLanguage.Korean => 2,
+                    BeatmapLanguage.Russian => 3,
+                    BeatmapLanguage.French => 4,
+                    BeatmapLanguage.Spanish => 5,
+                    BeatmapLanguage.Instrumental => 7,
+                    BeatmapLanguage.Other => 8,
+                    _ => 6,
+                })
+                .ThenBy(language => language.ToString(), StringComparer.Ordinal)
+                .ToArray());
+
         /// <summary>
         /// The lowercase name this language travels as in the .osu <c>[Metadata] Language:</c>
         /// line and in the website's <c>beatmapsets.language</c> column.

@@ -24,12 +24,15 @@ namespace typebeat.Game.Rulesets.TypeBeat
         /// <summary>Mapped lyric span in seconds, divided by the played clock rate.</summary>
         public double PlayedDurationSeconds { get; }
 
+        public override bool CanCalculatePerformance { get; }
+
         public TypeBeatDifficultyAttributes(Mod[] mods, double starRating, double difficultCharacters,
-                                            double playedDurationSeconds = double.PositiveInfinity)
+                                            double playedDurationSeconds = double.PositiveInfinity, bool canCalculatePerformance = true)
             : base(mods, starRating)
         {
             DifficultCharacters = difficultCharacters;
             PlayedDurationSeconds = playedDurationSeconds;
+            CanCalculatePerformance = canCalculatePerformance;
         }
     }
 }

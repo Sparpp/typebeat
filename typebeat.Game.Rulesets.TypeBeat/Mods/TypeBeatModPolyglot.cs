@@ -30,15 +30,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// NFC and case-insensitively unless Literate is on (<see cref="Gameplay.PolyglotText"/>).
     /// Japanese maps instead process romaji internally, accepting IME spelling variants and
     /// displaying furigana over kanji. No per-character IME submission is required.</item>
-    /// <item>LOCAL ONLY (<see cref="Mod.LocalOnly"/>): no token, no submission, no online board for a
-    /// selection holding it, and the play is kept in the local score list with its replay. It is
-    /// unranked regardless, and 1.0x, because nothing it produces reaches a leaderboard.</item>
+    /// <item>RANKED at 1.0x for every language except Chinese and Korean. Those two retain local-only
+    /// scores and replays, without score submission, online boards or ranked pp.</item>
     /// <item>AVAILABLE only on a map that records originals (<see cref="IsAvailableFor"/>).</item>
     /// </list>
     ///
-    /// <para>The star rating and the WPM figures stay the ROMANISED map's: neither the difficulty
-    /// calculator nor the pace statistics read the stamp, and the song select marks them as such
-    /// while this mod is selected.</para>
+    /// <para>Star rating uses Latin/Cyrillic original-script characters and keyboard costs, or the
+    /// shortest accepted romaji input for Japanese. Other scripts retain romanized SR and have no pp. Supported pace statistics count required inputs.</para>
     ///
     /// <para>A MOD, not an ERA: a replay is identified as a Polyglot play by the mod in its score, and
     /// no CONFIG frame bit is spent on the mod itself. Extended bit 4 separately records the
@@ -61,18 +59,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         public override double ScoreMultiplier => 1.0;
 #pragma warning restore CS0672
 
-        public override bool Ranked => false;
+        public override bool Ranked => true;
 
-        public override bool LocalOnly => true;
+        public override bool IsRankedFor(BeatmapInfo? beatmap) => !IsLocalOnlyFor(beatmap);
+
+        public override bool IsLocalOnlyFor(BeatmapInfo? beatmap)
+            => beatmap?.Metadata.Language is BeatmapLanguage.Chinese or BeatmapLanguage.Korean;
 
         public override bool ValidForMultiplayer => false;
 
         public override bool ValidForMultiplayerAsFreeMod => false;
 
         public override LocalisableString UnavailableReason => "This map has no original-script lyrics";
-
-        /// <summary>Song select rates a Polyglot selection on the romanised lyric (see the class summary) and says so.</summary>
-        public override LocalisableString RatingNote => "star rating and WPM are the romanised lyric's";
 
         /// <summary>Whether each decoded beatmap records originals, computed once per beatmap instance.</summary>
         private static readonly ConditionalWeakTable<IBeatmap, object> has_originals = new ConditionalWeakTable<IBeatmap, object>();

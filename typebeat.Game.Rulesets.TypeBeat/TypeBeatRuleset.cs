@@ -67,18 +67,19 @@ namespace typebeat.Game.Rulesets.TypeBeat
         /// </summary>
         public override PerformanceCalculator CreatePerformanceCalculator() => new TypeBeatPerformanceCalculator(this);
 
-        /// <summary>
-        /// type!beat narrows the base rule with one gate of its own: only the BASE rates earn pp
-        /// (DT/NC 1.50x, HT 0.75x, docs/pp.md). A custom rate still ranks on the score leaderboards
-        /// exactly as before, it simply earns nothing, and no number describes that.
-        ///
-        /// <para>THIS IS THE SINGLE AUTHORITY on whether a type!beat play can earn pp. The score
-        /// panel asks it through <c>score.Ruleset.CreateInstance()</c> and the results table asks it
-        /// through <see cref="PerformancePointsDisplay.Eligible"/>, so the two surfaces on the same
-        /// screen cannot disagree about whether a play was ever in the running.</para>
-        /// </summary>
+        /// <summary>Ranked pp eligibility retains the base score, map and mod gates and requires
+        /// a standard eligible clock rate. Local estimates use the separate display gate.</summary>
         public override bool ScoreEarnsPerformancePoints(ScoreInfo score)
             => base.ScoreEarnsPerformancePoints(score) && PerformancePoints.EligibleRate(score.Mods) != null;
+
+        public override bool ScoreSupportsPerformancePoints(ScoreInfo score)
+            => PolyglotRatingSupport.SupportsDeclaredLanguage(score.BeatmapInfo?.Metadata.Language ?? BeatmapLanguage.Unspecified, score.Mods);
+
+        /// <summary>Unranked mods may display a local estimate without earning ranked pp.</summary>
+        public override bool ScoreCanDisplayPerformancePoints(ScoreInfo score)
+            => score.BeatmapInfo?.Status.GrantsPerformancePoints() == true && score.Passed
+               && score.Rank != ScoreRank.F && PerformancePointsDisplay.RateFor(score.Mods) != null
+               && ScoreSupportsPerformancePoints(score);
 
         public override IEnumerable<Mod> GetModsFor(ModType type) => type switch
         {

@@ -86,10 +86,19 @@ namespace typebeat.Game.Rulesets.TypeBeat
         /// </summary>
         // v6 removes the overlapping model's minimum character cutoff and carries played lyric
         // duration for the short-map pp factor; invalidate previously cached difficulty attributes.
-        // v7 counts spaces produced by punctuation; refresh stored star ratings and target pace.
-        // v8 reads the stored target pace off the chunked axis (the envelope model is gone); no star
-        // rating moves, but the background pass has to re-derive every row's TargetWpm.
-        public override int Version => 8;
+        // Dev v7 extends windows through the playable map and moves full length credit to 2000.
+        // The two generations retain separate calibration when their caches are refreshed.
+        // v7 (dev v8) counts default-stream spaces produced by punctuation; refresh stored ratings and pace.
+        // v8 (dev v9) scores punctuation-separated letter sequences through the typability fallback.
+        // v10 restores the published calibration in every build and lowers the typability floor to -5.
+        // v11 charges each shifted symbol separately, sharing only identical consecutive symbols.
+        // v12 rates Polyglot on original-script cells and the shortest Japanese input stream.
+        // v13 adds 1% of final SR per negative whole-map typability z-score, including Literate.
+        // v14 uses native alphabet keyboard costs and excludes unsupported Polyglot scripts from pp.
+        // v15 refreshes cached maximum combo for minimum-romaji Japanese scoring; SR calibration is unchanged.
+        // v16 refreshes Japanese ratings after aligning each valid cut with the authored reading.
+        // v17 refreshes target pace from the chunked axis after the envelope model was retired.
+        public override int Version => 17;
 
         protected override DifficultyAttributes CreateDifficultyAttributes(IBeatmap beatmap, Mod[] mods, Skill[] skills)
         {
@@ -104,7 +113,7 @@ namespace typebeat.Game.Rulesets.TypeBeat
             foreach (var mod in mods.OfType<IApplicableToRate>())
                 rate = mod.ApplyToRate(0, rate);
 
-            var lines = objects.Select(h => h.Line).ToList();
+            var lines = PolyglotDifficulty.LinesFor(objects.Select(h => h.Line), mods, Mods.TypeBeatModPolyglot.LanguageFor(beatmap));
 
             // The rating AND the map's difficult characters. The second half is why this returns a
             // TypeBeat subclass again: the pp formula's miss penalty is measured against the
@@ -114,7 +123,11 @@ namespace typebeat.Game.Rulesets.TypeBeat
             // was computed under.
             var model = LyricDifficulty.ComputeDetail(lines, rate, PerformancePoints.IsLiterate(mods), LyricDifficulty.Live, PerformancePoints.JudgementArmFor(mods));
 
-            return new TypeBeatDifficultyAttributes(mods, model.Stars, model.DifficultCharacters, PerformancePoints.PlayedDurationFor(lines, mods));
+            return new TypeBeatDifficultyAttributes(mods, model.Stars, model.DifficultCharacters, PerformancePoints.PlayedDurationFor(lines, mods),
+                PolyglotRatingSupport.Supports(objects.Select(h => h.Line), mods, Mods.TypeBeatModPolyglot.LanguageFor(beatmap)))
+            {
+                MaxCombo = TypeBeatScoreProcessor.MaximumComboFor(beatmap),
+            };
         }
 
         protected override IEnumerable<DifficultyHitObject> CreateDifficultyHitObjects(IBeatmap beatmap, Mod[] mods) => Enumerable.Empty<DifficultyHitObject>();

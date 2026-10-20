@@ -82,8 +82,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // The bottom-to-top fill rises letter by letter on each cell's own target, kept inside its
                 // judged span. Its release stays on the span's end, since the cell grades Great until
                 // then. Fade-in, None, pop-in and approach bars keep the span's start.
-                double fillStart = glyphFillMode ? Math.Clamp(Line.Cells[i].TargetTime, start, end) : start;
-                double completion = SyllableFadeInCompletion(fillStart, windows.GreatEarly, syllableFadeInEnd);
+                double completion = indicatorCompletion(i, glyphFillMode);
                 double approachStart = judgementIndicator == JudgementIndicatorMode.None ? start - windows.GreatEarly : completion - syllableFadeInDuration;
                 float release = IndicatorRelease(time, end + windows.GreatLate);
                 bool lit = Line.Cells[i].IsCountable && time >= approachStart && release > 0;
@@ -504,7 +503,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             if (apply)
             {
                 cells[index].Scale = new Vector2(TextPopInScale(sungTime,
-                    SyllableFadeInCompletion(sungSpan(index).start, windowsFor(index).GreatEarly, syllableFadeInEnd), textPopInAmount));
+                    indicatorCompletion(index), textPopInAmount));
                 popInApplied[index] = true;
             }
             else if (popInApplied[index])

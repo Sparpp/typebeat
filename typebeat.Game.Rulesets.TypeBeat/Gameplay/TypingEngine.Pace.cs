@@ -7,6 +7,8 @@
 using System;
 using System.Collections.Generic;
 
+using System.Linq;
+
 namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 {
     public sealed partial class TypingEngine
@@ -100,13 +102,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                         if (cell.State == CellState.Correct && cell.JudgedDelta is double d)
                         {
+                            if (JapaneseInputScoring && cell.InputJudgements != null)
+                            {
+                                foreach (var input in cell.InputJudgements)
+                                    sum += WindowsFor(cell).SyncQuality(input.Delta);
+                                resolved += cell.InputJudgements.Count;
+                                continue;
+                            }
                             sum += WindowsFor(cell).SyncQuality(d);
                             resolved++;
+                            if (JapaneseCharacterTiming && cell.FirstEndDelta is double endDelta)
+                            {
+                                sum += WindowsFor(cell).SyncQuality(endDelta);
+                                resolved++;
+                            }
                         }
                         else if (lineSealed[i])
                         {
                             // Missed / still-Wrong at seal: q = 0.
-                            resolved++;
+                            resolved += JapaneseInputScoring && JapaneseCharacterTiming && cell.MinimumRomajiInputs > 0
+                                ? cell.MinimumRomajiInputs : JapaneseCharacterTiming && cell.EndTargetTime.HasValue ? 2 : 1;
                         }
                     }
                 }
@@ -264,7 +279,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 foreach (var cell in line.Cells)
                 {
                     if (isTimed(cell) && cell.State == CellState.Correct && cell.JudgedDelta is double d)
+                    {
+                        if (JapaneseInputScoring && cell.InputJudgements != null)
+                        {
+                            foreach (var input in cell.InputJudgements)
+                                qualitySum += WindowsFor(cell).SyncQuality(input.Delta);
+                            continue;
+                        }
                         qualitySum += WindowsFor(cell).SyncQuality(d);
+                        if (JapaneseCharacterTiming && cell.FirstEndDelta is double endDelta)
+                            qualitySum += WindowsFor(cell).SyncQuality(endDelta);
+                    }
                 }
             }
 
@@ -279,7 +304,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 SyncPercent = syncPercent,
                 MaxCombo = maxCombo,
                 Counts = new Dictionary<JudgementType, int>(counts),
-                SyncTimeline = syncTimeline.ToArray(),
+                SyncTimeline = syncTimeline.Where(s => s.HasValue).Select(s => s!.Value).ToArray(),
                 Artist = Beatmap.Metadata.Artist,
                 Title = Beatmap.Metadata.Title,
             };

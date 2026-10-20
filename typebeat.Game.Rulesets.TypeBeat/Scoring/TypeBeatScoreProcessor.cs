@@ -3,6 +3,8 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.Judgements;
 using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
@@ -130,10 +132,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// seek can be corrected on the way back through, and its retype's ordinary combo-increasing
         /// hit would then be silently neutralised.</para>
         /// </summary>
-        public void ResyncAfterRewind(int engineMistypes)
+        public void ResyncAfterRewind(int engineMistypes, Gameplay.TypingEngine? engine = null)
         {
             ScoreResultCounts[MISTYPE_RESULT] = engineMistypes;
             comboNeutralCells.Clear();
+            if (engine != null)
+                resyncCellAwards(engine);
         }
 
         /// <summary>
@@ -197,6 +201,62 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// </summary>
         public void MarkComboNeutral(int lineIndex, int cellIndex) => comboNeutralCells.Add((lineIndex, cellIndex));
 
+        /// <summary>Minimum romaji combo represented by the objects resolved so far.</summary>
+        public int ComboNotesJudged { get; private set; }
+        public bool HasJapaneseInputScoring { get; private set; }
+
+        public static int? JapaneseComboFor(IBeatmap beatmap)
+            => beatmap.HitObjects.OfType<TypeBeatHitObject>().SelectMany(h => h.NestedHitObjects.OfType<TypeBeatCharObject>()).Any(c => c.JapaneseInputScoring)
+                ? MaximumComboFor(beatmap) : null;
+
+        public static int MaximumComboFor(IBeatmap beatmap)
+            => beatmap.HitObjects.OfType<TypeBeatHitObject>().SelectMany(h => h.NestedHitObjects.OfType<TypeBeatCharObject>())
+                .Where(c => c.ScoringEnabled).Sum(c => c.JapaneseInputScoring ? c.MinimumRomajiInputs : 1);
+
+        public override void ApplyBeatmap(IBeatmap beatmap)
+        {
+            HasJapaneseInputScoring = JapaneseComboFor(beatmap).HasValue;
+            int fullCombo = 0;
+            foreach (var cell in EnumerateHitObjects(beatmap).OfType<TypeBeatCharObject>())
+            {
+                if (cell.ScoringEnabled)
+                    fullCombo += cell.JapaneseInputScoring ? cell.MinimumRomajiInputs : 1;
+                cell.FullComboAfter = fullCombo;
+            }
+            base.ApplyBeatmap(beatmap);
+        }
+
+        protected override IReadOnlyList<HitResult>? GetScoringResults(JudgementResult result)
+        {
+            if (result.HitObject is not TypeBeatCharObject { JapaneseInputScoring: true } cell)
+                return null;
+            return (result as TypeBeatJapaneseJudgementResult)?.InputResults
+                   ?? Enumerable.Repeat(result.Type, cell.MinimumRomajiInputs).ToArray();
+        }
+
+        protected override int GetComboIncrease(JudgementResult result)
+            => result.HitObject is TypeBeatCharObject { JapaneseInputScoring: true } cell ? cell.MinimumRomajiInputs : 1;
+
+        private void adjustJapaneseMaximum(JudgementResult result, int direction)
+        {
+            if (IsSimulating || result.HitObject is not TypeBeatCharObject { JapaneseInputScoring: true } cell)
+                return;
+            int extra = ((result as TypeBeatJapaneseJudgementResult)?.InputResults?.Count ?? cell.MinimumRomajiInputs) - cell.MinimumRomajiInputs;
+            if (extra != 0)
+                AdjustMaximumJudgements(HitResult.Great, direction * extra,
+                    direction * extra * GetBaseScoreForResult(HitResult.Great) * Math.Pow(cell.FullComboAfter, COMBO_EXPONENT));
+        }
+
+        protected override void RemoveScoreChange(JudgementResult result)
+        {
+            base.RemoveScoreChange(result);
+            if (result.HitObject is TypeBeatCharObject removed)
+                awardedCells.Remove((removed.LineIndex, removed.CellIndex, removed.Phase));
+            if (result.Judgement.MaxResult.AffectsAccuracy())
+                ComboNotesJudged -= GetComboIncrease(result);
+            adjustJapaneseMaximum(result, -1);
+        }
+
         /// <summary>
         /// The combo-weighted score portion a result contributes. A combo-neutral cell (see
         /// <see cref="MarkComboNeutral"/>) is weighted by the combo it FOUND rather than by the one
@@ -220,6 +280,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// </summary>
         protected override double GetComboScoreChange(JudgementResult result)
         {
+            if (result.HitObject is TypeBeatCharObject { JapaneseInputScoring: true } japanese)
+            {
+                int count = GetScoringResults(result)!.Count;
+                int combo = result.Type.IncreasesCombo() && comboNeutralCells.Contains((japanese.LineIndex, japanese.CellIndex))
+                    ? result.ComboAtJudgement : result.ComboAfterJudgement;
+                return GetBaseScoreForResult(result.Judgement.MaxResult) * count * Math.Pow(combo, COMBO_EXPONENT);
+            }
+
             if (result.Type.IncreasesCombo() && result.HitObject is TypeBeatCharObject cell && comboNeutralCells.Contains((cell.LineIndex, cell.CellIndex)))
                 return GetBaseScoreForResult(result.Judgement.MaxResult) * Math.Pow(result.ComboAtJudgement, COMBO_EXPONENT);
 
@@ -268,6 +336,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         protected override void ApplyScoreChange(JudgementResult result)
         {
             base.ApplyScoreChange(result);
+            if (!IsSimulating && result.HitObject is TypeBeatCharObject applied)
+                awardedCells[(applied.LineIndex, applied.CellIndex, applied.Phase)] = result;
+            if (result.Judgement.MaxResult.AffectsAccuracy())
+                ComboNotesJudged += GetComboIncrease(result);
+            adjustJapaneseMaximum(result, 1);
 
             if (!result.Type.AffectsCombo() || result.HitObject is not TypeBeatCharObject cell)
                 return;
@@ -323,6 +396,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         {
             base.Reset(storeResults);
             comboNeutralCells.Clear();
+            awardedCells.Clear();
+            ComboNotesJudged = 0;
         }
 
         /// <summary>

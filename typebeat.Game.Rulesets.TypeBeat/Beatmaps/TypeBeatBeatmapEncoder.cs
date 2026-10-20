@@ -75,7 +75,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // An unromanised word (backlog 330) lives ONLY in words[], so a map holding one writes
             // words[] whatever its granularity says, rather than silently losing the word.
             bool wordGranularity = lines.Count > 0
-                                   && (lines[0].Granularity != TimingGranularity.Line || lines.Any(h => h.Line.UnromanisedWords.Count > 0));
+                                   && (lines[0].Granularity != TimingGranularity.Line || lines.Any(h => h.Line.UnromanisedWords.Count > 0 || h.Line.Units.Any(u => u.Original == string.Empty)));
 
             // song_end_ms clamps the last line's derived EndTime on decode; emit the current value
             // so the last line's window survives the round-trip.
@@ -152,8 +152,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                             json.WriteStartObject();
                             json.WriteString("text", unit.Text);
 
-                            if (unit.Original != null && unit.Original != unit.Text)
+                            if (unit.Original != null)
                                 json.WriteString("original", unit.Original);
+
+                            if (unit.OriginalSplits.Count > 0)
+                            {
+                                json.WriteStartArray("original_splits");
+                                foreach (var split in unit.OriginalSplits)
+                                {
+                                    json.WriteStartArray();
+                                    json.WriteNumberValue(split.TextIndex);
+                                    json.WriteNumberValue(split.OriginalIndex);
+                                    json.WriteEndArray();
+                                }
+                                json.WriteEndArray();
+                            }
 
                             json.WriteNumber("start_ms", unit.StartTime);
                             json.WriteNumber("end_ms", unit.EndTime);

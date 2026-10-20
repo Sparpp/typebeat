@@ -18,6 +18,7 @@ using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Replays;
 using typebeat.Game.Rulesets.TypeBeat.UI;
+using typebeat.Game.Rulesets.UI;
 using typebeat.Game.Scoring;
 using typebeat.Game.Scoring.Legacy;
 using typebeat.Game.Screens.Play;
@@ -278,15 +279,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             // 1500 sits after line 0 is fully typed ('a'@500 through 'b'@1000) and before line 1's
             // only keystroke ('c'@2500), so a correct rebuild has to keep line 0 and drop line 1.
+            // The asserts below describe the engine AT the seek target, and line 0 seals at 2000, only
+            // 500 ms of song after it. The gameplay clock runs in real time, so with playback left
+            // running the asserts used to land wherever the clock had got to by then (seen as late as
+            // 2085, line 0 correctly sealed, in about one run in three). Pausing first holds the
+            // clock on 1500; the frame-stable clock still walks back to it while paused because a
+            // replay is attached, so the rebuild is the same one a seek during playback takes.
+            AddStep("pause playback", () => gameplayClockContainer.Stop());
             AddStep("seek back over line 1", () => currentPlayer.Seek(1500));
 
-            AddUntilStep("line 1 rewound", () => playbackEngine.Lines[1].Cells.All(c => c.State == CellState.Untyped));
+            AddUntilStep("the rewind reached the seek target", () =>
+                !gameplayClockContainer.IsRunning
+                && frameStableClock.CurrentTime == gameplayClockContainer.CurrentTime
+                && playbackEngine.Lines[1].Cells.All(c => c.State == CellState.Untyped));
+
+            AddAssert("the target is 1500", () => frameStableClock.CurrentTime, () => Is.EqualTo(1500).Within(1));
 
             AddAssert("the run is live again, not finished", () => !playbackEngine.IsFinished && playbackEngine.NextUnsealedLineIndex == 0);
 
             AddAssert("line 0 kept what it earned", () =>
                 playbackEngine.Lines[0].Cells.All(c => c.State == CellState.Correct)
                 && playbackEngine.Mistypes == 1);
+
+            AddStep("resume playback", () => gameplayClockContainer.Start());
 
             // The freeze itself: everything below this line only happens if the engine resumed.
             AddUntilStep("line 1 replays forward", () => playbackEngine.Lines[1].Cells[0].State == CellState.Correct);
@@ -307,6 +322,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         private int mistypeStat() => currentPlayer.GameplayState.ScoreProcessor.Statistics.GetValueOrDefault(HitResult.ComboBreak);
+
+        private GameplayClockContainer gameplayClockContainer => currentPlayer.ChildrenOfType<GameplayClockContainer>().Single();
+
+        private IFrameStableClock frameStableClock => currentPlayer.ChildrenOfType<DrawableRuleset>().Single().FrameStableClock;
 
         private TypingEngine playbackEngine => currentPlayer.ChildrenOfType<TypeBeatPlayfield>().Single().Engine;
 

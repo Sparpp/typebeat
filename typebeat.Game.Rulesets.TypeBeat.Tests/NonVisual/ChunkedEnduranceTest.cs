@@ -222,7 +222,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // before those moves were 5.3281973709372954 and 5.4530884437856484. It moved again on
             // 2026-10-01 (backlog 363) when an unsubdivided word became ONE judgement segment rather
             // than a vowel-run count ("quick", "over", ...), from 5.284047654634864.
-            Assert.That(LyricDifficulty.Compute(lines), Is.EqualTo(5.2715754729166084).Within(1e-12));
+            Assert.That(LyricDifficulty.RateChunked(lines, 1, false, LyricDifficulty.ShippedScores, ChunkedEndurance.Live).Report.Stars, Is.EqualTo(5.2715754729166084).Within(1e-12));
 
             // THE SAME FIXTURE WITHOUT THE INDEX, which is the reading the sandbox produces for it: the
             // lab's typability bundle carries no scores for this text, so the typability-free arm is

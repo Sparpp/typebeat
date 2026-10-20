@@ -15,6 +15,7 @@ using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
 using osu.Framework.Utils;
 using typebeat.Game.Graphics.Sprites;
+using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using osuTK;
 using osuTK.Graphics;
@@ -110,7 +111,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private Box sweepGlow = null!;
         private Box selectionBox = null!;
         private OsuSpriteText[] cells = Array.Empty<OsuSpriteText>();
-        private readonly List<(JapaneseInputPlan.Group Group, OsuSpriteText Text)> furigana = new List<(JapaneseInputPlan.Group, OsuSpriteText)>();
+
+        private readonly List<FuriganaRun> furigana = new List<FuriganaRun>();
         private float[] advances = Array.Empty<float>();
 
         // --- Space error dots (backlog 197, on by default since PR 2) ---
@@ -152,6 +154,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         // flag above defaults on: it matches the shipped setting, so a display built with no stage
         // or config shows what a player sees. Off, a Correct cell takes the flat typed off-white.
         private bool syncTintEnabled;
+
+        // The TIMING TINT (TypeBeatRulesetSetting.ShowTimingTint), default OFF to match the shipped
+        // setting for the same reason. The ladder it measures on is PULLED at paint time rather than
+        // copied once, because the engine rebuilds its windows whenever a mod or a replay CONFIG
+        // frame rescales them; a display with no stage measures on the default ladder.
+        private bool timingTintEnabled;
+        private Func<SyncWindows> timingWindows = () => SyncWindows.Default;
+        private double timingTintMin = TIMING_TINT_MIN;
+        private double timingTintMax = TIMING_TINT_MAX;
+        private Color4 timingTintEarly = TypeBeatStyle.EarlyTint;
+        private Color4 timingTintLate = TypeBeatStyle.LateTint;
 
         // --- Freestyle cells (see FreestyleGlyphs) ---
         // Display indices of this line's freestyle cells (empty for the overwhelming majority of
@@ -494,8 +507,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     ShadowOffset = TypeBeatStyle.TEXT_SHADOW_OFFSET,
                     Depth = -1,
                 };
-                furigana.Add((group, ruby));
+                var progress = new OsuSpriteText
+                {
+                    Font = ruby.Font,
+                    Anchor = Anchor.TopLeft,
+                    Origin = Anchor.BottomLeft,
+                    Colour = TypeBeatStyle.TypedChar,
+                    AlwaysPresent = true,
+                    ShadowColour = TypeBeatStyle.TextShadow,
+                    ShadowOffset = TypeBeatStyle.TEXT_SHADOW_OFFSET,
+                    Depth = -2,
+                };
+                furigana.Add(new FuriganaRun(group, ruby, progress));
                 content.Add(ruby);
+                content.Add(progress);
             }
 
             InternalChild = content;
@@ -890,12 +915,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             for (int i = 0; i < n; i++)
                 cells[i].Position = new Vector2(cellX[i] + advances[i] * 0.5f, glyphHeight * 0.5f);
 
-            foreach (var (group, ruby) in furigana)
+            foreach (var run in furigana)
             {
+                var (group, ruby, progress) = run;
                 float left = cellX[group.StartCell];
                 float right = cellX[group.EndCellExclusive];
                 ruby.Position = new Vector2((left + right) * 0.5f, -2 * SizeRatio);
                 ruby.Scale = new Vector2(ruby.DrawWidth > 0 ? Math.Min(1f, (right - left) / ruby.DrawWidth) : 1f);
+                positionFuriganaProgress(run);
             }
 
             // The gap dots ride the same content-local coordinates the glyphs do (the auto-shrink
@@ -1169,6 +1196,74 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         /// <summary>
+        /// The DEFAULT of how far from <see cref="TypeBeatStyle.TypedChar"/> towards its hue a press
+        /// just outside the Great window is painted: the tint starts visibly rather than fading in
+        /// from nothing, so "this was not a Great" reads at a glance. Player-adjustable through
+        /// <see cref="TypeBeatRulesetSetting.TimingTintMinStrength"/>.
+        /// </summary>
+        public const double TIMING_TINT_MIN = TypeBeatRulesetConfigManager.DEFAULT_TIMING_TINT_MIN_STRENGTH / 100.0;
+
+        /// <summary>
+        /// The DEFAULT of how far towards its hue a press at the Meh edge, or beyond it, is painted:
+        /// the full hue, so the worst presses are unmistakable. Player-adjustable through
+        /// <see cref="TypeBeatRulesetSetting.TimingTintMaxStrength"/>.
+        /// </summary>
+        public const double TIMING_TINT_MAX = TypeBeatRulesetConfigManager.DEFAULT_TIMING_TINT_MAX_STRENGTH / 100.0;
+
+        /// <summary>
+        /// The fill a CORRECT character is painted in under the timing tint
+        /// (<see cref="Configuration.TypeBeatRulesetSetting.ShowTimingTint"/>): which way the press
+        /// missed the beat, as a hue, and by how much, as its strength.
+        ///
+        /// <para>Inside the Great window (edges included, as <see cref="SyncWindows.Classify"/> has
+        /// them) it is <see cref="TypeBeatStyle.TypedChar"/> EXACTLY, so a Great press is the clean
+        /// typed colour. Past it the colour jumps to <paramref name="minStrength"/> of the way towards
+        /// <paramref name="earlyColour"/> (negative delta) or <paramref name="lateColour"/>
+        /// (positive), each defaulting to <see cref="TypeBeatStyle.EarlyTint"/> and
+        /// <see cref="TypeBeatStyle.LateTint"/> when null, and ramps linearly to
+        /// <paramref name="maxStrength"/> at the Meh edge, where it stays for the Premature and
+        /// Lagging presses that still land the cell Correct. Both strengths are fractions in [0, 1]
+        /// and clamp there, and a <paramref name="maxStrength"/> below <paramref name="minStrength"/>
+        /// is read as equal to it, so the tint can flatten but never weaken with distance.</para>
+        ///
+        /// <para>Measured on <paramref name="windows"/>, which the caller passes as the engine's
+        /// EFFECTIVE ladder, so a mod that widens or halves the windows moves where the tint starts
+        /// exactly as it moves where a Great ends. A press <paramref name="pastRushCap"/> was graded
+        /// for running too far ahead of the song, not for its delta, so it takes the strongest early
+        /// tint whatever the delta says. NaN is treated as no reading and paints clean. Pure, so it is
+        /// unit-testable.</para>
+        /// </summary>
+        public static Color4 TimingTintColour(double delta, SyncWindows windows, bool pastRushCap = false,
+                                              double minStrength = TIMING_TINT_MIN, double maxStrength = TIMING_TINT_MAX,
+                                              Color4? earlyColour = null, Color4? lateColour = null)
+        {
+            Color4 earlyHue = earlyColour ?? TypeBeatStyle.EarlyTint;
+            Color4 lateHue = lateColour ?? TypeBeatStyle.LateTint;
+
+            minStrength = double.IsNaN(minStrength) ? TIMING_TINT_MIN : Math.Clamp(minStrength, 0, 1);
+            maxStrength = double.IsNaN(maxStrength) ? TIMING_TINT_MAX : Math.Clamp(maxStrength, minStrength, 1);
+
+            if (pastRushCap)
+                return Interpolation.ValueAt(maxStrength, TypeBeatStyle.TypedChar, earlyHue, 0d, 1d);
+
+            if (double.IsNaN(delta))
+                return TypeBeatStyle.TypedChar;
+
+            bool early = delta < 0;
+            double distance = Math.Abs(delta);
+            double greatEdge = early ? windows.GreatEarly : windows.GreatLate;
+            double mehEdge = early ? windows.MehEarly : windows.MehLate;
+
+            if (distance <= greatEdge)
+                return TypeBeatStyle.TypedChar;
+
+            double t = Math.Clamp((distance - greatEdge) / (mehEdge - greatEdge), 0, 1);
+
+            return Interpolation.ValueAt(minStrength + (maxStrength - minStrength) * t,
+                TypeBeatStyle.TypedChar, early ? earlyHue : lateHue, 0d, 1d);
+        }
+
+        /// <summary>
         /// The fill a cell is painted in; every colour decision the display makes routes through
         /// here, so pinning this function pins the rendering. Pure, so it is unit-testable beside
         /// <see cref="CorrectCharColour"/>.
@@ -1200,9 +1295,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <see cref="TypeBeatStyle.FreestyleChar"/>: the colour is an identity signal ("this slot was
         /// free"), and neither the sync ramp nor the syllable highlight may repaint it (see
         /// <see cref="refreshFreestyleCell"/>; an exclusion, not an oversight).</para>
+        ///
+        /// <para>A Correct cell given a <paramref name="timingTint"/> (the
+        /// <see cref="TimingTintColour"/> of its press, passed only while that setting is on) wears it
+        /// INSTEAD of the sync ramp, so with both switches on a Great press is still the clean typed
+        /// colour. It touches no other state, and a freestyle cell ignores it like it ignores the
+        /// ramp.</para>
         /// </summary>
         public static Color4 CellFillColour(CellState state, bool isFreestyle, bool inSungSyllable, double? syncQuality, float sungBrightness = 50f,
-                                            Color4? freestyleColour = null)
+                                            Color4? freestyleColour = null, Color4? timingTint = null)
         {
             if (isFreestyle)
                 return freestyleColour ?? TypeBeatStyle.FreestyleChar;
@@ -1212,6 +1313,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 case CellState.Correct:
                     // A Correct cell with no delta cannot arise from the engine; if one ever does,
                     // fall back to the flat typed colour rather than to the dull ramp floor.
+                    if (timingTint is Color4 tint)
+                        return tint;
+
                     return syncQuality is double q ? CorrectCharColour(q) : TypeBeatStyle.TypedChar;
 
                 case CellState.Wrong:
@@ -1494,6 +1598,66 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         /// <summary>
+        /// Switches the TIMING TINT (<see cref="TimingTintColour"/>) on or off, on exactly the terms
+        /// of <see cref="SetSyncTintEnabled"/>: a repaint and nothing else, safe before load.
+        /// <paramref name="windows"/> supplies the ladder the tint measures on, read at every paint so
+        /// it follows the engine's current scale; null keeps whatever was supplied before (the
+        /// default ladder, until something supplies one).
+        /// </summary>
+        public void SetTimingTintEnabled(bool enabled, Func<SyncWindows>? windows = null)
+        {
+            if (windows != null)
+                timingWindows = windows;
+
+            if (timingTintEnabled == enabled)
+                return;
+
+            timingTintEnabled = enabled;
+
+            for (int i = 0; i < cells.Length; i++)
+                RefreshCell(i);
+        }
+
+        /// <summary>
+        /// Sets the timing tint's strength range, as PERCENTAGES (the settings' unit): the strength
+        /// just outside the Great window and the strength at the Meh edge (see
+        /// <see cref="TimingTintColour"/>, which clamps them). Repaints only when the tint is drawn and
+        /// the range actually moved.
+        /// </summary>
+        public void SetTimingTintColours(Color4 early, Color4 late)
+        {
+            if (timingTintEarly == early && timingTintLate == late)
+                return;
+
+            timingTintEarly = early;
+            timingTintLate = late;
+
+            if (!timingTintEnabled)
+                return;
+
+            for (int i = 0; i < cells.Length; i++)
+                RefreshCell(i);
+        }
+
+        public void SetTimingTintStrength(float minPercent, float maxPercent)
+        {
+            double min = minPercent / 100.0;
+            double max = maxPercent / 100.0;
+
+            if (timingTintMin == min && timingTintMax == max)
+                return;
+
+            timingTintMin = min;
+            timingTintMax = max;
+
+            if (!timingTintEnabled)
+                return;
+
+            for (int i = 0; i < cells.Length; i++)
+                RefreshCell(i);
+        }
+
+        /// <summary>
         /// Paints the markers' alpha: the setting, then the HIDING mods folded in through the
         /// DARKER of the two cells the mark sits between.
         ///
@@ -1581,10 +1745,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 ? (source.JudgedPastRushCap ? 0 : SyncWindows.Default.SyncQuality(delta))
                 : null;
 
+            // The TIMING TINT reads the same delta for its direction as well as its size, on the
+            // engine's effective ladder rather than the default one (see TimingTintColour). It is
+            // resolved only while its setting is on and wins over the sync ramp above when both are.
+            Color4? timingTint = timingTintEnabled && source.State == CellState.Correct && source.JudgedDelta is double judged
+                ? TimingTintColour(judged, timingWindows(), source.JudgedPastRushCap, timingTintMin, timingTintMax, timingTintEarly, timingTintLate)
+                : null;
+
             bool inSungSyllable = litCells[cellIndex];
 
             float brightnessAmount = textHighlightAmount(cellIndex);
-            cell.Colour = CellFillColour(source.State, isFreestyle: false, inSungSyllable, syncQuality, sungBrightness * brightnessAmount);
+            cell.Colour = CellFillColour(source.State, isFreestyle: false, inSungSyllable, syncQuality, sungBrightness * brightnessAmount,
+                timingTint: timingTint);
             // A WORD GAP is the one cell whose glyph is not fixed at construction: a typo landing on
             // it shows the typed char, and every other state shows the space back (see CellGlyph).
             // Scoped to the gap rather than asserted for every cell so a lyric character's Text is
@@ -1739,5 +1911,77 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             float alpha = Math.Clamp(1f - dimAmount, 0f, 1f);
             content.FadeTo(alpha, 150, Easing.OutQuint);
         }
-    }
+
+        private sealed record FuriganaRun(JapaneseInputPlan.Group Group, OsuSpriteText Text, OsuSpriteText Progress)
+        {
+            internal int HighlightedKana = -1;
+        }
+        private int pendingJapaneseCell = -1;
+        private int pendingJapaneseKana;
+        private bool characterIndicatorTiming;
+        private double[] autoplayHitTimes = Array.Empty<double>();
+
+        private double indicatorCompletion(int index, bool fill = false)
+        {
+            if (characterIndicatorTiming && index < autoplayHitTimes.Length && !double.IsNaN(autoplayHitTimes[index]))
+                return autoplayHitTimes[index];
+
+            var (start, end) = sungSpan(index);
+            // Bottom-to-top fill uses each character's target; other indicators keep the syllable opening.
+            double fillStart = fill ? Math.Clamp(Line.Cells[index].TargetTime, start, end) : start;
+            return SyllableFadeInCompletion(fillStart, windowsFor(index).GreatEarly, syllableFadeInEnd);
+        }
+
+        public void SetCharacterIndicatorTiming(bool enabled)
+        {
+            characterIndicatorTiming = enabled;
+            refreshApproach();
+        }
+
+        internal void SetAutoplayHitTimes(double[] times)
+        {
+            autoplayHitTimes = times;
+            if (characterIndicatorTiming)
+                refreshApproach();
+        }
+
+        public void SetJapaneseInputProgress(int cellIndex, int completedKana)
+        {
+            if (pendingJapaneseCell == cellIndex && pendingJapaneseKana == completedKana)
+                return;
+            pendingJapaneseCell = cellIndex;
+            pendingJapaneseKana = completedKana;
+            foreach (var run in furigana)
+                refreshFurigana(run);
+        }
+
+        private void refreshFurigana(FuriganaRun run)
+        {
+            int count = 0;
+            for (int at = run.Group.StartCell; at < run.Group.EndCellExclusive; at++)
+            {
+                if (Line.Cells[at].State == CellState.Correct)
+                    count += Line.JapaneseInput?.CharacterReadingAt(at)?.Length ?? 0;
+                else
+                {
+                    if (at == pendingJapaneseCell)
+                        count += pendingJapaneseKana;
+                    break;
+                }
+            }
+            count = Math.Clamp(count, 0, run.Group.Reading.Length);
+            if (run.HighlightedKana == count)
+                return;
+            run.HighlightedKana = count;
+            bool complete = count == run.Group.Reading.Length;
+            run.Text.Colour = complete ? TypeBeatStyle.TypedChar : TypeBeatStyle.UntypedChar;
+            run.Progress.Text = !complete && count > 0 ? run.Group.Reading[..count] : string.Empty;
+            positionFuriganaProgress(run);
+        }
+
+        private static void positionFuriganaProgress(FuriganaRun run)
+        {
+            run.Progress.Scale = run.Text.Scale;
+            run.Progress.Position = run.Text.Position - new Vector2(run.Text.DrawWidth * run.Text.Scale.X / 2, 0);
+        }    }
 }

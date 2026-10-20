@@ -166,6 +166,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (JapaneseRomajiInput && JapanesePending.Length > 0)
             {
                 japanesePending = japanesePending[..^1];
+                updateJapanesePendingProgress();
+                if (JapaneseInputScoring && japanesePendingTimes.Count > 0)
+                {
+                    japanesePendingTimes.RemoveAt(japanesePendingTimes.Count - 1);
+                    if (japanesePendingTimes.Count > 0)
+                        japanesePendingTime = japanesePendingTimes[^1];
+                }
                 consumed = true;
                 return true;
             }
