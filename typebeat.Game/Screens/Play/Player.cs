@@ -28,6 +28,7 @@ using typebeat.Game.Graphics.Containers;
 using typebeat.Game.IO.Archives;
 using typebeat.Game.Online.API;
 using typebeat.Game.Overlays;
+using typebeat.Game.Replays;
 using typebeat.Game.Rulesets;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.Scoring;
@@ -228,6 +229,13 @@ namespace typebeat.Game.Screens.Play
             DrawableRuleset.SetRecordTarget(Score);
         }
 
+        /// <summary>
+        /// The stored replay this player plays back, when it is known before the playable beatmap is
+        /// built, or null (every live play). Handed to each <see cref="IApplicableToStoredReplay"/>
+        /// gameplay mod before that beatmap is built.
+        /// </summary>
+        protected virtual Replay StoredReplay => null;
+
         [BackgroundDependencyLoader(true)]
         private void load(OsuConfigManager config, OsuGameBase game, CancellationToken cancellationToken)
         {
@@ -241,6 +249,15 @@ namespace typebeat.Game.Screens.Play
 
             if (Beatmap.Value is DummyWorkingBeatmap)
                 return;
+
+            // A mod whose effect on the playable beatmap depends on the era a stored replay was
+            // recorded in has to see that replay now: the hit objects (and their nested scoring
+            // objects) are built once, below, before the drawable ruleset ever receives the replay.
+            if (StoredReplay is Replay storedReplay)
+            {
+                foreach (var mod in gameplayMods.OfType<IApplicableToStoredReplay>())
+                    mod.ApplyToStoredReplay(storedReplay);
+            }
 
             IBeatmap playableBeatmap = loadPlayableBeatmap(gameplayMods, cancellationToken);
 

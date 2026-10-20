@@ -446,7 +446,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         private double? lastUpdateTime;
 
-        public TypingEngine(LyricBeatmap beatmap, bool literate = false, bool polyglot = false, string? polyglotLanguage = null)
+        // legacyJapaneseSpaces is the Japanese Polyglot SPACE era (backlog 415): a replay recorded
+        // without extended bit 8 keeps the authored original-script spaces between Japanese words as
+        // cells (PolyglotLine.Derive). A CELL LIST era, so it is fixed here at construction rather
+        // than applied from the header; both factories read it off the hit objects the nested
+        // scoring objects were built from (TypeBeatHitObject.LegacyJapaneseSpaces).
+        public TypingEngine(LyricBeatmap beatmap, bool literate = false, bool polyglot = false, string? polyglotLanguage = null, bool legacyJapaneseSpaces = false)
         {
             Beatmap = beatmap ?? throw new ArgumentNullException(nameof(beatmap));
 
@@ -465,7 +470,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             lines = new List<TypingLine>(beatmap.Lines.Count);
 
             foreach (var line in beatmap.Lines)
-                lines.Add(TypingLine.ForMods(line, literate, polyglot, polyglotLanguage, japaneseCharacterTiming: true));
+                lines.Add(TypingLine.ForMods(line, literate, polyglot, polyglotLanguage, japaneseCharacterTiming: true, legacyJapaneseSpaces: legacyJapaneseSpaces));
 
             lineSealed = new bool[lines.Count];
             lineAbandoned = new bool[lines.Count];
