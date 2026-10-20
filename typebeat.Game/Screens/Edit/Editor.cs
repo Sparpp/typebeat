@@ -54,7 +54,6 @@ using typebeat.Game.Screens.Edit.Setup;
 using typebeat.Game.Screens.Edit.Submission;
 using typebeat.Game.Screens.Edit.Timing;
 using typebeat.Game.Users;
-using osuTK.Input;
 using WebCommonStrings = typebeat.Game.Resources.Localisation.Web.CommonStrings;
 
 namespace typebeat.Game.Screens.Edit
@@ -643,85 +642,6 @@ namespace typebeat.Game.Screens.Edit
         {
         }
 
-        protected override bool OnKeyDown(KeyDownEvent e)
-        {
-            if (e.ControlPressed || e.AltPressed || e.SuperPressed) return false;
-
-            switch (e.Key)
-            {
-                case Key.Left:
-                    seek(e, -1);
-                    return true;
-
-                case Key.Right:
-                    seek(e, 1);
-                    return true;
-
-                // Of those, these two keys are reversed from stable because it feels more natural (and matches mouse wheel scroll directionality).
-                case Key.Up:
-                    seekControlPoint(-1);
-                    return true;
-
-                case Key.Down:
-                    seekControlPoint(1);
-                    return true;
-
-                // Track traversal keys.
-                // Matching osu-stable implementations.
-                case Key.Z:
-                    if (e.Repeat)
-                        return false;
-
-                    // Seek to first object time, or track start if already there.
-                    double? firstObjectTime = editorBeatmap.HitObjects.FirstOrDefault()?.StartTime;
-
-                    if (firstObjectTime == null || clock.CurrentTime == firstObjectTime)
-                        clock.Seek(0);
-                    else
-                        clock.Seek(firstObjectTime.Value);
-                    return true;
-
-                case Key.X:
-                    if (e.Repeat)
-                        return false;
-
-                    // Restart playback from beginning of track.
-                    clock.Seek(0);
-                    clock.Start();
-                    return true;
-
-                case Key.C:
-                    if (e.Repeat)
-                        return false;
-
-                    // Pause or resume.
-                    if (clock.IsRunning)
-                        clock.Stop();
-                    else
-                        clock.Start();
-                    return true;
-
-                case Key.V:
-                    if (e.Repeat)
-                        return false;
-
-                    // Seek to last object time, or track end if already there.
-                    // Note that in osu-stable subsequent presses when at track end won't return to last object.
-                    // This has intentionally been changed to make it more useful.
-                    if (!editorBeatmap.HitObjects.Any())
-                    {
-                        clock.Seek(clock.TrackLength);
-                        return true;
-                    }
-
-                    double lastObjectTime = editorBeatmap.GetLastObjectTime();
-                    clock.Seek(clock.CurrentTime == lastObjectTime ? clock.TrackLength : lastObjectTime);
-                    return true;
-            }
-
-            return base.OnKeyDown(e);
-        }
-
         private double scrollAccumulation;
 
         protected override bool OnScroll(ScrollEvent e)
@@ -762,6 +682,22 @@ namespace typebeat.Game.Screens.Edit
             // Repeatable actions
             switch (e.Action)
             {
+                case GlobalAction.EditorSeekBackwards:
+                    seek(e, -1);
+                    return true;
+
+                case GlobalAction.EditorSeekForwards:
+                    seek(e, 1);
+                    return true;
+
+                case GlobalAction.EditorSeekToPreviousTimingPoint:
+                    seekControlPoint(-1);
+                    return true;
+
+                case GlobalAction.EditorSeekToNextTimingPoint:
+                    seekControlPoint(1);
+                    return true;
+
                 case GlobalAction.EditorSeekToPreviousHitObject:
                     if (editorBeatmap.SelectedHitObjects.Any())
                         return false;
@@ -816,6 +752,58 @@ namespace typebeat.Game.Screens.Edit
 
                     submitBeatmap();
                     return true;
+
+                // Track traversal keys.
+                // Matching osu-stable implementations.
+                case GlobalAction.EditorSeekToStart:
+                    if (e.Repeat)
+                        return false;
+
+                    // Seek to first object time, or track start if already there.
+                    double? firstObjectTime = editorBeatmap.HitObjects.FirstOrDefault()?.StartTime;
+
+                    if (firstObjectTime == null || clock.CurrentTime == firstObjectTime)
+                        clock.Seek(0);
+                    else
+                        clock.Seek(firstObjectTime.Value);
+                    return true;
+
+                case GlobalAction.EditorPlayFromStart:
+                    if (e.Repeat)
+                        return false;
+
+                    // Restart playback from beginning of track.
+                    clock.Seek(0);
+                    clock.Start();
+                    return true;
+
+                case GlobalAction.EditorTogglePause:
+                    if (e.Repeat)
+                        return false;
+
+                    // Pause or resume.
+                    if (clock.IsRunning)
+                        clock.Stop();
+                    else
+                        clock.Start();
+                    return true;
+
+                case GlobalAction.EditorSeekToEnd:
+                    if (e.Repeat)
+                        return false;
+
+                    // Seek to last object time, or track end if already there.
+                    // Note that in osu-stable subsequent presses when at track end won't return to last object.
+                    // This has intentionally been changed to make it more useful.
+                    if (!editorBeatmap.HitObjects.Any())
+                    {
+                        clock.Seek(clock.TrackLength);
+                        return true;
+                    }
+
+                    double lastObjectTime = editorBeatmap.GetLastObjectTime();
+                    clock.Seek(clock.CurrentTime == lastObjectTime ? clock.TrackLength : lastObjectTime);
+                    return true;
             }
 
             return false;
@@ -868,8 +856,7 @@ namespace typebeat.Game.Screens.Edit
             realm.Write(r =>
             {
                 var beatmap = r.Find<BeatmapInfo>(editorBeatmap.BeatmapInfo.ID);
-                if (beatmap != null)
-                    beatmap.EditorTimestamp = clock.CurrentTime;
+                beatmap?.EditorTimestamp = clock.CurrentTime;
             });
 
             // `resetTrack()` MUST happen before `refetchBeatmap()`, because along other things, `refetchBeatmap()` causes a global working beatmap change,
@@ -1482,7 +1469,7 @@ namespace typebeat.Game.Screens.Edit
             return new EditorMenuItem(EditorStrings.CreateNewDifficulty) { Items = rulesetItems };
         }
 
-        protected void CreateNewDifficulty(RulesetInfo rulesetInfo)
+        protected internal void CreateNewDifficulty(RulesetInfo rulesetInfo)
         {
             if (isNewBeatmap)
             {
@@ -1537,8 +1524,7 @@ namespace typebeat.Game.Screens.Edit
                 foreach (var beatmapInfo in Beatmap.Value.BeatmapSetInfo.Beatmaps)
                 {
                     var menuItem = difficultyItems.OfType<DifficultyMenuItem>().FirstOrDefault(i => i.BeatmapInfo.Equals(beatmapInfo));
-                    if (menuItem != null)
-                        menuItem.Text.Value = string.IsNullOrEmpty(beatmapInfo.DifficultyName) ? "(unnamed)" : beatmapInfo.DifficultyName;
+                    menuItem?.Text.Value = string.IsNullOrEmpty(beatmapInfo.DifficultyName) ? "(unnamed)" : beatmapInfo.DifficultyName;
                 }
             };
 

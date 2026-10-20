@@ -177,21 +177,6 @@ namespace typebeat.Game.Screens.Edit.Components
             base.Dispose(isDisposing);
         }
 
-        protected override bool OnKeyDown(KeyDownEvent e)
-        {
-            if (e.Repeat)
-                return false;
-
-            switch (e.Key)
-            {
-                case Key.Space:
-                    togglePause();
-                    return true;
-            }
-
-            return base.OnKeyDown(e);
-        }
-
         private void togglePause()
         {
             if (editorClock.IsRunning)

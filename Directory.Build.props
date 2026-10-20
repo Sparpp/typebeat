@@ -1,12 +1,14 @@
 ﻿<!-- Contains required properties for type!beatframework projects. -->
 <Project>
   <PropertyGroup Label="C#">
-    <LangVersion>12.0</LangVersion>
+    <LangVersion>14.0</LangVersion>
     <Nullable>enable</Nullable>
     <!-- Stabilises hot reload, see: https://platform.uno/docs/articles/studio/Hot%20Reload/hot-reload-overview.html?tabs=vswin%2Cwindows%2Cskia-desktop%2Ccommon-issues -->
     <GenerateAssemblyInfo Condition="'$(Configuration)'=='Debug'">false</GenerateAssemblyInfo>
     <!-- Required due to the above  -->
     <NoWarn Condition="'$(Configuration)'=='Debug'">$(NoWarn);CA1416</NoWarn>
+    <!-- https://github.com/dotnet/runtime/issues/129562 -->
+    <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
   </PropertyGroup>
   <PropertyGroup>
     <ApplicationManifest>$(MSBuildThisFileDirectory)app.manifest</ApplicationManifest>
@@ -53,4 +55,18 @@
     <Copyright>Copyright (c) 2026 Sparpp</Copyright>
     <PackageTags>typebeat rhythm typing game</PackageTags>
   </PropertyGroup>
+  <ItemGroup Label="NuGet audit">
+    <!-- SixLabors.ImageSharp 3.1.11 comes in through osu-framework, which pins it. No 3.x release fixes
+         these; the only fixed version is 4.1.2, a major version osu-framework does not use. Reviewed
+         2026-10-17. Remove these lines once osu-framework moves to a fixed ImageSharp.
+         - Encoder and filter bugs the game never calls (it saves no TIFF, uses no histogram equalisation): -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-j9gm-c75j-xc9q" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-jjfr-hcj7-qf5w" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-j3p4-wp97-rph4" />
+    <!-- - BigTIFF decoder endless loop: TIFF decoding is switched off (typebeat.Game/Graphics/ImageDecodingGuard.cs). -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-wmxv-xphr-5c9g" />
+    <!-- - ICC profile CLUT allocation: NOT mitigated. Moderate (memory use from a crafted image's colour
+           profile); accepted until osu-framework updates. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-gwg2-r3hj-4w44" />
+  </ItemGroup>
 </Project>

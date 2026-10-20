@@ -6,7 +6,7 @@ using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
 using osu.Framework.Graphics.Sprites;
-using osu.Framework.Graphics.Textures;
+using typebeat.Game.Graphics;
 using typebeat.Game.Online.API.Requests.Responses;
 
 namespace typebeat.Game.Users.Drawables
@@ -44,9 +44,9 @@ namespace typebeat.Game.Users.Drawables
         }
 
         [BackgroundDependencyLoader]
-        private void load(LargeTextureStore textures)
+        private void load(OnlineAssetCachingStore textures)
         {
-            if (team != null)
+            if (team?.FlagUrl != null)
                 sprite.Texture = textures.Get(team.FlagUrl);
         }
     }

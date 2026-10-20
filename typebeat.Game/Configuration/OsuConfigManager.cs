@@ -54,6 +54,7 @@ namespace typebeat.Game.Configuration
 
             SetDefault(OsuSetting.SongSelectGroupMode, GroupMode.None);
             SetDefault(OsuSetting.SongSelectSortingMode, SortMode.Title);
+            SetDefault(OsuSetting.SongSelectCollectionFilter, string.Empty);
 
             SetDefault(OsuSetting.RandomSelectAlgorithm, RandomSelectAlgorithm.RandomPermutation);
             SetDefault(OsuSetting.ModSelectHotkeyStyle, ModSelectHotkeyStyle.Sequential);
@@ -136,7 +137,10 @@ namespace typebeat.Game.Configuration
 
             SetDefault(OsuSetting.CursorRotation, true);
 
+#pragma warning disable CS0612 // Type or member is obsolete (setting default value to avoid risk of any future crashes)
             SetDefault(OsuSetting.MenuParallax, true);
+#pragma warning restore CS0612 // Type or member is obsolete
+            SetDefault(OsuSetting.MenuParallaxScale, 1.0f, 0.0f, 2.0f, 0.1f);
 
             // See https://stackoverflow.com/a/63307411 for default sourcing.
             SetDefault(OsuSetting.Prefer24HourTime, !CultureInfoHelper.SystemCulture.DateTimeFormat.ShortTimePattern.Contains(@"tt"));
@@ -223,6 +227,7 @@ namespace typebeat.Game.Configuration
 
             SetDefault(OsuSetting.MultiplayerRoomFilter, RoomPermissionsFilter.All);
             SetDefault(OsuSetting.MultiplayerShowInProgressFilter, true);
+            SetDefault(OsuSetting.MultiplayerShowFullFilter, false);
 
             SetDefault(OsuSetting.LastProcessedMetadataId, -1);
 
@@ -249,6 +254,8 @@ namespace typebeat.Game.Configuration
 
             SetDefault(OsuSetting.DashboardSortMode, UserSortCriteria.LastVisit);
             SetDefault(OsuSetting.DashboardDisplayStyle, OverlayPanelDisplayStyle.Card);
+
+            SetDefault(OsuSetting.PMFriendsOnly, false);
         }
 
         protected override bool CheckLookupContainsPrivateInformation(OsuSetting lookup)
@@ -376,7 +383,11 @@ namespace typebeat.Game.Configuration
         MenuVoice,
         MenuTips,
         CursorRotation,
-        MenuParallax,
+
+        [Obsolete]
+        MenuParallax, // todo: can be removed 20270101
+
+        MenuParallaxScale,
         Prefer24HourTime,
         BeatmapDetailTab,
         BeatmapLeaderboardSortMode,
@@ -389,6 +400,7 @@ namespace typebeat.Game.Configuration
         DisplayStarsMaximum,
         SongSelectGroupMode,
         SongSelectSortingMode,
+        SongSelectCollectionFilter,
         RandomSelectAlgorithm,
         ModSelectHotkeyStyle,
         ShowFpsDisplay,
@@ -461,6 +473,7 @@ namespace typebeat.Game.Configuration
         EditorAdjustExistingObjectsOnTimingChanges,
         AlwaysRequireHoldingForPause,
         MultiplayerShowInProgressFilter,
+        MultiplayerShowFullFilter,
         BeatmapListingFeaturedArtistFilter,
         ShowMobileDisclaimer,
         EditorShowStoryboard,
@@ -479,7 +492,7 @@ namespace typebeat.Game.Configuration
 
         DashboardSortMode,
         DashboardDisplayStyle,
-        SeparateAllDifficulties
+        SeparateAllDifficulties,
 
         // NOTE (backlog 383): there used to be a KeyboardLayout member here, the layout the player's
         // keycaps follow. Gameplay typing reads the OS's committed text since 383, and the shortcuts
@@ -487,5 +500,10 @@ namespace typebeat.Game.Configuration
         // retired rather than renamed. A stored "KeyboardLayout = ..." line in game.ini needs no
         // migration: the ini loader skips a key it cannot parse into this enum, and the next save
         // writes the file without it. Do not reuse the name for something else.
+
+        /// <summary>
+        /// Blocks private messages, multiplayer room invites, and duel requests from people not on the user's friends list.
+        /// </summary>
+        PMFriendsOnly,
     }
 }
