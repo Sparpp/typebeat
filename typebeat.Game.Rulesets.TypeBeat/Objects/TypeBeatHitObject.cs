@@ -53,6 +53,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects
         /// </summary>
         public string? PolyglotLanguage { get; set; }
 
+        /// <summary>
+        /// The Japanese Polyglot SPACE era of the replay this beatmap plays back (backlog 415): set,
+        /// an authored original-script space between Japanese words stays a cell, as it did before
+        /// extended bit 8 (see <see cref="Gameplay.PolyglotLine.Derive"/>). Stamped with
+        /// <see cref="Polyglot"/> from <see cref="Mods.TypeBeatModPolyglot.LegacyJapaneseSpaces"/>,
+        /// and read by both engine factories, so the engine and the nested objects cut the same
+        /// cells. Play-time only, never persisted.
+        /// </summary>
+        public bool LegacyJapaneseSpaces { get; set; }
+
 
         /// <summary>The line remains typeable until EndTime + SealGraceMs; osu sees that as the object's end.</summary>
         public double EndTime => Line.EndTime + Line.SealGraceMs;
@@ -77,7 +87,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects
             // here can differ from the live engine's aligned TargetTime: anything that has to agree
             // with judgement reads the engine's cells instead (see TypeBeatPlayfield's seal grant).
 
-            var typingLine = TypingLine.ForMods(Line, Literate, Polyglot, PolyglotLanguage, japaneseCharacterTiming: true);
+            var typingLine = TypingLine.ForMods(Line, Literate, Polyglot, PolyglotLanguage, japaneseCharacterTiming: true, legacyJapaneseSpaces: LegacyJapaneseSpaces);
 
 
             for (int i = 0; i < typingLine.Cells.Count; i++)

@@ -229,7 +229,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             bool polyglot = Mods?.Any(m => m is TypeBeatModPolyglot) == true;
             string? polyglotLanguage = polyglot ? TypeBeatModPolyglot.LanguageFor(Beatmap) : null;
 
-            var created = new TypingEngine(lyricBeatmap, literate, polyglot, polyglotLanguage)
+            // The Japanese SPACE era (backlog 415) changes the cell list too, and is read off the
+            // stamp the nested scoring objects were built from: the player set it on the mod from
+            // the stored replay before this beatmap was built (TypeBeatModPolyglot.ApplyToStoredReplay).
+            bool legacyJapaneseSpaces = polyglot && lineObjects.Any(h => h.LegacyJapaneseSpaces);
+
+            var created = new TypingEngine(lyricBeatmap, literate, polyglot, polyglotLanguage, legacyJapaneseSpaces)
             {
                 // THE live judgement rule since backlog 179, for every player and (since backlog
                 // 180) every mod stack but Hard Rock, which turns it back off from its own

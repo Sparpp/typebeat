@@ -15,6 +15,7 @@ using typebeat.Game.Configuration;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Input.Bindings;
+using typebeat.Game.Replays;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Scoring;
 using typebeat.Game.Screens.Play.HUD;
@@ -69,10 +70,20 @@ namespace typebeat.Game.Screens.Play
             return false;
         }
 
+        /// <summary>
+        /// The score handed to the constructor, when there was one: its replay is known before the
+        /// playable beatmap is built (see <see cref="Player.StoredReplay"/>). Null for a score created
+        /// from the beatmap, which is never a stored one.
+        /// </summary>
+        private readonly Score? storedScore;
+
         public ReplayPlayer(Score score, PlayerConfiguration? configuration = null)
             : this((_, _) => score, configuration)
         {
+            storedScore = score;
         }
+
+        protected override Replay? StoredReplay => storedScore?.Replay;
 
         public ReplayPlayer(Func<IBeatmap, IReadOnlyList<Mod>, Score> createScore, PlayerConfiguration? configuration = null)
             : base(configuration)
