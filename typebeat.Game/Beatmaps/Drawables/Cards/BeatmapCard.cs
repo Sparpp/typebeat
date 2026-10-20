@@ -88,7 +88,7 @@ namespace typebeat.Game.Beatmaps.Drawables.Cards
                 switch (DownloadTracker.State.Value)
                 {
                     case DownloadState.NotDownloaded:
-                        if (!BeatmapSet.Availability.DownloadDisabled) beatmaps?.Download(BeatmapSet, preferNoVideo.Value);
+                        if (OnlineSetDownload.IsDownloadable(BeatmapSet)) beatmaps?.Download(BeatmapSet, preferNoVideo.Value);
                         break;
 
                     case DownloadState.LocallyAvailable:

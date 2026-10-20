@@ -92,6 +92,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         private partial class TestProcessor : BackgroundDataStoreProcessor
         {
             public bool Finished => ProcessingTask.IsCompleted;
+
+            // The processor skips its pass under NUnit (upstream osu! #38379), and this test is about that pass.
+            protected override bool SkipProcessing => false;
         }
 
         private class NotPlaying : ILocalUserPlayInfo

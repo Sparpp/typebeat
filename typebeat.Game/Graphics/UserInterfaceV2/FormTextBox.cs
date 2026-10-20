@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
-using osu.Framework.Extensions.IEnumerableExtensions;
 using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
@@ -60,12 +59,12 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
         private readonly BindableWithCurrent<string> current = new BindableWithCurrent<string>();
 
         /// <summary>
-        /// Caption describing this slider bar, displayed on top of the controls.
+        /// Caption describing this control, displayed on top of the controls.
         /// </summary>
         public LocalisableString Caption { get; init; }
 
         /// <summary>
-        /// Hint text containing an extended description of this slider bar, displayed in a tooltip when hovering the caption.
+        /// Hint text containing an extended description of this control, displayed in a tooltip when hovering the caption.
         /// </summary>
         public LocalisableString HintText { get; init; }
 
@@ -81,6 +80,12 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
 
         public bool SelectAllOnFocus { get; init; }
 
+        /// <summary>
+        /// Extra room kept clear on the right of the caption and text, for a control that draws
+        /// something over the card's right edge (see <see cref="FormColourSwatch"/>).
+        /// </summary>
+        public float ContentRightInset { get; init; }
+
         private FormControlBackground background = null!;
         private InnerTextBox textBox = null!;
         private FormFieldCaption caption = null!;
@@ -92,7 +97,7 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
         private OverlayColourProvider colourProvider { get; set; } = null!;
 
         [BackgroundDependencyLoader]
-        private void load(OsuColour colours)
+        private void load()
         {
             RelativeSizeAxes = Axes.X;
             AutoSizeAxes = Axes.Y;
@@ -104,7 +109,7 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
                 {
                     RelativeSizeAxes = Axes.X,
                     AutoSizeAxes = Axes.Y,
-                    Padding = new MarginPadding(9),
+                    Padding = new MarginPadding(9) { Right = 9 + ContentRightInset },
                     Spacing = new Vector2(0, 4),
                     Children = new Drawable[]
                     {
@@ -219,6 +224,7 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
                 Height = 16;
                 TextContainer.Height = 1;
                 BackgroundUnfocused = BackgroundFocused = BackgroundCommit = Colour4.Transparent;
+                CornerRadius = 0;
             }
 
             protected override SpriteText CreatePlaceholder() => base.CreatePlaceholder().With(t => t.Margin = default);
@@ -253,7 +259,7 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
 
         public bool IsDisabled => current.Disabled;
 
-        public IEnumerable<LocalisableString> FilterTerms => Caption.Yield();
+        public IEnumerable<LocalisableString> FilterTerms => new[] { Caption, HintText };
 
         public float MainDrawHeight => DrawHeight;
     }

@@ -84,8 +84,7 @@ namespace typebeat.Game.Graphics.UserInterface
 
         protected void UpdateDisplay()
         {
-            if (displayedCountText != null)
-                displayedCountText.Text = FormatCount(DisplayedCount);
+            displayedCountText?.Text = FormatCount(DisplayedCount);
         }
 
         protected override void LoadComplete()

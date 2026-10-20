@@ -68,9 +68,6 @@ namespace typebeat.Game.Users
         private ChatOverlay? chatOverlay { get; set; }
 
         [Resolved]
-        private IDialogOverlay? dialogOverlay { get; set; }
-
-        [Resolved]
         protected OverlayColourProvider? ColourProvider { get; private set; }
 
         [Resolved]
@@ -116,12 +113,12 @@ namespace typebeat.Game.Users
         /// <summary>
         /// Panel background container. Can be null if a panel doesn't want a background under it's layout
         /// </summary>
-        protected virtual Drawable? CreateBackground() => Background = new UserCoverBackground
+        protected virtual Drawable? CreateBackground() => Background = new CoverBackground
         {
             RelativeSizeAxes = Axes.Both,
             Anchor = Anchor.Centre,
             Origin = Anchor.Centre,
-            User = User
+            Model = User
         };
 
         protected OsuSpriteText CreateUsername() => new OsuSpriteText
@@ -185,9 +182,7 @@ namespace typebeat.Game.Users
                     chatOverlay?.Show();
                 }));
 
-                items.Add(!isUserBlocked()
-                    ? new OsuMenuItem(UsersStrings.BlocksButtonBlock, MenuItemType.Destructive, () => dialogOverlay?.Push(ConfirmBlockActionDialog.Block(User)))
-                    : new OsuMenuItem(UsersStrings.BlocksButtonUnblock, MenuItemType.Standard, () => dialogOverlay?.Push(ConfirmBlockActionDialog.Unblock(User))));
+                // No Block / Unblock: the server keeps no blocks (see DrawableChatUsername).
 
                 if (isUserOnline())
                 {
@@ -205,7 +200,6 @@ namespace typebeat.Game.Users
 
                 bool isUserOnline() => metadataClient?.GetPresence(User.OnlineID) != null;
                 bool canInviteUser() => isUserOnline() && multiplayerClient?.Room?.Users.All(u => u.UserID != User.Id) == true && multiplayerClient?.Room?.Settings.MatchType.IsMatchmakingType() != true;
-                bool isUserBlocked() => api.LocalUserState.Blocks.Any(b => b.TargetID == User.OnlineID);
             }
         }
 

@@ -11,6 +11,7 @@ using osu.Framework.Development;
 using osu.Framework.Logging;
 using osu.Framework.Platform;
 using typebeat.Game;
+using typebeat.Game.Input;
 using typebeat.Game.IPC;
 using typebeat.Game.Utils;
 using SDL;
@@ -118,6 +119,18 @@ namespace typebeat.Desktop
                         gameName = $"{base_game_name}-{clientID}";
                         break;
                 }
+            }
+
+            // The raw keyboard fallback setting has to reach SDL as an environment variable before SDL's
+            // first call (it snapshots the environment then), which is inside host.Run, so it is read here
+            // straight from game.ini. Nothing above this touches SDL on a supported Windows version.
+            if (OperatingSystem.IsWindows())
+            {
+                string defaultStoragePath = RawKeyboardFallback.DefaultStoragePath(RuntimeInfo.StartupDirectory,
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), gameName);
+
+                if (RawKeyboardFallback.Apply(defaultStoragePath))
+                    Logger.Log(@"Raw keyboard input is disabled by the input settings.");
             }
 
             var hostOptions = new HostOptions

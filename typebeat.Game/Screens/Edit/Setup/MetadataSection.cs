@@ -80,8 +80,7 @@ namespace typebeat.Game.Screens.Edit.Setup
                 }
             };
 
-            if (setupScreen != null)
-                setupScreen.MetadataChanged += reloadMetadata;
+            setupScreen?.MetadataChanged += reloadMetadata;
 
             reloadMetadata();
         }

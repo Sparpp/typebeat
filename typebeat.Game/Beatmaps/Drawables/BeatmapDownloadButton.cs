@@ -105,7 +105,12 @@ namespace typebeat.Game.Beatmaps.Drawables
                         break;
 
                     default:
-                        if ((beatmapSet as IBeatmapSetOnlineInfo)?.Availability.DownloadDisabled == true)
+                        if (beatmapSet is APIBeatmapSet onlineSet && !OnlineSetDownload.IsDownloadable(onlineSet))
+                        {
+                            button.Enabled.Value = false;
+                            button.TooltipText = OnlineSetDownload.UnavailableTooltip(onlineSet);
+                        }
+                        else if ((beatmapSet as IBeatmapSetOnlineInfo)?.Availability.DownloadDisabled == true)
                         {
                             button.Enabled.Value = false;
                             button.TooltipText = BeatmapsetsStrings.AvailabilityDisabled;

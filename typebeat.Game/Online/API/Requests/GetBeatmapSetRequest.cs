@@ -20,6 +20,18 @@ namespace typebeat.Game.Online.API.Requests
 
         // public read: the website shows the same set to anyone.
         public override bool AllowsAnonymous => true;
+
+        protected override void PostProcess()
+        {
+            base.PostProcess();
+
+            if (Response != null)
+            {
+                // set up backlinks to the set model from individual beatmaps so that consumers can freely traverse in both directions.
+                foreach (var beatmap in Response.Beatmaps)
+                    beatmap.BeatmapSet = Response;
+            }
+        }
     }
 
     public enum BeatmapSetLookupType

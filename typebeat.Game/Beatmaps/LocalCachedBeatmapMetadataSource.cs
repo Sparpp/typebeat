@@ -147,6 +147,9 @@ namespace typebeat.Game.Beatmaps
         private SqliteConnection getConnection() =>
             new SqliteConnection(string.Concat(@"Data Source=", storage.GetFullPath(@"online.db", true)));
 
+        /// <summary>
+        /// Force an immediate fetch of the latest cache database.
+        /// </summary>
         public Task FetchCache()
         {
             // Never fetch: the upstream cache is osu!'s (see shouldFetchCache). Callers that

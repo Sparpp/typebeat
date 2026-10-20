@@ -222,8 +222,7 @@ namespace typebeat.Game.Overlays.BeatmapSet
 
         private void updateExternalLink()
         {
-            if (externalLink != null)
-                externalLink.Link = Picker.Beatmap.Value?.GetOnlineURL(api) ?? BeatmapSet.Value?.GetOnlineURL(api);
+            externalLink?.Link = Picker.Beatmap.Value?.GetOnlineURL(api) ?? BeatmapSet.Value?.GetOnlineURL(api);
         }
 
         [BackgroundDependencyLoader]
@@ -253,9 +252,6 @@ namespace typebeat.Game.Overlays.BeatmapSet
                 }
                 else
                 {
-                    foreach (var beatmap in newBeatmapSet.Beatmaps)
-                        beatmap.BeatmapSet = newBeatmapSet;
-
                     downloadTracker = new BeatmapDownloadTracker(newBeatmapSet);
                     downloadTracker.State.BindValueChanged(_ => updateDownloadButtons());
                     AddInternal(downloadTracker);
@@ -305,7 +301,7 @@ namespace typebeat.Game.Overlays.BeatmapSet
         {
             if (BeatmapSet.Value == null) return;
 
-            if (BeatmapSet.Value.Availability.DownloadDisabled && downloadTracker.State.Value != DownloadState.LocallyAvailable)
+            if (!OnlineSetDownload.IsDownloadable(BeatmapSet.Value) && downloadTracker.State.Value != DownloadState.LocallyAvailable)
             {
                 downloadButtonsContainer.Clear();
                 return;

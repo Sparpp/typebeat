@@ -24,6 +24,7 @@ using osu.Framework.Graphics.Textures;
 using osu.Framework.Input;
 using osu.Framework.Input.Handlers;
 using osu.Framework.Input.Handlers.Joystick;
+using osu.Framework.Input.Handlers.Keyboard;
 using osu.Framework.Input.Handlers.Midi;
 using osu.Framework.Input.Handlers.Mouse;
 using osu.Framework.Input.Handlers.Pen;
@@ -236,7 +237,9 @@ namespace typebeat.Game
         public readonly Bindable<Dictionary<ModType, IReadOnlyList<Mod>>> AvailableMods = new Bindable<Dictionary<ModType, IReadOnlyList<Mod>>>(new Dictionary<ModType, IReadOnlyList<Mod>>());
 
         private BeatmapDifficultyCache difficultyCache;
+
         private IBeatmapUpdater beatmapUpdater;
+        private OnlineAssetCachingStore onlineAssetStore;
 
         private UserLookupCache userCache;
         private BeatmapLookupCache beatmapCache;
@@ -288,6 +291,9 @@ namespace typebeat.Game
         {
             Name = GAME_NAME;
 
+            // Before any texture loads: no TIFF decoding (see ImageDecodingGuard).
+            ImageDecodingGuard.Apply();
+
             allowableExceptions = UnhandledExceptionsBeforeCrash;
         }
 
@@ -333,6 +339,8 @@ namespace typebeat.Game
             var onlineStore = CreateOnlineStore();
             largeStore.AddTextureSource(Host.CreateTextureLoaderStore(onlineStore is TrustedDomainOnlineStore trusted ? new LoopbackAwareStore(trusted) : onlineStore));
             dependencies.Cache(largeStore);
+
+            dependencies.Cache(onlineAssetStore = new OnlineAssetCachingStore(Host, realm, CreateEndpoints()));
 
             dependencies.CacheAs(LocalConfig);
             dependencies.CacheAs<IGameplaySettings>(LocalConfig);
@@ -713,6 +721,10 @@ namespace typebeat.Game
                 case MouseHandler mh:
                     return new MouseSettings(mh);
 
+                // Its one setting is SDL's Windows raw keyboard switch, so it is absent elsewhere.
+                case KeyboardHandler kh when RuntimeInfo.OS == RuntimeInfo.Platform.Windows:
+                    return new KeyboardSettings(kh);
+
                 // return null for handlers that shouldn't have settings.
                 default:
                     return null;
@@ -823,6 +835,8 @@ namespace typebeat.Game
             LocalConfig?.Dispose();
 
             beatmapUpdater?.Dispose();
+
+            onlineAssetStore?.Dispose();
 
             realm?.Dispose();
 

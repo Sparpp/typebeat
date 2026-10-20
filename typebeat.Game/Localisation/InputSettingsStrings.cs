@@ -35,11 +35,6 @@ namespace typebeat.Game.Localisation
         public static LocalisableString SongSelectSection => new TranslatableString(getKey(@"song_select_section"), @"Song Select");
 
         /// <summary>
-        /// "In Game"
-        /// </summary>
-        public static LocalisableString InGameSection => new TranslatableString(getKey(@"in_game_section"), @"In Game");
-
-        /// <summary>
         /// "Replay"
         /// </summary>
         public static LocalisableString ReplaySection => new TranslatableString(getKey(@"replay_section"), @"Replay");
@@ -55,9 +50,9 @@ namespace typebeat.Game.Localisation
         public static LocalisableString EditorSection => new TranslatableString(getKey(@"editor_section"), @"Editor");
 
         /// <summary>
-        /// "Editor: Test play"
+        /// "Test play"
         /// </summary>
-        public static LocalisableString EditorTestPlaySection => new TranslatableString(getKey(@"editor_test_play_section"), @"Editor: Test play");
+        public static LocalisableString EditorTestPlaySection => new TranslatableString(getKey(@"editor_test_play_section"), @"Test play");
 
         /// <summary>
         /// "Reset all bindings in section"
@@ -99,6 +94,32 @@ namespace typebeat.Game.Localisation
         /// "Press a key combination to set a new binding..."
         /// </summary>
         public static LocalisableString PendingBinding => new TranslatableString(getKey(@"press_akey_combination_to"), @"Press a key combination to set a new binding...");
+
+        /// <summary>
+        /// "Clear binding"
+        /// </summary>
+        public static LocalisableString ClearBindingButton => new TranslatableString(getKey(@"clear_binding_button"), @"Clear binding");
+
+        /// <summary>
+        /// "Keyboard"
+        /// </summary>
+        public static LocalisableString Keyboard => new TranslatableString(getKey(@"keyboard"), @"Keyboard");
+
+        /// <summary>
+        /// "Disable raw keyboard input"
+        /// </summary>
+        public static LocalisableString DisableRawKeyboard => new TranslatableString(getKey(@"disable_raw_keyboard"), @"Disable raw keyboard input");
+
+        /// <summary>
+        /// "A fallback in case typing drops or doubles keys. Reads the keyboard through regular window messages instead. Takes effect after a restart."
+        /// </summary>
+        public static LocalisableString DisableRawKeyboardTooltip => new TranslatableString(getKey(@"disable_raw_keyboard_tooltip"),
+            @"A fallback in case typing drops or doubles keys. Reads the keyboard through regular window messages instead. Takes effect after a restart.");
+
+        /// <summary>
+        /// "Restart the game for this to take effect."
+        /// </summary>
+        public static LocalisableString RestartToApply => new TranslatableString(getKey(@"restart_to_apply"), @"Restart the game for this to take effect.");
 
         private static string getKey(string key) => $"{prefix}:{key}";
     }
