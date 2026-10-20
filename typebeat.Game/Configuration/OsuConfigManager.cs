@@ -174,6 +174,9 @@ namespace typebeat.Game.Configuration
             SetDefault(OsuSetting.IncreaseFirstObjectVisibility, true);
             SetDefault(OsuSetting.GameplayDisableWinKey, true);
 
+            // Applied before the window exists by Input.RawKeyboardFallback, which reads game.ini itself.
+            SetDefault(OsuSetting.DisableRawKeyboard, false);
+
             // Update
             SetDefault(OsuSetting.ReleaseStream, ReleaseStream.Lazer);
 
@@ -505,5 +508,13 @@ namespace typebeat.Game.Configuration
         /// Blocks private messages, multiplayer room invites, and duel requests from people not on the user's friends list.
         /// </summary>
         PMFriendsOnly,
+
+        /// <summary>
+        /// Windows only: turns SDL's raw keyboard input off, a fallback should it drop or double keys in
+        /// gameplay typing. It has to be applied before the window is created, so it is read straight from
+        /// game.ini at startup by <see cref="Input.RawKeyboardFallback"/> (by this member's name, like
+        /// every ini key), and a change takes effect on the next start.
+        /// </summary>
+        DisableRawKeyboard,
     }
 }

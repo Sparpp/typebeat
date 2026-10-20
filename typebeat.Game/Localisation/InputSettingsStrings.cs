@@ -100,6 +100,27 @@ namespace typebeat.Game.Localisation
         /// </summary>
         public static LocalisableString ClearBindingButton => new TranslatableString(getKey(@"clear_binding_button"), @"Clear binding");
 
+        /// <summary>
+        /// "Keyboard"
+        /// </summary>
+        public static LocalisableString Keyboard => new TranslatableString(getKey(@"keyboard"), @"Keyboard");
+
+        /// <summary>
+        /// "Disable raw keyboard input"
+        /// </summary>
+        public static LocalisableString DisableRawKeyboard => new TranslatableString(getKey(@"disable_raw_keyboard"), @"Disable raw keyboard input");
+
+        /// <summary>
+        /// "A fallback in case typing drops or doubles keys. Reads the keyboard through regular window messages instead. Takes effect after a restart."
+        /// </summary>
+        public static LocalisableString DisableRawKeyboardTooltip => new TranslatableString(getKey(@"disable_raw_keyboard_tooltip"),
+            @"A fallback in case typing drops or doubles keys. Reads the keyboard through regular window messages instead. Takes effect after a restart.");
+
+        /// <summary>
+        /// "Restart the game for this to take effect."
+        /// </summary>
+        public static LocalisableString RestartToApply => new TranslatableString(getKey(@"restart_to_apply"), @"Restart the game for this to take effect.");
+
         private static string getKey(string key) => $"{prefix}:{key}";
     }
 }
