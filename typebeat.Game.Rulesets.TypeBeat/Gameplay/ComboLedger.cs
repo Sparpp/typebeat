@@ -24,7 +24,8 @@ internal readonly record struct ComboPosition(int LineIndex, int CellIndex)
 
     /// <summary>
     /// THE COMBO LEDGER: the current run, the longest run, WHERE each increment of the run was
-    /// earned, and the one redeemable claim a fixable break (a typo, or a word skip) leaves behind.
+    /// earned, and the redeemable claim a fixable break (a typo, or a word skip) leaves behind (with,
+    /// since backlog 422, the older claims a newer break displaced, see <see cref="displaced"/>).
     /// <see cref="TypingEngine"/> owns one and decides WHEN each operation runs; this class decides
     /// what each does to the run and the claim, which is the whole of the combo arithmetic and none
     /// of the judging.
@@ -39,15 +40,17 @@ internal readonly record struct ComboPosition(int LineIndex, int CellIndex)
         /// <summary>
         /// The era rules a redeemable break is snapshotted under: the engine's
         /// <see cref="TypingEngine.ComboRestore"/>, <see cref="TypingEngine.ComboClaim"/>,
-        /// <see cref="TypingEngine.SkipSpaceCredit"/>, <see cref="TypingEngine.LosslessSkipReclaim"/>
-        /// and <see cref="TypingEngine.FoldsDisplacedClaim"/>, read at the moment of the break.
+        /// <see cref="TypingEngine.SkipSpaceCredit"/>, <see cref="TypingEngine.LosslessSkipReclaim"/>,
+        /// <see cref="TypingEngine.FoldsDisplacedClaim"/> and
+        /// <see cref="TypingEngine.StacksDisplacedClaims"/>, read at the moment of the break.
         /// </summary>
         public readonly record struct ClaimRules(
             ComboRestoreRule Restore,
             ComboClaimRule Claim,
             SkipSpaceCreditRule SkipSpaceCredit,
             bool LosslessSkipReclaim,
-            bool FoldsDisplacedClaim);
+            bool FoldsDisplacedClaim,
+            bool StacksDisplacedClaims = false);
 
         private int combo;
 
@@ -112,24 +115,69 @@ internal readonly record struct ComboPosition(int LineIndex, int CellIndex)
         private (int lineIndex, int cellIndex, int streak, int ownPressCredit, List<ComboPosition> positions)? restorable;
 
         /// <summary>
+        /// The claims a newer break DISPLACED from <see cref="restorable"/>, oldest first, each still
+        /// waiting for its own cell (backlog 422, see <see cref="TypingEngine.StacksDisplacedClaims"/>).
+        /// Empty under every other era, which is what keeps every operation below exactly what it was
+        /// for a stored replay: the stack is only ever pushed by
+        /// <see cref="SnapshotRedeemableBreak"/> under that rule.
+        ///
+        /// <para>Read as a chain of runs separated by breaks: entry <c>i</c> holds the run its break
+        /// cut off, and the run between it and the next newer break is held by entry <c>i + 1</c> (or
+        /// by <see cref="restorable"/> for the newest). Correcting a cell therefore JOINS its run to the
+        /// next newer one, which is a refund to the current run only when no newer break is still
+        /// outstanding. <c>positions.Count == streak</c> holds for every entry, as it does for the
+        /// claim on top.</para>
+        ///
+        /// <para>Never non-empty while <see cref="restorable"/> is null: a redemption of the top claim
+        /// brings the newest entry back up, and every discard clears both.</para>
+        /// </summary>
+        private readonly List<(int lineIndex, int cellIndex, int streak, List<ComboPosition> positions)> displaced =
+            new List<(int lineIndex, int cellIndex, int streak, List<ComboPosition> positions)>();
+
+        /// <summary>
         /// A combo break that is nobody's fixable typo happened, so the outstanding snapshot (if
         /// any) is discarded: the streak it was holding has been lost to THIS break, and correcting
         /// the older cell later cannot bring back a run that ended after it. Called at every
         /// <see cref="TypingEngine.ComboBroken"/> seam except the two that can be walked back into
         /// and are therefore snapshotted instead: a wrong keypress, and (since backlog 167) a word
-        /// skip.
+        /// skip. Every displaced claim below it goes too, for the same reason: their runs could
+        /// only ever reach the current one through this break.
         /// </summary>
-        public void Discard() => restorable = null;
+        public void Discard()
+        {
+            restorable = null;
+            displaced.Clear();
+        }
 
         /// <summary>
         /// A sealed line's cells can never be typed again, so a claim taken on
         /// <paramref name="lineIndex"/> is unredeemable and is dropped, whether or not the seal broke
         /// anything.
+        ///
+        /// <para>Under <see cref="TypingEngine.StacksDisplacedClaims"/> the claim can be one of the
+        /// displaced ones as well as the one on top. Its break is now permanent, so the NEWEST claim on
+        /// the line goes and so does every claim OLDER than it, whatever line those are on: the runs
+        /// they hold could only ever have joined the current one through the break that just became
+        /// final. Claims newer than it are untouched, which is backlog 422's point: the earlier line's
+        /// typo stops being anything a later correction can refund.</para>
         /// </summary>
         public void DropClaimOn(int lineIndex)
         {
             if (restorable?.lineIndex == lineIndex)
+            {
                 restorable = null;
+                displaced.Clear();
+                return;
+            }
+
+            for (int i = displaced.Count - 1; i >= 0; i--)
+            {
+                if (displaced[i].lineIndex == lineIndex)
+                {
+                    displaced.RemoveRange(0, i + 1);
+                    return;
+                }
+            }
         }
 
         /// <summary>Every piece of run state back to the moment before the first frame.</summary>
@@ -139,6 +187,7 @@ internal readonly record struct ComboPosition(int LineIndex, int CellIndex)
             maxCombo = 0;
             runPositions.Clear();
             restorable = null;
+            displaced.Clear();
         }
 
         /// <summary>
@@ -248,7 +297,7 @@ internal readonly record struct ComboPosition(int LineIndex, int CellIndex)
         {
             if (!EraRules.FixRestoresTheComboBreak(rules.Restore))
             {
-                restorable = null;
+                Discard();
                 return;
             }
 
@@ -306,6 +355,23 @@ internal readonly record struct ComboPosition(int LineIndex, int CellIndex)
             // a fourth. Positions go in front of this break's own, oldest first, because a redemption
             // puts them back at the head of the ledger; the count still equals the streak; and the
             // credit still starts at zero, so backlog 243's exemption is not re-armed by folding.
+            //
+            // BACKLOG 422 refines that: the fold above credits the displaced streak whether or not its
+            // own cell is ever corrected, so a typo left wrong on a line that has since sealed was
+            // refunded by correcting the NEWER one. Under StacksDisplacedClaims the displaced claim is
+            // kept, separately, below this one: each break's run comes back only when its own cell
+            // is corrected (see Redeem), and a claim whose line seals is dropped (see DropClaimOn).
+            // Two accidents both corrected still cost nothing, in either order. A displaced claim
+            // holding nothing is not kept, exactly as the fold below ignores one.
+            if (rules.FoldsDisplacedClaim && rules.StacksDisplacedClaims)
+            {
+                if (restorable is (int keptLine, int keptCell, int keptStreak, _, var keptPositions) && keptStreak > 0)
+                    displaced.Add((keptLine, keptCell, keptStreak, keptPositions));
+
+                restorable = (lineIndex, cellIndex, brokenStreak, 0, brokenPositions);
+                return;
+            }
+
             if (rules.FoldsDisplacedClaim && restorable is (_, _, int displacedStreak, _, var displacedPositions) && displacedStreak > 0)
             {
                 var folded = new List<ComboPosition>(displacedPositions.Count + brokenPositions.Count);
@@ -354,11 +420,21 @@ internal readonly record struct ComboPosition(int LineIndex, int CellIndex)
         /// (backlog 167). In both cases the cell is the one the player has to come back to, so
         /// typing it is what says they came back.</para>
         ///
+        /// <para>Under <see cref="TypingEngine.StacksDisplacedClaims"/> the cell can also be one a
+        /// DISPLACED claim is waiting for (backlog 422, see <see cref="displaced"/>). Correcting it
+        /// joins that claim's run to the run after it, which is still broken by a newer outstanding
+        /// claim, so nothing is refunded NOW: the streak and positions fold into the next newer claim
+        /// (oldest positions in front), and come back when that one is redeemed in turn. Redeeming the
+        /// claim on top brings the newest displaced one back up to wait for its own cell, so two
+        /// accidents corrected in either order both come back, and one left wrong stays lost.</para>
+        ///
         /// <para>Returns the streak put back, which the engine announces on
         /// <see cref="TypingEngine.ComboRestored"/>, or 0 when nothing was restored.</para>
         /// </summary>
         public int Redeem(int activeLineIndex, int cellIndex)
         {
+            joinDisplacedClaimsOn(activeLineIndex, cellIndex);
+
             if (restorable is not (int lineIndex, int typoCellIndex, int streak, _, var positions))
                 return 0;
 
@@ -366,6 +442,17 @@ internal readonly record struct ComboPosition(int LineIndex, int CellIndex)
                 return 0;
 
             restorable = null;
+
+            // The newest displaced claim is the next break back, and with this one corrected the
+            // current run reaches all the way to it: it is the claim on top now. Its press credit is
+            // zero, since the run it would describe is no longer the one its own press rebuilt.
+            if (displaced.Count > 0)
+            {
+                var (nextLine, nextCell, nextStreak, nextPositions) = displaced[^1];
+
+                displaced.RemoveAt(displaced.Count - 1);
+                restorable = (nextLine, nextCell, nextStreak, 0, nextPositions);
+            }
 
             // A break that cost nothing restores nothing, and announcing it would have every
             // consumer write back a combo it already holds.
@@ -382,6 +469,53 @@ internal readonly record struct ComboPosition(int LineIndex, int CellIndex)
             runPositions.InsertRange(0, positions);
 
             return streak;
+        }
+
+        /// <summary>
+        /// Fold every displaced claim waiting for cell <paramref name="cellIndex"/> of line
+        /// <paramref name="lineIndex"/> into the next newer claim (backlog 422, see
+        /// <see cref="Redeem"/>). Walked oldest first, so a claim folded into a newer one that is
+        /// waiting for the same cell is carried on with it. A no-op whenever the stack is empty, which
+        /// is every era but <see cref="TypingEngine.StacksDisplacedClaims"/>.
+        /// </summary>
+        private void joinDisplacedClaimsOn(int lineIndex, int cellIndex)
+        {
+            int i = 0;
+
+            while (i < displaced.Count)
+            {
+                var (claimLine, claimCell, claimStreak, claimPositions) = displaced[i];
+
+                if (claimLine != lineIndex || claimCell != cellIndex)
+                {
+                    i++;
+                    continue;
+                }
+
+                displaced.RemoveAt(i);
+
+                // Index i now names the next newer displaced claim, or, past the end, the claim on
+                // top (never null while the stack is non-empty). The joined run was earned first, so
+                // its positions go in front; the counts still equal the streaks.
+                if (i < displaced.Count)
+                {
+                    var (newerLine, newerCell, newerStreak, newerPositions) = displaced[i];
+                    displaced[i] = (newerLine, newerCell, claimStreak + newerStreak, joined(claimPositions, newerPositions));
+                }
+                else if (restorable is (int topLine, int topCell, int topStreak, int topCredit, var topPositions))
+                {
+                    restorable = (topLine, topCell, claimStreak + topStreak, topCredit, joined(claimPositions, topPositions));
+                }
+            }
+        }
+
+        private static List<ComboPosition> joined(List<ComboPosition> older, List<ComboPosition> newer)
+        {
+            var result = new List<ComboPosition>(older.Count + newer.Count);
+
+            result.AddRange(older);
+            result.AddRange(newer);
+            return result;
         }
     }
 }

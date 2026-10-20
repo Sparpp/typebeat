@@ -341,6 +341,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public bool FoldsDisplacedClaim { get; set; }
 
         /// <summary>
+        /// DISPLACED CLAIMS STACK (backlog 422), a refinement of <see cref="FoldsDisplacedClaim"/> and
+        /// read only alongside it: correcting a broken cell refunds the run THAT break broke, and
+        /// nothing owed to another break unless that break's cell is corrected too.
+        ///
+        /// <para>The fold credited the displaced streak whether or not its cell was ever fixed. A
+        /// player who typo'd a cell on one line, left it wrong, moved on and typo'd a cell on the next
+        /// line got the combo back to its value before the FIRST typo by correcting only the second:
+        /// a cell left wrong is not a miss at seal (backlog 124), so the seal's back-dated break
+        /// (<see cref="BackDatedSealBreak"/>) had nothing to claw back.</para>
+        ///
+        /// <para>Under this rule the displaced claim is kept, separately, below the new one (a stack,
+        /// oldest first). Correcting the cell on top refunds its own streak and brings the next one
+        /// down back up; correcting a cell further down joins its streak to the next newer claim,
+        /// because the run after it is still broken by that newer claim. So two accidents both fully
+        /// corrected still cost nothing, in either order, which keeps backlog 262's report whole, and
+        /// one left wrong costs exactly the run it broke. A sealed line's claims, and every claim
+        /// older than the newest of them, are dropped at the seal (<see cref="ComboLedger.DropClaimOn"/>):
+        /// their cells can no longer be corrected. Positions travel with their streaks throughout, so
+        /// <c>positions.Count == streak</c> holds for every claim.</para>
+        ///
+        /// <para>FALSE by default, and era-styled exactly like <see cref="FoldsDisplacedClaim"/>. Live
+        /// play sets it for EVERY mod stack (<c>DrawableTypeBeatRuleset.createEngine</c>), because no
+        /// mod has an opinion about what an uncorrected typo costs. It travels per replay on bit 14
+        /// (value 16384) of the SECOND CONFIG flags word
+        /// (<see cref="Replays.TypeBeatReplayFrame.StacksDisplacedClaims"/>), so every replay recorded
+        /// before it carries the bit clear and re-derives with the fold, which is the
+        /// <c>max_combo</c> and the <c>total_score</c> its player was given. It moves only COMBO.</para>
+        /// </summary>
+        public bool StacksDisplacedClaims { get; set; }
+
+        /// <summary>
         /// Whether <see cref="AllowWrongInput"/> reaches the WORD GAP as well as the lyric
         /// characters (backlog 181). With it on, a wrong (non-space) key pressed while the caret
         /// sits on a space cell is typed THROUGH exactly like a wrong letter on a lyric cell: the

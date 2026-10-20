@@ -24,7 +24,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private int maxCombo => ledger.MaxCombo;
 
         /// <summary>The era rules a redeemable break is snapshotted under, as this engine is set now.</summary>
-        private ComboLedger.ClaimRules claimRules => new ComboLedger.ClaimRules(ComboRestore, ComboClaim, SkipSpaceCredit, LosslessSkipReclaim, FoldsDisplacedClaim);
+        private ComboLedger.ClaimRules claimRules => new ComboLedger.ClaimRules(ComboRestore, ComboClaim, SkipSpaceCredit, LosslessSkipReclaim, FoldsDisplacedClaim, StacksDisplacedClaims);
 
         /// <summary>Discard the outstanding claim (see <see cref="ComboLedger.Discard"/>).</summary>
         private void discardRestorableStreak() => ledger.Discard();
