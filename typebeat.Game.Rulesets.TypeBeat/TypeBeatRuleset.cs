@@ -23,7 +23,9 @@ using typebeat.Game.Rulesets.Scoring.Legacy;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Edit;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Mods;
+using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Replays;
 using typebeat.Game.Rulesets.TypeBeat.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.UI;
@@ -173,6 +175,23 @@ namespace typebeat.Game.Rulesets.TypeBeat
         /// locally but not submitted: see <see cref="LyricOriginals.SubmissionRefusal"/>.
         /// </summary>
         public override string? GetSubmissionRefusal(IBeatmap beatmap) => LyricOriginals.SubmissionRefusal(beatmap);
+
+        /// <summary>
+        /// Drain counts gameplay only (backlog 423): the lyric span minus every instrumental stretch
+        /// the mid-song skip rule recognises (<see cref="InstrumentalGaps.DrainLengthMs"/>), the same
+        /// figure the server stores as <c>hit_length_s</c>. Computed from the lines rather than by
+        /// adding Breaks to the beatmap, because Breaks drive the break overlay and health drain. A
+        /// beatmap holding no lyric line (not a type!beat map) keeps the base rule.
+        /// </summary>
+        public override double CalculateDrainLength(IBeatmap beatmap)
+        {
+            var lines = beatmap.HitObjects.OfType<TypeBeatHitObject>()
+                               .OrderBy(h => h.LineIndex)
+                               .Select(h => TypingLine.FromLyricLine(h.Line))
+                               .ToList();
+
+            return lines.Count == 0 ? base.CalculateDrainLength(beatmap) : InstrumentalGaps.DrainLengthMs(lines);
+        }
 
         private static string normaliseForStatus(string encoded) =>
             LyricOsuFormat.StripUnassignedOnlineIds(LyricOsuFormat.StripOriginals(LyricOsuFormat.StripFormatVersion(LyricOsuFormat.StripVideoOffset(LyricOsuFormat.StripBeatdrop(encoded)))));
