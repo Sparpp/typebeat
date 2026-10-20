@@ -31,5 +31,9 @@ namespace typebeat.Game.Online.API.Requests
         }
 
         protected override string Target => @"users/lookup/?ids[]=" + string.Join(@"&ids[]=", UserIds) + (RulesetId != null ? "&ruleset_id=" + RulesetId : "");
+
+        // The compact public card (name, country, avatar) any profile page already shows, so a guest's
+        // UserLookupCache can read it too.
+        public override bool AllowsAnonymous => true;
     }
 }
