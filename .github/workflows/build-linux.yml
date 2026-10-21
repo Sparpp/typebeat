@@ -68,7 +68,7 @@ env:
   APP_CONTAINER: typebeat-web-app-1
   # Stable download name so TYPEBEAT_GAME_DOWNLOAD_LINUX is set once (see header).
   APPIMAGE_NAME: typebeat-linux.AppImage
-  VPK_VERSION: "0.0.1298"   # MUST match the Velopack lib version in typebeat.Desktop.csproj.
+  VPK_VERSION: "1.2.0"      # MUST match the Velopack lib version in typebeat.Desktop.csproj (checked early in the job).
 
 jobs:
   build-deploy-linux:
@@ -80,11 +80,23 @@ jobs:
           echo "${{ inputs.version }}" | grep -qE '^[0-9]{4}\.[0-9]{1,2}[0-9]{2}\.[0-9]+$' \
             || { echo "::error::version must be yyyy.Mdd.r (e.g. 2026.722.0)"; exit 1; }
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-dotnet@v4
+      # VPK_VERSION retypes the Velopack library version from typebeat.Desktop.csproj, and a vpk that
+      # does not match the library packs releases shipped clients cannot apply. Fail here, before
+      # anything is built, rather than after a release is live.
+      - name: Check VPK_VERSION against the Velopack package
+        run: |
+          lib=$(sed -n 's/.*<PackageReference Include="Velopack" Version="\([^"]*\)".*/\1/p' typebeat.Desktop/typebeat.Desktop.csproj)
+          test -n "$lib" \
+            || { echo "::error::no Velopack PackageReference found in typebeat.Desktop/typebeat.Desktop.csproj"; exit 1; }
+          test "$lib" = "${VPK_VERSION}" \
+            || { echo "::error::VPK_VERSION is ${VPK_VERSION} but typebeat.Desktop.csproj references Velopack ${lib}; make them match"; exit 1; }
+          echo "vpk ${VPK_VERSION} matches the Velopack package"
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: 10.0.x
 
       # typebeat.Desktop/Bundled/ (the fresh-install beatmap payload) is gitignored: the packages
       # carry real, non-redistributable audio and must never be committed. So actions/checkout

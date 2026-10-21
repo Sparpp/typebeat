@@ -76,16 +76,16 @@ namespace typebeat.Game.Beatmaps
         public BeatmapLanguage Language { get; init; }
 
         /// <summary>
-        /// Whether the online set's CURRENT version carries an isolated vocals stem (backlog 396), the
-        /// server's <c>has_vocals_stem</c>. Set-level: the server reports the same value on every
-        /// difficulty of the set. False from a source that does not carry it (the local metadata cache,
-        /// or an older server), which reads as "nothing to offer".
+        /// The tracked-file manifest of the online set's CURRENT version (see <see cref="SetFileManifest"/>),
+        /// from the server's <c>file_manifest</c> (or the <c>has_vocals_stem</c> flag of a server that predates
+        /// it). Set-level: the server reports the same value on every difficulty of the set. Null from a
+        /// source that does not carry it (the local metadata cache), which records nothing.
         /// </summary>
         /// <remarks>
-        /// The update offer compares this against the LOCAL copy's own stem presence
-        /// (<see cref="VocalsStem.FilenameIn"/>): online has a stem and local has none means the local copy
-        /// is missing a file the online version offers, even though its <c>.osu</c> MD5s are unchanged.
+        /// The update offer compares this against the LOCAL copy's own manifest
+        /// (<see cref="BeatmapSetInfo.LocalFileManifest"/>): a kind online that the local copy lacks means the
+        /// local copy is missing a file the online version offers, even though its <c>.osu</c> MD5s are unchanged.
         /// </remarks>
-        public bool HasVocalsStem { get; init; }
+        public string? FileManifest { get; init; }
     }
 }

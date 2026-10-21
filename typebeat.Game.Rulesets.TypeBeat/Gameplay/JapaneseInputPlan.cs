@@ -21,14 +21,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private readonly IReadOnlyList<Word> authoredWords;
         private readonly IReadOnlyList<Word> dictionaryWords;
         private readonly Group?[] cells;
+        private readonly string?[] characterReadings;
         private readonly string text;
 
-        private JapaneseInputPlan(string text, List<Group> groups, List<Word> authoredWords, List<Word> dictionaryWords)
+        private JapaneseInputPlan(string text, List<Group> groups, List<Word> authoredWords, List<Word> dictionaryWords, bool characterTiming)
         {
             this.text = text;
             this.authoredWords = authoredWords;
             this.dictionaryWords = dictionaryWords;
             Groups = groups;
+            if (characterTiming)
+            {
+                groups = groups.SelectMany(g =>
+                {
+                    if (!g.Furigana || g.EndCellExclusive - g.StartCell <= 1)
+                        return new[] { g };
+                    string surface = text.Substring(g.StartCell, g.EndCellExclusive - g.StartCell);
+                    string[] readings = JapaneseCharacterReadings.Split(surface, g.Reading);
+                    return readings.Length == surface.Length
+                        ? readings.Select((reading, i) => new Group(g.StartCell + i, g.StartCell + i + 1, reading, true))
+                        : new[] { g };
+                }).ToList();
+            }
+            characterReadings = new string?[text.Length];
+            foreach (var group in groups)
+            {
+                var readings = JapaneseCharacterReadings.Split(text.Substring(group.StartCell, group.EndCellExclusive - group.StartCell), group.Reading);
+                for (int i = group.StartCell; i < group.EndCellExclusive; i++)
+                    characterReadings[i] = readings.Length == group.EndCellExclusive - group.StartCell ? readings[i - group.StartCell] : i == group.StartCell ? group.Reading : null;
+            }
             cells = new Group?[text.Length];
             for (int at = 0; at < groups.Count; at++)
             {
@@ -46,6 +67,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     cells[i] = group;
             }
         }
+
+        internal string? CharacterReadingAt(int cell) => cell >= 0 && cell < characterReadings.Length ? characterReadings[cell] : null;
 
         internal Group? At(int cell) => cell >= 0 && cell < cells.Length ? cells[cell] : null;
 
@@ -118,7 +141,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// per timed unit, a surface that does not match is retried without punctuation, and the
         /// authored word windows are recorded for the word skip. Clear, this is exactly the plan
         /// every replay recorded before that era was played on.</param>
-        internal static JapaneseInputPlan Create(string text, LyricLine? authored = null, bool respectWordBoundaries = true, bool era3 = true)
+        /// <param name="characterTiming">Split reading groups into separately judged characters (extended replay bit 9).</param>
+        internal static JapaneseInputPlan Create(string text, LyricLine? authored = null, bool respectWordBoundaries = true, bool era3 = true, bool characterTiming = false)
         {
             var groups = new List<Group>();
             var parts = JapaneseReading.Read(text).ToList();
@@ -253,7 +277,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             }
             addKana(freeStart, text[freeStart..]);
             groups.Sort((a, b) => a.StartCell.CompareTo(b.StartCell));
-            return new JapaneseInputPlan(text, groups, authoredWords, dictionaryWords);
+            return new JapaneseInputPlan(text, groups, authoredWords, dictionaryWords, characterTiming);
 
             void addKana(int start, string source)
             {

@@ -124,6 +124,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Lines = new[] { line() },
             }, polyglot: true, polyglotLanguage: "japanese")
             {
+                // This fixture compares replay bit 8 before character timing was introduced in bit 9.
+                JapaneseCharacterTiming = false,
                 SpaceSkipsWord = true, InputEra2 = true, AuthoredSyllablesOnly = true,
             };
             engine.Update(1000);

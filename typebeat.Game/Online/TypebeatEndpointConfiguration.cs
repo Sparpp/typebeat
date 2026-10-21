@@ -5,7 +5,7 @@ namespace typebeat.Game.Online
 {
     /// <summary>
     /// Endpoints for the type!beat server ("typebeat-web": one ASP.NET Core monolith serving
-    /// both the website and the API; see docs/online-architecture.md in the project root).
+    /// both the website and the API).
     /// </summary>
     public class TypebeatEndpointConfiguration : EndpointConfiguration
     {
@@ -35,7 +35,7 @@ namespace typebeat.Game.Online
         /// is a DNS-only (grey-clouded) subdomain pointed at the same origin as
         /// <see cref="PRODUCTION_ROOT"/>. Bearer auth is host-agnostic, so the token from the
         /// normal API root works here unchanged, and the /bss path prefix is unchanged and
-        /// pinned by typebeat-web/docs/m3-spec.md.
+        /// pinned by docs/m3-spec.md in the typebeat-web repo.
         /// </summary>
         public const string PRODUCTION_BSS_ROOT = @"https://bss.typebeat.sh";
 

@@ -8,6 +8,7 @@ using System.Linq;
 using System.Text.Json;
 using NUnit.Framework;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Edit;
 using typebeat.Game.Rulesets.TypeBeat.Import;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
@@ -359,7 +360,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             string? dir = ttmlDirectory();
 
             if (dir == null)
-                Assert.Ignore("No ttml/ examples directory found (set TYPEBEAT_TTML_DIR); skipping the real-file pin.");
+                StandaloneMaps.MissingFixture("No ttml/ examples directory found (set TYPEBEAT_TTML_DIR); skipping the real-file pin.");
 
             foreach (string file in Directory.EnumerateFiles(dir, "*.ttml"))
             {

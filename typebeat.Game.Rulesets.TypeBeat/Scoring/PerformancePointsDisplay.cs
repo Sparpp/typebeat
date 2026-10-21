@@ -14,91 +14,29 @@ using typebeat.Game.Scoring;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 {
-    /// <summary>
-    /// What the GAME shows for a play's performance points, and how it shows it.
-    ///
-    /// <para>
-    /// This is deliberately NOT part of <see cref="PerformancePoints"/>. That type is a
-    /// byte-for-byte mirror of the server's <c>Typebeat.Web.Scoring.PerformancePoints</c>, pinned by
-    /// the WireCompat parity test; it prices a play and nothing else, and it re-derives no
-    /// eligibility beyond the clock rate (exactly as the server does not, since the server inherits
-    /// the rest from the score's stored <c>ranked</c> flag). The rules for what a CLIENT surface may
-    /// legitimately print are client-only, so they live here, in one place, shared by the surfaces
-    /// that print them: the live counter in <see cref="UI.TypeBeatHudOverlay"/> and the results
-    /// screen's Completion table (<see cref="TypeBeatRuleset.CreateCompletionStatistics"/>). The
-    /// results screen's OTHER pp readout, the one in the score panel, is a shared component that
-    /// cannot reference this assembly; it reaches the same eligibility rule through
-    /// <see cref="TypeBeatRuleset.ScoreEarnsPerformancePoints"/> and the same value through
-    /// <see cref="TypeBeatPerformanceCalculator"/>, which is what stops the two readings on one
-    /// screen from disagreeing.
-    /// </para>
-    ///
-    /// <para>
-    /// THE THREE STATES A READOUT CAN BE IN, and why they must stay distinct:
-    /// <list type="bullet">
-    /// <item><b>A number.</b> The play can earn pp and this is what it is worth. Note that 0 is a
-    /// perfectly ordinary member of this state: a give-up run prices to 0 and is still an eligible,
-    /// priced play.</item>
-    /// <item><b>Ineligible</b> (<see cref="INELIGIBLE_TEXT"/>). The play can NEVER earn pp, so no
-    /// number describes it. Rendering it as "0" would collapse it into the state above and make an
-    /// unranked-mod run look like a worthless one.</item>
-    /// <item><b>Not priced by the server.</b> Not a rendering at all: a score that never reached the
-    /// server, or that the server declined to price, carries no value, and the game decides for
-    /// itself (see <see cref="ForScore"/>). This rests on a wire contract the server holds up its
-    /// end of: <see cref="ScoreInfo.PP"/> carries a number ONLY for a play the server actually ran
-    /// the formula for, so a value that is present is proof the play was eligible, and one that is
-    /// absent is never a disguised zero.</item>
-    /// </list>
-    /// </para>
-    /// </summary>
+    /// <summary>Local pp estimates, shared by the HUD and results. Display eligibility is
+    /// independent of score ranking: unranked mods can be priced without earning ranked pp.</summary>
     public static class PerformancePointsDisplay
     {
-        /// <summary>
-        /// What every surface shows for a play that can never earn pp. Deliberately not a number:
-        /// see the class docs.
-        /// </summary>
+        /// <summary>Shown when a local estimate cannot be calculated.</summary>
         public const string INELIGIBLE_TEXT = "-";
 
-        /// <summary>
-        /// The star rating to price this play at, or null when the play is pp-INELIGIBLE for a
-        /// reason that is knowable BEFORE it ends. The rating comes from the map's own lyric lines
-        /// at the play's clock rate, i.e. the same <see cref="LyricDifficulty"/> pass that fills
-        /// <see cref="TypeBeatDifficultyCalculator"/> and, through the server's mirrored copy of it,
-        /// the stored <c>difficulty_rating</c> / <c>sr_dt</c> / <c>sr_ht</c> columns. Nothing is
-        /// fetched from the server.
-        ///
-        /// <para>The three gates are the three the server would refuse to pay for:</para>
-        /// <list type="number">
-        /// <item>a CUSTOM rate (only the DT/NC 1.50x and HT 0.75x base rates earn pp, docs/pp.md);
-        /// applied inside <see cref="PerformancePoints.StarsFor"/>;</item>
-        /// <item>any UNRANKED mod in the stack (Mashing, Autoplay, Wind Up/Down, ...), which makes
-        /// the submission path store the score <c>ranked = false</c>;</item>
-        /// <item>a map that grants no pp (anything not Ranked/Approved: a local map, an unsubmitted
-        /// map, a work in progress). This gate alone can be switched off with
-        /// <paramref name="requireRankedMap"/>: the LIVE counter prices a play on an unranked map
-        /// as if the map were ranked, so the player sees what the run would be worth (a mapper
-        /// testing their own map, a pending set waiting on nomination), while the results screen
-        /// keeps the gate, because there the number is a claim about what was earned.</item>
-        /// </list>
-        ///
-        /// <para>A FAILED play is NOT gated here, because failing is not knowable in advance and the
-        /// live counter's contract is "what this play is worth if it ends right here". It IS gated
-        /// once the play is over; see <see cref="Eligible"/>, which adds that one gate and is what
-        /// the results screen uses. The two overlap on the first three deliberately: a play cannot
-        /// be worth anything without a rating, and a rating exists only where those hold.</para>
-        /// </summary>
-        /// <param name="playableBeatmap">The beatmap as converted for play.</param>
-        /// <param name="mods">The play's mods.</param>
-        /// <param name="requireRankedMap">Whether gate 3 applies. The default is what every finished
-        /// surface wants; only the live HUD counter passes false.</param>
+        /// <summary>Standard eligible rates, plus local estimates for unranked mod stacks.</summary>
+        public static double? RateFor(IReadOnlyList<Mod>? mods)
+        {
+            if (mods?.Any(m => !m.Ranked) != true)
+                return PerformancePoints.EligibleRate(mods);
+            double rate = 1;
+            foreach (var mod in mods.OfType<IApplicableToRate>())
+                rate = mod.ApplyToRate(0, rate);
+            return double.IsFinite(rate) && rate > 0 ? rate : null;
+        }
+
         public static double? StarRatingFor(IBeatmap? playableBeatmap, IReadOnlyList<Mod>? mods, bool requireRankedMap = true)
             => DifficultyFor(playableBeatmap, mods, requireRankedMap)?.Stars;
 
-        /// <summary>
-        /// The eligible play's SR and difficult-character count at its mod rate plus an optional
-        /// editor preview tempo. Preview tempo does not change gameplay-mod eligibility.
-        /// Previews that exceed the SR model's duration limit have no pp reading.
-        /// </summary>
+        /// <summary>Uses the same played input projection as the difficulty calculator.
+        /// The live counter may also price maps which do not grant ranked pp.</summary>
         public static LyricDifficulty.ModelResult? DifficultyFor(IBeatmap? playableBeatmap, IReadOnlyList<Mod>? mods,
                                                                 bool requireRankedMap = true, double playbackRate = 1)
         {
@@ -108,16 +46,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             if (requireRankedMap && !playableBeatmap.BeatmapInfo.Status.GrantsPerformancePoints())
                 return null;
 
-            if (mods != null && mods.Any(m => !m.Ranked))
-                return null;
-
-            if (PerformancePoints.EligibleRate(mods) is not double rate)
+            if (!CanCalculate(playableBeatmap, mods) || RateFor(mods) is not double rate)
                 return null;
 
             try
             {
-                return LyricDifficulty.ComputeDetail(playableBeatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line),
-                    rate * playbackRate, PerformancePoints.IsLiterate(mods), LyricDifficulty.Live, PerformancePoints.JudgementArmFor(mods));
+                return LyricDifficulty.ComputeDetail(PolyglotDifficulty.LinesFor(
+                    playableBeatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line), mods,
+                    Mods.TypeBeatModPolyglot.LanguageFor(playableBeatmap)), rate * playbackRate, PerformancePoints.IsLiterate(mods), LyricDifficulty.Live, PerformancePoints.JudgementArmFor(mods));
             }
             catch (InvalidOperationException) when (playbackRate != 1)
             {
@@ -127,71 +63,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             }
         }
 
-        /// <summary>
-        /// What a FINISHED score is worth, or null when it can never be worth anything (rendered as
-        /// <see cref="INELIGIBLE_TEXT"/>).
-        ///
-        /// <para>THE CURRENT PRICE COMES FIRST. A stored number is what a play was worth when it was
-        /// set, and this surface answers what it is worth NOW: against today's star rating for the map
-        /// as it is on disk and today's <see cref="PerformancePoints"/>. That is the number the player
-        /// can reproduce - and the one that moves when a map is retimed or the formula is fixed, which
-        /// is the whole reason to re-read it rather than print the archived figure.</para>
-        ///
-        /// <para>The stored value is the FALLBACK, for a play the client cannot price at all: no local
-        /// copy of the map, a map that no longer grants pp (opening one in the editor marks it
-        /// LocallyModified), an unranked mod stack, a custom rate, a failure. There the server's number
-        /// is still the only truth available - it may know of refusals the client cannot see (the
-        /// play-time gate, an out-of-bounds total, a blocked build) - so it prints rather than a dash,
-        /// which would claim nothing was ever on offer. <see cref="Eligible"/> is what picks that
-        /// branch, and a play that is neither priceable nor stored reads
-        /// <see cref="INELIGIBLE_TEXT"/>.</para>
-        ///
-        /// <para>REPLAYS: watching a replay re-simulates it, and
-        /// <see cref="ScoreProcessor.PopulateScore"/> drops the stored pp when it overwrites the
-        /// statistics that pp was derived from. So a replay's reading is the pp OF THE SIMULATION,
-        /// computed here, consistent with every other row of the same table (completion, missed
-        /// characters, mistypes), which is likewise the simulation's. Opening the same score's
-        /// results directly, without replaying it, still shows the recorded server value.</para>
-        /// </summary>
-        /// <param name="score">The finished score.</param>
-        /// <param name="playableBeatmap">The beatmap the score was set on, converted with its mods.</param>
+        public static bool CanCalculate(IBeatmap beatmap, IReadOnlyList<Mod>? mods)
+            => PolyglotRatingSupport.Supports(beatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line), mods,
+                Mods.TypeBeatModPolyglot.LanguageFor(beatmap));
+
+        /// <summary>Reprice a finished score when possible, otherwise retain its archived value.</summary>
         public static double? ForScore(ScoreInfo score, IBeatmap? playableBeatmap)
         {
-            if (Eligible(score) && StarRatingFor(playableBeatmap, score.Mods) is double stars)
+            if (!PolyglotRatingSupport.SupportsDeclaredLanguage(score.BeatmapInfo?.Metadata.Language ?? BeatmapLanguage.Unspecified, score.Mods)
+                || playableBeatmap != null && !CanCalculate(playableBeatmap, score.Mods))
+                return null;
+            if (Eligible(score) && DifficultyFor(playableBeatmap, score.Mods) is { } model)
             {
                 var lines = playableBeatmap!.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line);
                 var counts = PerformancePoints.CountNotes(score)
-                    with { DifficultCharacters = PerformancePoints.DifficultCharactersFor(lines, score.Mods) };
+                    with { DifficultCharacters = model.DifficultCharacters };
 
-                return PerformancePoints.ForPlay(stars, counts, score.Accuracy, score.MaxCombo, score.Mods, PerformancePoints.PlayedDurationFor(lines, score.Mods));
+                return PerformancePoints.ForPlay(model.Stars, counts, score.Accuracy, score.MaxCombo, score.Mods, PerformancePoints.PlayedDurationFor(lines, score.Mods), TypeBeatScoreProcessor.JapaneseComboFor(playableBeatmap));
             }
 
             return score.PP;
         }
 
-        /// <summary>
-        /// Whether a finished play COULD have earned pp: the gates of <see cref="StarRatingFor"/>
-        /// read off the score itself, plus the one the live counter cannot have, a FAIL. Failing is
-        /// unknowable while a play is running, which is why the HUD keeps counting through a run
-        /// that might still be recovered or no-failed; once the play is over it is settled, and a
-        /// failed run can never be worth anything.
-        ///
-        /// <para>Deliberately routed through <see cref="TypeBeatRuleset.ScoreEarnsPerformancePoints"/>
-        /// rather than re-stating the rule: that override is the single authority, and it is also
-        /// what the score panel's own pp readout asks (through
-        /// <c>score.Ruleset.CreateInstance()</c>, since a shared component cannot reference this
-        /// assembly). One implementation, two entry points, so the panel and the results table
-        /// cannot gate a play differently. A local instance is used rather than
-        /// <see cref="ScoreInfo.Ruleset"/> so this still answers for a score that carries no ruleset
-        /// reference at all.</para>
-        /// </summary>
-        public static bool Eligible(ScoreInfo score) => new TypeBeatRuleset().ScoreEarnsPerformancePoints(score);
+        public static bool Eligible(ScoreInfo score) => new TypeBeatRuleset().ScoreCanDisplayPerformancePoints(score);
 
-        /// <summary>
-        /// The one rendering of a pp value, shared by every surface so they cannot round differently:
-        /// whole points, or <see cref="INELIGIBLE_TEXT"/> for a play that can never earn any.
-        /// Invariant culture, matching the rest of the completion table.
-        /// </summary>
         public static string Format(double? pp)
             => pp is double value ? value.ToString("0", CultureInfo.InvariantCulture) : INELIGIBLE_TEXT;
     }

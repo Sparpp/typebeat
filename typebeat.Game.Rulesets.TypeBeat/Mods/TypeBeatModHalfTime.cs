@@ -7,9 +7,7 @@ using osu.Framework.Bindables;
 using osu.Framework.Localisation;
 using typebeat.Game.Overlays.Settings;
 using typebeat.Game.Rulesets.Mods;
-using typebeat.Game.Rulesets.TypeBeat.Objects;
-using typebeat.Game.Rulesets.TypeBeat.UI;
-using typebeat.Game.Rulesets.UI;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Mods
 {
@@ -22,7 +20,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// Ranked at every speed in [0.50x, 0.99x]; the penalty scales continuously with how far the
     /// rate is pulled below 1.0x, so 0.99x costs almost nothing and 0.50x costs almost everything.
     /// </summary>
-    public class TypeBeatModHalfTime : ModHalfTime, IApplicableToDrawableRuleset<TypeBeatHitObject>
+    public class TypeBeatModHalfTime : ModHalfTime, IApplicableToTypingEngine
     {
         public override bool Ranked => true;
 
@@ -46,8 +44,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// <summary>See <see cref="TypeBeatModDoubleTime.AlwaysSerializeSetting"/>.</summary>
         public override bool AlwaysSerializeSetting(string propertyName) => propertyName == nameof(SpeedChange);
 
-        /// <summary>See <see cref="TypeBeatModDoubleTime.ApplyToDrawableRuleset"/>.</summary>
-        public void ApplyToDrawableRuleset(DrawableRuleset<TypeBeatHitObject> drawableRuleset) =>
-            ((DrawableTypeBeatRuleset)drawableRuleset).Engine.WindowScale *= SpeedChange.Value;
+        /// <summary>See <see cref="TypeBeatModDoubleTime.ApplyToEngine"/>.</summary>
+        public void ApplyToEngine(TypingEngine engine) => engine.WindowScale *= SpeedChange.Value;
     }
 }

@@ -23,6 +23,7 @@ using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Replays;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
+using CollectionAssert = NUnit.Framework.Legacy.CollectionAssert;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
@@ -359,9 +360,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 e.Update(6000);
             }
 
-            // Hand-computed for the default path: every delta is 0 => Great (300 base), and points
-            // read the combo BEFORE the increment, so 300 + 306 + 312 + 318 + 324 + 330 + 336 = 2226.
-            Assert.AreEqual(2226, off.Score);
+            // Hand-computed for the default path: every delta is 0 => Great.
+            Assert.AreEqual(7, off.BuildResults().Counts[JudgementType.Great]);
             Assert.AreEqual(7, off.MaxCombo);
             Assert.AreEqual(1.0, off.LiveAccuracy);
             Assert.AreEqual(100.0, off.LiveSyncPercent, 1e-9);
@@ -373,7 +373,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var b = on.BuildResults();
 
             Assert.IsTrue(on.IsFinished);
-            Assert.AreEqual(a.Score, b.Score);
+            CollectionAssert.AreEquivalent(a.Counts, b.Counts);
             Assert.AreEqual(a.MaxCombo, b.MaxCombo);
             Assert.AreEqual(a.Accuracy, b.Accuracy);
             Assert.AreEqual(a.SyncPercent, b.SyncPercent, 1e-12);
@@ -497,18 +497,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(0, comboBreaks);
 
             // The 7th press ('g', target 1600) would sit 6 chars ahead: over the cap. The char still
-            // lands, is judged Meh (delta -600 is the Meh edge) and still scores at the pre-break
-            // multiplier, 50 * (1 + 6/50) = 56, but the combo goes.
-            long scoreBefore = typing.Score;
+            // lands, is judged Meh (delta -600 is the Meh edge), but the combo goes.
             Assert.IsTrue(typing.ProcessKey('g', 1000));
             Assert.AreEqual(CellState.Correct, typing.Lines[0].Cells[6].State);
             Assert.AreEqual(-600, typing.Lines[0].Cells[6].JudgedDelta);
-            Assert.AreEqual(56, typing.Score - scoreBefore);
             Assert.AreEqual(0, typing.Combo);
             Assert.AreEqual(6, typing.MaxCombo, "the over-cap press must not extend max combo");
             Assert.AreEqual(1, comboBreaks);
 
-            // Still out past the cap: the press lands and scores (Ok, 50 at 1.0x) but there is no
+            // Still out past the cap: the press lands (Ok) but there is no
             // combo left to break, so no second event fires.
             Assert.IsTrue(typing.ProcessKey('h', 1000));
             Assert.AreEqual(7, typing.CharsAheadOfPlayhead(1000));
@@ -689,9 +686,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(0, typing.NextUnsealedLineIndex, "the song is still on line 0");
             Assert.AreEqual(0, typing.CaretIndex);
 
-            // 'c' at 1600 against a 10000 target: accepted, judged Premature on a -8400 delta, 0
-            // points. Since backlog 199 the CLOCK no longer breaks the run for that (the press is a
-            // hit worth no points, see TypingEngine.OffTime), so the combo carries on at 3. The rush
+            // 'c' at 1600 against a 10000 target: accepted, judged Premature on a -8400 delta.
+            // Since backlog 199 the CLOCK no longer breaks the run for that (the press is a
+            // hit that earns no tier, see TypingEngine.OffTime), so the combo carries on at 3. The rush
             // cap is not what fires here either: the caret is level with the playhead (both at 2
             // countable chars) and the press puts it 1 ahead, well inside the cap of 5.
             Assert.AreEqual(0, typing.CharsAheadOfPlayhead(1600));
@@ -1646,7 +1643,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(CellState.Missed, skipped.Lines[0].Cells[1].State);
 
             // The whole account agrees, which is what "no era bit" means in practice.
-            Assert.AreEqual(sat.Score, skipped.Score);
             Assert.AreEqual(sat.MaxCombo, skipped.MaxCombo);
             Assert.AreEqual(sat.Combo, skipped.Combo);
             Assert.AreEqual(sat.BuildResults().Counts[JudgementType.Miss], skipped.BuildResults().Counts[JudgementType.Miss]);
@@ -2021,7 +2017,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             replayed.Update(21500);
 
-            Assert.AreEqual(live.Score, replayed.Score);
+            CollectionAssert.AreEquivalent(live.BuildResults().Counts, replayed.BuildResults().Counts);
             Assert.AreEqual(live.MaxCombo, replayed.MaxCombo);
             Assert.AreEqual(live.Combo, replayed.Combo);
             Assert.AreEqual(live.LiveAccuracy, replayed.LiveAccuracy);
@@ -2098,7 +2094,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(CellState.Missed, live.Lines[0].Cells[1].State);
             Assert.AreEqual(1, live.BuildResults().Counts[JudgementType.Miss]);
 
-            Assert.AreEqual(live.Score, replayed.Score);
+            CollectionAssert.AreEquivalent(live.BuildResults().Counts, replayed.BuildResults().Counts);
             Assert.AreEqual(live.MaxCombo, replayed.MaxCombo);
             Assert.AreEqual(live.Combo, replayed.Combo);
             Assert.AreEqual(live.CaretIndex, replayed.CaretIndex);
@@ -2144,7 +2140,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             ReplayEngineFeed.Apply(withUnknown, new TypeBeatReplayFrame(1500, 'b'));
             ReplayEngineFeed.Apply(without, new TypeBeatReplayFrame(1500, 'b'));
 
-            Assert.AreEqual(without.Score, withUnknown.Score);
+            CollectionAssert.AreEquivalent(without.BuildResults().Counts, withUnknown.BuildResults().Counts);
             Assert.AreEqual(without.Combo, withUnknown.Combo);
             Assert.AreEqual(without.Mistypes, withUnknown.Mistypes);
             Assert.AreEqual(without.ConsecutiveWrongKeys, withUnknown.ConsecutiveWrongKeys);
@@ -2204,7 +2200,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(live.ActiveLineIndex, replayed.ActiveLineIndex);
             Assert.AreEqual(1, replayed.ActiveLineIndex);
             Assert.AreEqual(CellState.Missed, replayed.Lines[0].Cells[1].State);
-            Assert.AreEqual(live.Score, replayed.Score);
+            CollectionAssert.AreEquivalent(live.BuildResults().Counts, replayed.BuildResults().Counts);
             Assert.AreEqual(live.BuildResults().Counts[JudgementType.Miss], replayed.BuildResults().Counts[JudgementType.Miss]);
         }
 
@@ -2315,7 +2311,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             replayed.Update(12000);
             stored.Update(12000);
 
-            Assert.AreEqual(stored.Score, replayed.Score);
+            CollectionAssert.AreEquivalent(stored.BuildResults().Counts, replayed.BuildResults().Counts);
             Assert.AreEqual(stored.MaxCombo, replayed.MaxCombo);
             Assert.AreEqual(stored.LiveAccuracy, replayed.LiveAccuracy);
 
@@ -2338,7 +2334,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(CellState.Correct, replayed.Lines[1].Cells[0].State);
             Assert.AreEqual(CellState.Untyped, bounded.Lines[1].Cells[0].State, "under the bound those keystrokes never reached a cell");
 
-            // The rushed presses were Premature and worth no points, so the SCORE is not what the two
+            // The rushed presses were Premature and earn no tier, so the tallies are not what the two
             // arms disagree about: the run itself is. Four cells finished and a streak of four, or
             // two and two.
             Assert.AreEqual(4, replayed.MaxCombo);

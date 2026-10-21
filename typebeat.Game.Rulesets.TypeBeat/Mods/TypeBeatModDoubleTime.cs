@@ -7,9 +7,7 @@ using osu.Framework.Bindables;
 using osu.Framework.Localisation;
 using typebeat.Game.Overlays.Settings;
 using typebeat.Game.Rulesets.Mods;
-using typebeat.Game.Rulesets.TypeBeat.Objects;
-using typebeat.Game.Rulesets.TypeBeat.UI;
-using typebeat.Game.Rulesets.UI;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Mods
 {
@@ -44,7 +42,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// below instead of only when it differs from the default.
     /// </para>
     /// </summary>
-    public class TypeBeatModDoubleTime : ModDoubleTime, IApplicableToDrawableRuleset<TypeBeatHitObject>
+    public class TypeBeatModDoubleTime : ModDoubleTime, IApplicableToTypingEngine
     {
         public override bool Ranked => true;
 
@@ -78,11 +76,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         public override bool AlwaysSerializeSetting(string propertyName) => propertyName == nameof(SpeedChange);
 
         /// <summary>
-        /// Scale the judgement windows by the clock rate (see the class docs). Mirrored by
-        /// <see cref="Scoring.TypeBeatReplayScorer"/>, which re-judges a stored replay from its
-        /// keystrokes and would otherwise re-derive every rate play on unscaled windows.
+        /// Scale the judgement windows by the clock rate (see the class docs). Every engine factory
+        /// calls this, <see cref="Scoring.TypeBeatReplayScorer"/> included, which re-judges a stored
+        /// replay from its keystrokes and would otherwise re-derive every rate play on unscaled
+        /// windows.
         /// </summary>
-        public void ApplyToDrawableRuleset(DrawableRuleset<TypeBeatHitObject> drawableRuleset) =>
-            ((DrawableTypeBeatRuleset)drawableRuleset).Engine.WindowScale *= SpeedChange.Value;
+        public void ApplyToEngine(TypingEngine engine) => engine.WindowScale *= SpeedChange.Value;
     }
 }

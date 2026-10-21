@@ -3,6 +3,8 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.Judgements;
 using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
@@ -11,8 +13,8 @@ using typebeat.Game.Scoring;
 namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 {
     /// <summary>
-    /// type!beat scores use pp's accuracy, missed-cell and longest-streak quality, normalised to
-    /// one million for a perfect play. Grades use accuracy with additional missed-cell limits
+    /// type!beat's total score is 300000 x accuracy x combo progress plus 700000 x accuracy^5 x map
+    /// progress, so a perfect play totals one million. Grades use accuracy with additional missed-cell limits
     /// for SS and S. An unfixed typo counts as a missed cell; recovered wrong keypresses remain
     /// a separate, scoring-neutral statistic. The server scoring contract must mirror these rules.
     /// </summary>
@@ -99,7 +101,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <summary>
         /// Records one wrong KEYPRESS. Counting is ALL this does: no score, no accuracy, no
         /// completion, no rank, no health, no hit event, and deliberately not the combo break
-        /// either, which <c>TypeBeatPlayfield.onMistyped</c> carries by hand for both input models
+        /// either, which <c>TypeBeatComboFeed.OnMistyped</c> carries by hand for both input models
         /// (backlog 109) at the same seam that calls this. Keeping the two separate keeps this a
         /// pure counter: the break is a plain <see cref="ScoreProcessor.Combo"/> write, whereas
         /// anything routed through <see cref="JudgementProcessor.ApplyResult"/> would also move
@@ -130,10 +132,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// seek can be corrected on the way back through, and its retype's ordinary combo-increasing
         /// hit would then be silently neutralised.</para>
         /// </summary>
-        public void ResyncAfterRewind(int engineMistypes)
+        public void ResyncAfterRewind(int engineMistypes, Gameplay.TypingEngine? engine = null)
         {
             ScoreResultCounts[MISTYPE_RESULT] = engineMistypes;
             comboNeutralCells.Clear();
+            if (engine != null)
+                resyncCellAwards(engine);
         }
 
         /// <summary>
@@ -141,7 +145,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// resumes at what it was before that keypress, plus everything earned since. The engine
         /// decides WHETHER and BY HOW MUCH (<see cref="Gameplay.TypingEngine.ComboRestored"/>); this is the
         /// hand-mirror into the score processor, the exact counterpart of the hand-mirrored break
-        /// on <c>TypeBeatPlayfield.onMistyped</c>, and it exists here rather than at either caller
+        /// on <c>TypeBeatComboFeed.OnMistyped</c>, and it exists here rather than at either caller
         /// so live play and <see cref="TypeBeatReplayScorer"/> cannot restore differently.
         ///
         /// <para>Applied as a DELTA, not as the engine's own combo value: the two counters are kept
@@ -168,7 +172,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// Declares that the result ABOUT TO BE APPLIED to one cell must leave combo exactly as it
         /// finds it: neither break it nor extend it, and take its combo-weighted score portion from
         /// the combo it found. The cell's combo consequence was already taken, by hand, at the
-        /// keypress that spoiled it (<c>TypeBeatPlayfield.onMistyped</c>).
+        /// keypress that spoiled it (<c>TypeBeatComboFeed.OnMistyped</c>).
         ///
         /// <para>Two results are ever marked, and both are marked at the seam that applies them (the
         /// seal), never at the keypress: <see cref="TypeBeatResultMapping.UNFIXED_TYPO"/>, and since
@@ -197,6 +201,62 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// </summary>
         public void MarkComboNeutral(int lineIndex, int cellIndex) => comboNeutralCells.Add((lineIndex, cellIndex));
 
+        /// <summary>Minimum romaji combo represented by the objects resolved so far.</summary>
+        public int ComboNotesJudged { get; private set; }
+        public bool HasJapaneseInputScoring { get; private set; }
+
+        public static int? JapaneseComboFor(IBeatmap beatmap)
+            => beatmap.HitObjects.OfType<TypeBeatHitObject>().SelectMany(h => h.NestedHitObjects.OfType<TypeBeatCharObject>()).Any(c => c.JapaneseInputScoring)
+                ? MaximumComboFor(beatmap) : null;
+
+        public static int MaximumComboFor(IBeatmap beatmap)
+            => beatmap.HitObjects.OfType<TypeBeatHitObject>().SelectMany(h => h.NestedHitObjects.OfType<TypeBeatCharObject>())
+                .Where(c => c.ScoringEnabled).Sum(c => c.JapaneseInputScoring ? c.MinimumRomajiInputs : 1);
+
+        public override void ApplyBeatmap(IBeatmap beatmap)
+        {
+            HasJapaneseInputScoring = JapaneseComboFor(beatmap).HasValue;
+            int fullCombo = 0;
+            foreach (var cell in EnumerateHitObjects(beatmap).OfType<TypeBeatCharObject>())
+            {
+                if (cell.ScoringEnabled)
+                    fullCombo += cell.JapaneseInputScoring ? cell.MinimumRomajiInputs : 1;
+                cell.FullComboAfter = fullCombo;
+            }
+            base.ApplyBeatmap(beatmap);
+        }
+
+        protected override IReadOnlyList<HitResult>? GetScoringResults(JudgementResult result)
+        {
+            if (result.HitObject is not TypeBeatCharObject { JapaneseInputScoring: true } cell)
+                return null;
+            return (result as TypeBeatJapaneseJudgementResult)?.InputResults
+                   ?? Enumerable.Repeat(result.Type, cell.MinimumRomajiInputs).ToArray();
+        }
+
+        protected override int GetComboIncrease(JudgementResult result)
+            => result.HitObject is TypeBeatCharObject { JapaneseInputScoring: true } cell ? cell.MinimumRomajiInputs : 1;
+
+        private void adjustJapaneseMaximum(JudgementResult result, int direction)
+        {
+            if (IsSimulating || result.HitObject is not TypeBeatCharObject { JapaneseInputScoring: true } cell)
+                return;
+            int extra = ((result as TypeBeatJapaneseJudgementResult)?.InputResults?.Count ?? cell.MinimumRomajiInputs) - cell.MinimumRomajiInputs;
+            if (extra != 0)
+                AdjustMaximumJudgements(HitResult.Great, direction * extra,
+                    direction * extra * GetBaseScoreForResult(HitResult.Great) * Math.Pow(cell.FullComboAfter, COMBO_EXPONENT));
+        }
+
+        protected override void RemoveScoreChange(JudgementResult result)
+        {
+            base.RemoveScoreChange(result);
+            if (result.HitObject is TypeBeatCharObject removed)
+                awardedCells.Remove((removed.LineIndex, removed.CellIndex, removed.Phase));
+            if (result.Judgement.MaxResult.AffectsAccuracy())
+                ComboNotesJudged -= GetComboIncrease(result);
+            adjustJapaneseMaximum(result, -1);
+        }
+
         /// <summary>
         /// The combo-weighted score portion a result contributes. A combo-neutral cell (see
         /// <see cref="MarkComboNeutral"/>) is weighted by the combo it FOUND rather than by the one
@@ -220,6 +280,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// </summary>
         protected override double GetComboScoreChange(JudgementResult result)
         {
+            if (result.HitObject is TypeBeatCharObject { JapaneseInputScoring: true } japanese)
+            {
+                int count = GetScoringResults(result)!.Count;
+                int combo = result.Type.IncreasesCombo() && comboNeutralCells.Contains((japanese.LineIndex, japanese.CellIndex))
+                    ? result.ComboAtJudgement : result.ComboAfterJudgement;
+                return GetBaseScoreForResult(result.Judgement.MaxResult) * count * Math.Pow(combo, COMBO_EXPONENT);
+            }
+
             if (result.Type.IncreasesCombo() && result.HitObject is TypeBeatCharObject cell && comboNeutralCells.Contains((cell.LineIndex, cell.CellIndex)))
                 return GetBaseScoreForResult(result.Judgement.MaxResult) * Math.Pow(result.ComboAtJudgement, COMBO_EXPONENT);
 
@@ -268,6 +336,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         protected override void ApplyScoreChange(JudgementResult result)
         {
             base.ApplyScoreChange(result);
+            if (!IsSimulating && result.HitObject is TypeBeatCharObject applied)
+                awardedCells[(applied.LineIndex, applied.CellIndex, applied.Phase)] = result;
+            if (result.Judgement.MaxResult.AffectsAccuracy())
+                ComboNotesJudged += GetComboIncrease(result);
+            adjustJapaneseMaximum(result, 1);
 
             if (!result.Type.AffectsCombo() || result.HitObject is not TypeBeatCharObject cell)
                 return;
@@ -323,6 +396,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         {
             base.Reset(storeResults);
             comboNeutralCells.Clear();
+            awardedCells.Clear();
+            ComboNotesJudged = 0;
         }
 
         /// <summary>

@@ -7,10 +7,12 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
+using osu.Framework.Allocation;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Testing;
 using typebeat.Game.Beatmaps;
+using typebeat.Game.Overlays;
 using typebeat.Game.Overlays.Mods;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
@@ -27,6 +29,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
     /// </summary>
     public partial class TestScenePolyglotModSelect : OsuTestScene
     {
+        [Cached]
+        private readonly OverlayColourProvider colourProvider = new OverlayColourProvider(OverlayColourScheme.Green);
+
         private UserModSelectOverlay overlay = null!;
 
         private static IBeatmap beatmap(RulesetInfo ruleset, bool withOriginals)
@@ -70,6 +75,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         private ModPanel? polyglotPanel => overlay.ChildrenOfType<ModPanel>().SingleOrDefault(p => p.Mod is TypeBeatModPolyglot);
 
         private ModState polyglotState => overlay.AllAvailableMods.Single(s => s.Mod is TypeBeatModPolyglot);
+
+        [Test]
+        public void TestRankingFollowsTheLanguageWhenChangingMaps()
+        {
+            ModSelectFooterContent footer = null!;
+            create(withOriginals: true);
+            AddStep("create ranking footer", () =>
+            {
+                footer = (ModSelectFooterContent)overlay.CreateFooterContent();
+                Add(footer);
+                footer.Show();
+            });
+            AddStep("select Polyglot", () => polyglotPanel!.TriggerClick());
+            AddUntilStep("selected", () => SelectedMods.Value.Any(m => m is TypeBeatModPolyglot));
+            AddUntilStep("ranking footer loaded", () => footer.ChildrenOfType<RankingInformationDisplay>().Any());
+            foreach (var language in new[] { BeatmapLanguage.Japanese, BeatmapLanguage.Chinese, BeatmapLanguage.Russian, BeatmapLanguage.Korean, BeatmapLanguage.French })
+            {
+                AddStep("switch to " + language, () =>
+                {
+                    var map = beatmap(Ruleset.Value, withOriginals: true);
+                    map.BeatmapInfo.Metadata.Language = language;
+                    Beatmap.Value = CreateWorkingBeatmap(map);
+                    overlay.Beatmap.Value = Beatmap.Value;
+                });
+                AddUntilStep("ranking reflects " + language, () => footer.ChildrenOfType<RankingInformationDisplay>().Single().Ranked.Value
+                    == (language is not (BeatmapLanguage.Chinese or BeatmapLanguage.Korean)));
+                AddAssert("Polyglot stays selected", () => SelectedMods.Value.Any(m => m is TypeBeatModPolyglot));
+            }
+        }
 
         [Test]
         public void TestUnavailableOnAMapWithoutOriginals()

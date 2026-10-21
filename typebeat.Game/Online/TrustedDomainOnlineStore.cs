@@ -12,20 +12,29 @@ namespace typebeat.Game.Online
     /// the configured type!beat endpoints, so arbitrary embedded URLs can't trigger requests to
     /// third-party servers. Loopback is always allowed for local development.
     /// </summary>
+    /// <remarks>
+    /// The hosts are read from the endpoint configuration on every lookup rather than copied out once: it is
+    /// the same instance <see cref="API.APIAccess"/> holds, and the API host failover rewrites its
+    /// <see cref="EndpointConfiguration.APIUrl"/> mid-session, so a snapshot would keep trusting the
+    /// abandoned host and stop trusting the one now in use.
+    /// </remarks>
     public sealed class TrustedDomainOnlineStore : OnlineStore
     {
-        private readonly Uri? apiUri;
-        private readonly Uri? websiteUri;
+        private readonly EndpointConfiguration endpoints;
 
         public TrustedDomainOnlineStore(EndpointConfiguration endpoints)
         {
-            Uri.TryCreate(endpoints.APIUrl, UriKind.Absolute, out apiUri);
-            Uri.TryCreate(endpoints.WebsiteUrl, UriKind.Absolute, out websiteUri);
+            this.endpoints = endpoints;
         }
+
+        /// <summary>
+        /// Whether a lookup of <paramref name="url"/> would be let through, against the endpoint hosts as they are right now.
+        /// </summary>
+        public bool IsTrusted(string url) => TrustedDomains.IsTrustedUrl(url, endpoints);
 
         protected override string GetLookupUrl(string url)
         {
-            if (!TrustedDomains.IsTrustedUrl(url, apiUri, websiteUri))
+            if (!IsTrusted(url))
             {
                 Logger.Log($@"Blocking resource lookup from external website: {url}", LoggingTarget.Network, LogLevel.Important);
                 return string.Empty;

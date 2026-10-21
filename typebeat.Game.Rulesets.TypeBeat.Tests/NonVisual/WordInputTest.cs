@@ -556,7 +556,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(engine.ProcessKey('a', 1000), Is.True);
             Assert.That(engine.ProcessKey('x', 1500), Is.True, "wrong for 'b'");
 
-            long score = engine.Score;
+            var tally = engine.BuildResults().Counts;
             double accuracy = engine.LiveAccuracy;
             int combo = engine.Combo;
 
@@ -568,7 +568,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(engine.Score, Is.EqualTo(score), "an inert retype scores nothing");
+                Assert.That(engine.BuildResults().Counts, Is.EquivalentTo(tally), "an inert retype tallies nothing");
                 Assert.That(engine.LiveAccuracy, Is.EqualTo(accuracy), "and costs nothing");
                 Assert.That(engine.Combo, Is.EqualTo(combo));
                 Assert.That(cells(engine)[0].JudgedDelta, Is.Zero, "the first correct judgement still stands");
@@ -876,7 +876,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(engine.ProcessKey(' ', 2000), Is.True);
 
             var before = cells(engine).Select(c => (c.State, c.TypedChar, c.JudgedDelta)).ToArray();
-            long score = engine.Score;
+            var tally = engine.BuildResults().Counts;
             int caret = engine.CaretIndex;
             int combo = engine.Combo;
 
@@ -889,7 +889,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Multiple(() =>
             {
                 Assert.That(cells(engine).Select(c => (c.State, c.TypedChar, c.JudgedDelta)), Is.EqualTo(before));
-                Assert.That(engine.Score, Is.EqualTo(score));
+                Assert.That(engine.BuildResults().Counts, Is.EquivalentTo(tally));
                 Assert.That(engine.CaretIndex, Is.EqualTo(caret));
                 Assert.That(engine.Combo, Is.EqualTo(combo));
             });

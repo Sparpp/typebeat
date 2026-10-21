@@ -19,7 +19,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// (via the registered <see cref="LyricBeatmapDecoder"/>) -> hit objects identical to
     /// what <see cref="TimingJsonLoader.TryLoad"/> produces from the source file directly.
     ///
-    /// <para>The trip goes through <see cref="LyricMapImporter.StripBackingVocalLines"/> on the way
+    /// <para>The trip goes through <see cref="TimingJsonPostProcess.StripBackingVocalLines"/> on the way
     /// in, because that is where an import loses its backing vocals since backlog 255: the writer
     /// re-emits line objects verbatim, and the DECODE no longer strips (a '(' in a stored [Lyrics]
     /// line is a literal lyric mark). The equality with <see cref="TimingJsonLoader.TryLoad"/>, the
@@ -48,7 +48,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void SyntheticRoundTripMatchesLoader()
         {
             string osuText = LyricOsuFormat.GenerateOsu("An Artist", "A Title", "audio.mp3", "tester",
-                LyricMapImporter.StripBackingVocalLines(synthetic_timing_json));
+                TimingJsonPostProcess.StripBackingVocalLines(synthetic_timing_json));
 
             // Loader ground truth (via a temp file, its only entry point).
             string tempPath = Path.Combine(Path.GetTempPath(), $"tb_dec_{System.Guid.NewGuid():N}.json");
@@ -102,7 +102,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(TimingJsonLoader.TryLoad(timingPath, out var expected), Is.True);
 
             string osuText = LyricOsuFormat.GenerateOsu("Friday Pilots Club", "Spectator", "audio.mp3", "typebeat-lyriclab",
-                LyricMapImporter.StripBackingVocalLines(timingJson));
+                TimingJsonPostProcess.StripBackingVocalLines(timingJson));
             var beatmap = decode(osuText);
             var hitObjects = beatmap.HitObjects.OfType<TypeBeatHitObject>().ToList();
 
@@ -157,7 +157,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             // Feeding the SAME document through the import boundary instead strips it exactly as it
             // always did, whole-line drop included.
-            string imported = LyricMapImporter.StripBackingVocalLines(bracket_timing_json);
+            string imported = TimingJsonPostProcess.StripBackingVocalLines(bracket_timing_json);
             var importedObjects = decode(LyricOsuFormat.GenerateOsu("An Artist", "A Title", "audio.mp3", "tester", imported))
                                   .HitObjects.OfType<TypeBeatHitObject>().ToList();
 

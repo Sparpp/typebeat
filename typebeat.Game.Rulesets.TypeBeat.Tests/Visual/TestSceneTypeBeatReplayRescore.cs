@@ -1,14 +1,17 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Replays;
+using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
+using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Replays;
 using typebeat.Game.Rulesets.TypeBeat.Scoring;
@@ -63,6 +66,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
         private const double line_zero_end = 300000;
 
+        /// <summary>Line 0's text for the next player load. The word-skip scenes need word gaps.</summary>
+        private string lineZeroText = word;
+
+        /// <summary>Line 1's text for the next player load. The back-dated seal scene needs cells
+        /// typed on both sides of line 0's seal.</summary>
+        private string lineOneText = "z";
+
         /// <summary>The (char, time) pairs fed to the engine, in order: the replay of this run.</summary>
         private readonly List<TypeBeatReplayFrame> frames = new List<TypeBeatReplayFrame>();
 
@@ -70,20 +80,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         {
             var first = new LyricLine
             {
-                RawText = word,
+                RawText = lineZeroText,
                 StartTime = 0,
                 EndTime = line_zero_end,
                 SingEndTime = 240000,
-                Units = new[] { new TimedUnit { Text = word, StartTime = 0, EndTime = 240000 } },
+                Units = new[] { new TimedUnit { Text = lineZeroText, StartTime = 0, EndTime = 240000 } },
             };
 
             var second = new LyricLine
             {
-                RawText = "z",
+                RawText = lineOneText,
                 StartTime = line_zero_end,
                 EndTime = 600000,
                 SingEndTime = 400000,
-                Units = new[] { new TimedUnit { Text = "z", StartTime = line_zero_end, EndTime = 400000 } },
+                Units = new[] { new TimedUnit { Text = lineOneText, StartTime = line_zero_end, EndTime = 400000 } },
             };
 
             var beatmap = new Beatmap
@@ -105,6 +115,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         {
             AddStep("reset the scripted replay", () =>
             {
+                lineZeroText = word;
+                lineOneText = "z";
                 frames.Clear();
                 frames.Add(TypeBeatReplayFrame.CreateConfigFrame(0, true));
             });
@@ -114,6 +126,58 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("line active", () => engine.ActiveLineIndex == 0);
             AddAssert("the default wrong-key model", () => engine.AllowWrongInput);
         }
+
+        /// <summary>
+        /// Loads a player on the given map and opens the replay with the two CONFIG frames
+        /// <c>TypeBeatReplayRecorder</c> writes for the engine the live stack actually built, so the
+        /// rescore runs under every era the live run did (the back-dated seal break and the lossless
+        /// skip reclaim above all, which the bare frame the scenes above use leaves clear).
+        /// </summary>
+        private void loadRecordedPlayer(string lineZero, string lineOne, bool spaceSkipsWord = false, params Mod[] mods)
+        {
+            AddStep("reset the scripted replay", () =>
+            {
+                lineZeroText = lineZero;
+                lineOneText = lineOne;
+                frames.Clear();
+            });
+
+            AddStep("load player", () => LoadPlayer(mods));
+            AddUntilStep("player loaded", () => Player.IsLoaded && Player.Alpha == 1);
+            AddUntilStep("line active", () => engine.ActiveLineIndex == 0);
+
+            AddStep("write the recorder's CONFIG frames", () =>
+            {
+                engine.SpaceSkipsWord = spaceSkipsWord;
+
+                frames.Add(TypeBeatReplayFrame.CreateConfigFrame(0, engine.AllowWrongInput, engine.SpaceSkipsWord, engine.SyllableTiming, engine.WrongInputOnWordGaps, engine.StrictSpaces, engine.CharTimedStretch, flexibleLines: engine.FlexibleLineSnap, boundedRush: engine.BoundedRush, firstCharTiming: engine.FirstCharTiming, backDatedSealBreak: engine.BackDatedSealBreak, losslessSkipReclaim: engine.LosslessSkipReclaim, foldsDisplacedClaim: engine.FoldsDisplacedClaim, unhalvedHardRockWindows: engine.UnhalvedHardRockWindows, manualNewlines: engine.ManualNewlines, newlineOnTypedLetter: engine.NewlineOnTypedLetter, firstLineLeadIn: engine.FirstLineLeadIn));
+                frames.Add(TypeBeatReplayFrame.CreateExtendedConfigFrame(0, rushCapCostsAccuracy: engine.RushCapCostsAccuracy, inputEra2: engine.InputEra2, authoredSyllablesOnly: engine.AuthoredSyllablesOnly, alignSubdivisionTargets: engine.AlignSubdivisionTargets, earlyFinish: engine.EarlyFinish, japaneseRomajiInput: engine.JapaneseRomajiInput, japaneseWordTiming: engine.JapaneseWordTiming, japaneseInputEra2: engine.JapaneseInputEra2, japaneseInputEra3: engine.JapaneseInputEra3, keyTimeJudgement: engine.KeyTimeJudgement));
+            });
+
+            AddAssert("the live stack back-dates the seal break", () => engine.BackDatedSealBreak);
+        }
+
+        private static Mod[] pinnedCaret(bool pinned) => pinned ? new Mod[] { new TypeBeatModFletcher() } : Array.Empty<Mod>();
+
+        /// <summary>Type line 0 from wherever its caret stands to its end, each cell dead on its own target.</summary>
+        private void typeOutLineZero() => AddStep("type out the rest of line 0", () =>
+        {
+            while (engine.ActiveLineIndex == 0 && engine.CaretIndex < engine.Lines[0].Cells.Count)
+            {
+                var cell = engine.Lines[0].Cells[engine.CaretIndex];
+                press(cell.Expected, cell.TargetTime);
+            }
+        });
+
+        /// <summary>Type cells [from, to) of line 1, each dead on its own target.</summary>
+        private void typeLineOne(int from, int to) => AddStep($"type line 1's cells {from}..{to - 1}", () =>
+        {
+            for (int i = from; i < to; i++)
+            {
+                var cell = engine.Lines[1].Cells[i];
+                press(cell.Expected, cell.TargetTime);
+            }
+        });
 
         /// <summary>Type cells [from, to) of line 0 correctly, each dead on its own target.</summary>
         private void typeCorrectly(int from, int to) => AddStep($"type cells {from}..{to - 1}", () =>
@@ -199,6 +263,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             liveRank = Player.ScoreProcessor.Rank.Value;
             liveTotalScore = Player.ScoreProcessor.TotalScore.Value;
             liveTotalScoreWithoutMods = Player.ScoreProcessor.TotalScoreWithoutMods.Value;
+            liveCombo = Player.ScoreProcessor.Combo.Value;
+            engineCombo = engine.Combo;
         });
 
         private List<KeyValuePair<HitResult, int>> liveStatistics = null!;
@@ -208,6 +274,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         private ScoreRank liveRank;
         private long liveTotalScore;
         private long liveTotalScoreWithoutMods;
+        private int liveCombo;
+        private int engineCombo;
 
         /// <summary>
         /// A typo typed through and then FIXED: the run backlog 109 changed the pricing of, and the
@@ -268,10 +336,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         /// did; here the run has to survive the seal and extend to 10.
         ///
         /// <para>That makes this the scene that would catch the two wirings of the combo-neutral
-        /// mark coming apart, the live <c>TypeBeatPlayfield.onLineSealed</c> and the harness's own
-        /// <c>CellRegistry.Seal</c>: they address the same cell by (line, cell), and if either
-        /// stopped marking it, its max_combo would move off 10 and the equality below would
-        /// fail.</para>
+        /// mark coming apart, the live <c>TypeBeatPlayfield.applySealResults</c> and the harness's
+        /// own <c>CellRegistry.Seal</c> (both through <see cref="TypeBeatComboFeed.SealedCellResult"/>):
+        /// they address the same cell by (line, cell), and if either stopped marking it, its
+        /// max_combo would move off 10 and the equality below would fail.</para>
         /// </summary>
         [Test]
         public void TestAComboCarriedAcrossASealRescoresToTheLivePlayersAccount()
@@ -313,10 +381,135 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         /// <summary>
+        /// A word skip the player never came back for (backlog 167): the skip's one combo break is
+        /// written by hand at <see cref="TypingEngine.WordAbandoned"/>, and the Miss the abandoned
+        /// cell finally takes at the seal is marked combo-neutral at
+        /// <see cref="TypingEngine.AbandonSealed"/> so it cannot take that break again. Both writes
+        /// are hand-mirrored on each side, so this is the scene that holds the two copies together.
+        ///
+        /// <para>Run under both carets. Unpinned (the default stack) the abandoned cell's own
+        /// judgement arrives with a combo of 0, so the rush-cap arm writes the same break a moment
+        /// later; only the pinned caret leaves the skip's write as the one thing breaking osu's
+        /// combo.</para>
+        /// </summary>
+        [TestCase(false)]
+        [TestCase(true)]
+        public void TestAnAbandonedWordSkipRescoresToTheLivePlayersAccount(bool pinned)
+        {
+            loadRecordedPlayer("abc def ghi", "z", spaceSkipsWord: true, mods: pinnedCaret(pinned));
+
+            typeCorrectly(0, 2);
+            AddStep("skip the rest of the first word", () => press(' ', engine.Lines[0].Cells[2].TargetTime));
+            AddAssert("the skip abandoned cell 2", () => engine.Lines[0].Cells[2].State == CellState.Abandoned);
+            typeOutLineZero();
+            sealLineZero();
+            typeLineOneCell();
+            runTheMapOut();
+
+            AddAssert("the abandoned cell took the run's only miss", () =>
+                liveStatistics.Single(kvp => kvp.Key == HitResult.Miss).Value == 1);
+
+            compare(expectedMistypes: 0);
+        }
+
+        /// <summary>
+        /// The same skip walked back into and retyped: the cell leaves the phantom state through
+        /// <see cref="TypingEngine.AbandonReclaimed"/> and the retype resumes the streak the skip
+        /// broke (<see cref="TypingEngine.ComboRestored"/>), so the hand-written break at the skip
+        /// has to be undone by the hand-written restore on both sides alike.
+        /// </summary>
+        [TestCase(false)]
+        [TestCase(true)]
+        public void TestAReclaimedWordSkipRescoresToTheLivePlayersAccount(bool pinned)
+        {
+            loadRecordedPlayer("abc def ghi", "z", spaceSkipsWord: true, mods: pinnedCaret(pinned));
+
+            typeCorrectly(0, 2);
+            AddStep("skip the rest of the first word", () => press(' ', engine.Lines[0].Cells[2].TargetTime));
+            AddAssert("the skip abandoned cell 2", () => engine.Lines[0].Cells[2].State == CellState.Abandoned);
+            AddStep("backspace back into the skipped word", () =>
+            {
+                double time = engine.Lines[0].Cells[2].TargetTime;
+
+                while (engine.CaretIndex > 2 && engine.ProcessBackspace())
+                    frames.Add(new TypeBeatReplayFrame(time, TypeBeatReplayFrame.BACKSPACE));
+            });
+            AddAssert("the cell is typeable again", () => engine.CaretIndex == 2 && engine.Lines[0].Cells[2].State == CellState.Untyped);
+            typeOutLineZero();
+            sealLineZero();
+            typeLineOneCell();
+            runTheMapOut();
+
+            AddAssert("nothing was missed and the run survived the skip", () =>
+                liveStatistics.All(kvp => kvp.Key != HitResult.Miss) && liveMaxCombo == 12);
+
+            compare(expectedMistypes: 0);
+        }
+
+        /// <summary>
+        /// A line given up with Enter and sealed after the player has built a run on the next one
+        /// (backlog 259): the seal's one break is written by hand as the run the engine is left
+        /// holding, and every seal miss is marked combo-neutral, so the cells typed on line 1 before
+        /// the seal must survive it on both sides. The only scene in which a seal's break leaves a
+        /// combo standing, which is what tells the back-dated write from a plain wipe.
+        /// </summary>
+        [Test]
+        public void TestABackDatedSealBreakRescoresToTheLivePlayersAccount()
+        {
+            loadRecordedPlayer(word, "wxyz");
+
+            typeCorrectly(0, 6);
+            AddStep("give up the rest of line 0", () =>
+            {
+                double time = engine.Lines[0].Cells[6].TargetTime;
+                engine.Update(time);
+
+                if (engine.ProcessEnter(time))
+                    frames.Add(new TypeBeatReplayFrame(time, TypeBeatReplayFrame.ENTER));
+            });
+            AddStep("reach line 1", () => engine.Update(engine.Lines[1].Cells[0].TargetTime));
+            AddAssert("line 1 is active and line 0 still open", () => engine.ActiveLineIndex == 1 && engine.NextUnsealedLineIndex == 0);
+            typeLineOne(0, 1);
+            sealLineZero();
+            AddAssert("the seal left line 1's run standing on both accounts", () =>
+                engine.Combo == 1 && Player.ScoreProcessor.Combo.Value == 1);
+            typeLineOne(1, 4);
+            runTheMapOut();
+
+            AddAssert("line 0's six untyped cells were missed", () =>
+                liveStatistics.Single(kvp => kvp.Key == HitResult.Miss).Value == 6);
+
+            compare(expectedMistypes: 0);
+        }
+
+        /// <summary>
+        /// A wrong key REJECTED under Gatekeeper. Its break rides on <see cref="TypingEngine.Mistyped"/>
+        /// live, while the scorer also listens on <see cref="TypingEngine.WrongKeyRejected"/> for the
+        /// pre-109 rule; under the live rule only the first may write, so the two sides must agree.
+        /// </summary>
+        [Test]
+        public void TestARejectedWrongKeyRescoresToTheLivePlayersAccount()
+        {
+            loadRecordedPlayer(word, "z", mods: new TypeBeatModGatekeeper());
+
+            AddAssert("the strict wrong-key model", () => !engine.AllowWrongInput);
+            typeCorrectly(0, 3);
+            AddStep("press a wrong key on cell 3", () => press('q', engine.Lines[0].Cells[3].TargetTime));
+            typeCorrectly(3, 12);
+            sealLineZero();
+            typeLineOneCell();
+            runTheMapOut();
+
+            AddAssert("the rejection broke the run", () => liveMaxCombo == 10);
+
+            compare();
+        }
+
+        /// <summary>
         /// Re-derives the account from the replay alone and holds every submitted field against the
         /// live processor's.
         /// </summary>
-        private void compare()
+        private void compare(int expectedMistypes = 1)
         {
             TypeBeatReplayAccount rescored = null!;
 
@@ -349,10 +542,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddAssert("every recorded frame was consumed", () => rescored.UnconsumedFrames == 0);
 
+            // The combo the live processor ended on is the engine's: every hand-written write kept
+            // the two together.
+            AddAssert("the live combo is the engine's", () => liveCombo == engineCombo);
+
             // The run really did contain the thing these scenes are about, so the equality above is
             // not equality between two empty accounts.
-            AddAssert("the run carried a mistype and a real combo", () =>
-                rescored.Mistypes == 1 && rescored.MaxCombo >= 5);
+            AddAssert("the run carried its mistypes and a real combo", () =>
+                rescored.Mistypes == expectedMistypes && rescored.MaxCombo >= 5);
         }
 
         private static List<KeyValuePair<HitResult, int>> nonZero(IReadOnlyDictionary<HitResult, int> counts)

@@ -8,17 +8,14 @@ using System.Linq;
 namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 {
     /// <summary>
-    /// THE CHUNKED ENDURANCE AXIS: a second reading of the same map, and the port of the Star
+    /// THE CHUNKED ENDURANCE AXIS: the reading every star rating is taken from, and the port of the Star
     /// Rating Sandbox's chunked block (<c>tools/star-rating-sandbox/model.mjs</c>, the
     /// "chunked axis" section).
     ///
-    /// <para>WHAT IT ASKS. The envelope model reads a map as one number built from its hardest
-    /// window and how much of the range the rest of the material fills. This axis asks a different
-    /// question: score the map's own windows directly, then take the decay-weighted mean of those
-    /// scores with the hardest weighted most. The result is a star figure on its own scale: on this
-    /// axis <c>starScale</c> is the anchor rather than <c>anchor / (1 + range)</c>, and
-    /// <c>difficult</c>/<c>demanding</c> are both the weighted length count the pp figure prices a
-    /// miss against.</para>
+    /// <para>WHAT IT ASKS. Score the map's own windows directly, then take the decay-weighted mean
+    /// of those scores with the hardest weighted most. The result is a star figure on its own
+    /// scale (<c>starScale</c> is the anchor), and <c>difficult</c>/<c>demanding</c> are both the
+    /// weighted length count the pp figure prices a miss against.</para>
     ///
     /// <para>TWO LAYOUTS, ONE AXIS. <see cref="Settings.chunk_profile"/> picks which window family
     /// the map is read through, and the sandbox's saved configuration - which
@@ -37,12 +34,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     ///
     /// <para>WHAT IT DOES NOT READ. The peak-window scan, the envelope sweep, the strain
     /// accumulation, the catch-up walk, stamina and the burst window. The chunked rating is
-    /// <c>anchor x score x (1 + length bonus)</c> and nothing else; porting the rest "for
-    /// completeness" is what made the sandbox slow.</para>
+    /// <c>anchor x score x (1 + length bonus)</c>, followed by the whole-map typability bonus in
+    /// <see cref="LyricDifficulty.RateChunked"/>.</para>
     ///
-    /// <para>ONE INPUT THE ENVELOPE MODEL DOES NOT HAVE. A chunk's strain is multiplied by the
-    /// rhythm boost INSIDE that window, read off a load prefix over the map's own keypress stream
-    /// (see <see cref="BuildLoadPrefix"/>), not off the map-level rhythmic-complexity multiplier.
+    /// <para>THE RHYTHM IS READ PER WINDOW. A chunk's strain is multiplied by the rhythm boost
+    /// INSIDE that window, read off a load prefix over the map's own keypress stream (see
+    /// <see cref="BuildLoadPrefix"/>), not off one map-level multiplier.
     /// That prefix is the only reason this file needs the press stream at all.</para>
     ///
     /// <para>THE DIALS ARE THE SANDBOX'S LIVE ONES. Every value in <see cref="Settings"/> mirrors
@@ -80,8 +77,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         internal sealed record Settings
         {
             // The capability curve S(t) this axis reads the material against: the sandbox's
-            // PARAMETERS panel, which is a different calibration from the envelope model's own
-            // constants (see LyricDifficulty).
+            // PARAMETERS panel.
             public double capability_base_wpm { get; init; } = 220;
             public double capability_burst_wpm { get; init; } = 200;
             public double capability_ref_seconds { get; init; } = 1.5;
@@ -103,9 +99,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             /// THE SHIFT SURCHARGE, and it is DEMAND ONLY. Under Literate a capital is Shift plus the
             /// letter, and the press walk charges exactly that; this axis read its cells straight from
             /// the word builder, where a capital is still one character, so without this dial the rating
-            /// the game actually ships priced a capital at one input. The cost is charged once per RUN
-            /// of capitals or shifted marks, because the key is held across it ("USA" is one Shift,
-            /// "A B" two) - see <see cref="ShiftSurcharge"/>.
+            /// the game actually ships priced a capital at one input. Capitals share a charge while
+            /// Shift is held. Each shifted symbol pays a charge unless it repeats the immediately
+            /// preceding symbol ("^%$" pays three, "!!!" one) - see <see cref="ShiftSurcharge"/>.
             ///
             /// <para>It reaches the chunk strain's NUMERATOR and nothing else: deliberately not the
             /// character counts, so the length bonus and the difficult-character figure a miss is
@@ -179,11 +175,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             /// the exact cap.
             /// </summary>
             public double overlap_max_seconds { get; init; } = 60.75;
+
+            /// <summary>Use the playable map duration as the horizon and test its exact full span.</summary>
+            public bool overlap_whole_map { get; init; }
             public double overlap_samples { get; init; } = 4;
 
             /// <summary>
-            /// The envelope-characters dial. On this axis only the <c>Fill</c> readout reads it;
-            /// nothing in the chunk score does.
+            /// The difficult-characters dial the <c>Fill</c> readout is read against; nothing in the
+            /// chunk score reads it.
             /// </summary>
             public double chars { get; init; } = 10;
         }
@@ -196,6 +195,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// change it here, regenerate the catalogue fixture, and bump the difficulty version.
         /// </summary>
         internal static readonly Settings Live = new Settings();
+
+        /// <summary>Experimental calibration retained for explicit sandbox comparisons.</summary>
+        internal static readonly Settings Development = Live with { overlap_whole_map = true, chunk_length_scale = 2000 };
+
+        internal static Settings Active => Live;
 
         /// <summary>
         /// The scale one window's typability puts on the capability curve, exactly 1 when the snapshot
@@ -347,8 +351,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             /// </summary>
             public required double Load { get; init; }
 
-            /// <summary><c>anchor x score x (1 + length bonus)</c>, the axis's star figure.</summary>
+            /// <summary>The axis's star figure, including the final whole-map typability bonus when applied by the caller.</summary>
             public required double Stars { get; init; }
+
+            /// <summary>Final SR bonus for negative whole-map typability, applied after length credit.</summary>
+            public double WholeMapTypabilityMultiplier { get; init; } = 1;
 
             /// <summary>The rating against the same model with the boost neutralised.</summary>
             public required double RhythmMultiplier { get; init; }
@@ -359,6 +366,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             /// and for a test that has to see how far a merge actually spread.
             /// </summary>
             public required IReadOnlyList<Chunk> Chunks { get; init; }
+
+            public WindowProfile HardestWindow { get; init; }
+            public WindowProfile WholeMapWindow { get; init; }
+            public IReadOnlyList<double> OverlapWindowDurations { get; init; } = Array.Empty<double>();
+            public double DurationSeconds { get; init; }
+            public double WholeMapRhythmMultiplier { get; init; } = 1;
+            public double HardestWindowRhythmMultiplier { get; init; } = 1;
+
+            /// <summary>Unsaturated forced pace-change load per second, for the rhythm display scale.</summary>
+            public double WholeMapRhythmLoadPerSecond { get; init; }
+            public double HardestWindowRhythmLoadPerSecond { get; init; }
+        }
+
+        /// <summary>A window measured by the SR scan for pace and rhythm statistics.</summary>
+        internal readonly record struct WindowProfile(double StartMs, double EndMs, double Strain, double Wpm)
+        {
+            public double Seconds => (EndMs - StartMs) / 1000;
         }
 
         /// <summary>One chunk of the layout, in playback milliseconds from the map's first word.</summary>
@@ -392,11 +416,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         private static bool IsShiftedMark(char c) => SHIFTED_CANDIDATES.IndexOf(c) >= 0 && Typeability.IsPunctuation(c);
 
         /// <summary>
-        /// How many Shift keypresses a token costs under Literate, at <paramref name="cost"/> each: one
-        /// per RUN of capitals or shifted marks, because the key is held across the run ("USA" pays one,
-        /// "A B" pays two - the unshifted space resets it). A freestyle slot matches any key, so it
-        /// never pays, and nothing is charged at all without the Literate mod, whose stream is the one
-        /// that carries capitals and marks (see <see cref="Settings.shift_cost"/>).
+        /// How many Shift keypresses a token costs under Literate, at <paramref name="cost"/> each.
+        /// Each shifted symbol pays unless the preceding played character is the same symbol.
+        /// Capitals share a charge while Shift is held ("USA" pays one, "A B" two).
+        /// Freestyle slots never pay. Nothing is charged without Literate.
         /// </summary>
         internal static double ShiftSurcharge(string token, bool literate, double cost)
         {
@@ -405,21 +428,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             double charges = 0;
             bool held = false;
+            char previous = '\0';
 
             foreach (char c in token)
             {
                 // Only the characters the stream can actually put on a cell carry a flag: everything
                 // else (the syllable-split marker, junk a normalizer let through) is skipped WITHOUT
-                // releasing Shift, exactly as the sandbox's shiftPressFlags skips it.
+                // releasing Shift or interrupting a repeated symbol.
                 if (!Typeability.IsTypeable(c) && !Typeability.IsFreestyle(c) && !Typeability.IsPunctuation(c))
                     continue;
 
-                bool needs = !Typeability.IsFreestyle(c) && ((c >= 'A' && c <= 'Z') || IsShiftedMark(c));
+                bool shiftedMark = IsShiftedMark(c);
+                bool needs = !Typeability.IsFreestyle(c) && ((c >= 'A' && c <= 'Z') || shiftedMark);
 
-                if (needs && !held)
+                if (shiftedMark ? previous != c : needs && !held)
                     charges += cost;
 
                 held = needs;
+                previous = c;
             }
 
             return charges;
@@ -573,9 +599,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>
         /// THE SHIFT SURCHARGE's prefix, the sandbox's <c>preShift</c>: one word's own Shift keypresses
         /// (see <see cref="ShiftSurcharge"/>) spread across the word's span on the timeline's bin grid,
-        /// so any candidate window can read the surcharge it holds in O(1). Null - the whole feature
-        /// switched off - unless the play is Literate and the dial is on, which is what keeps it
-        /// invisible to a default-stream reading and to every fixture taken at one.
+        /// plus Polyglot composition keys at the same per-key cost. Candidate windows read this
+        /// extra demand in O(1); scoring-cell counts are unaffected. Ordinary default-stream
+        /// readings carry no extra inputs, preserving their existing ratings.
         /// </summary>
         internal static double[]? BuildShiftPrefix(
             IReadOnlyList<LyricDifficulty.Word> words,
@@ -584,14 +610,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             bool literate,
             Settings settings)
         {
-            if (!literate || !(settings.shift_cost > 0) || words.Count == 0 || binCount <= 0)
+            if (!(settings.shift_cost > 0) || words.Count == 0 || binCount <= 0
+                || !literate && words.All(w => w.ExtraInputs == 0))
                 return null;
 
             var density = new double[binCount];
 
             foreach (LyricDifficulty.Word word in words)
             {
-                double surcharge = ShiftSurcharge(word.Token, true, settings.shift_cost);
+                double surcharge = ShiftSurcharge(word.Token, literate, settings.shift_cost) + word.ExtraInputs * settings.shift_cost;
 
                 if (!(surcharge > 0))
                     continue;
@@ -615,6 +642,97 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 prefix[i + 1] = prefix[i] + density[i];
 
             return prefix;
+        }
+
+        /// <summary>Where each window length is tried against a sample: starting at its centre, centred on it, and ending at it.</summary>
+        private static readonly double[] overlap_positions = { 0d, .5, 1d };
+
+        /// <summary>
+        /// THE OVERLAPPING LAYOUT'S WINDOW FAMILY, clamped exactly as the sandbox clamps its dials:
+        /// the base window (<c>chunk_seconds</c>), the sample step (the base cut into
+        /// <c>overlap_samples</c>), and every length tried at a sample, the base doubled up to the
+        /// horizon plus the exact cap when it is not on a doubling. Read by the rating's sample loop
+        /// and by <see cref="TargetWpm"/>, so the two measure the same windows.
+        /// </summary>
+        private static (double BaseMs, double StepMs, List<double> Durations) OverlapFamily(Settings settings, double mapDuration = 0)
+        {
+            double baseMs = Math.Min(10, Math.Max(.2, settings.chunk_seconds)) * 1000;
+            double maxMs = settings.overlap_whole_map ? Math.Max(baseMs, mapDuration)
+                : Math.Max(baseMs, Math.Min(120, Math.Max(1, settings.overlap_max_seconds)) * 1000);
+            int subdivisions = Math.Max(1, Math.Min(8, (int)Math.Round(settings.overlap_samples)));
+            double stepMs = baseMs / subdivisions;
+
+            var durations = new List<double> { baseMs };
+
+            while (durations[^1] * 2 < maxMs - 1e-6)
+                durations.Add(durations[^1] * 2);
+
+            if (maxMs > baseMs + 1e-6)
+                durations.Add(maxMs);
+
+            return (baseMs, stepMs, durations);
+        }
+
+        /// <summary>
+        /// THE TARGET WPM on this axis: the map's fastest window BY RAW SPEED, re-expressed as the
+        /// WPM an equally demanding <paramref name="targetSeconds"/> window would need.
+        ///
+        /// <para>The windows are the overlapping layout's own (<see cref="OverlapFamily"/>, every
+        /// length at every sample's start, centre and end), whichever layout the rating reads, and a
+        /// window's raw speed is its WPM over <see cref="Capability"/> at its own length. That is the
+        /// chunk strain with the typability multiplier, the judgement-window premium, the rhythm boost
+        /// and the Shift surcharge all left out, so the figure is a speed that no difficulty dial
+        /// moves. Converting it to <paramref name="targetSeconds"/> is one multiplication by the
+        /// capability curve. A window holding fewer than <paramref name="minimumCells"/> weighted
+        /// cells never qualifies, and a map with no qualifying window reports 0.</para>
+        /// </summary>
+        internal static double TargetWpm(Timeline timeline, Settings settings, double targetSeconds, double minimumCells)
+        {
+            IReadOnlyList<LyricDifficulty.Word> words = timeline.Words;
+
+            if (words.Count == 0)
+                return 0;
+
+            double t0 = timeline.T0, mapEnd = t0;
+
+            foreach (LyricDifficulty.Word word in words)
+                mapEnd = Math.Max(mapEnd, word.End);
+
+            (_, double stepMs, List<double> durations) = OverlapFamily(settings, mapEnd - t0);
+            double bestRatio = 0, bestCells = 0, bestSeconds = 0;
+
+            for (int index = 0; t0 + index * stepMs < mapEnd - 1e-6; index++)
+            {
+                double a = t0 + index * stepMs;
+                double b = Math.Min(mapEnd, a + stepMs);
+                double centre = (a + b) / 2;
+
+                foreach (double duration in durations)
+                {
+                    foreach (double position in overlap_positions)
+                    {
+                        double from = centre - duration * position;
+                        double cells = timeline.MassBetween(from, from + duration);
+
+                        if (!(cells + 1e-9 >= minimumCells))
+                            continue;
+
+                        double seconds = duration / 1000;
+                        double ratio = cells / 5 / (seconds / 60) / Capability(seconds, settings);
+
+                        if (ratio > bestRatio)
+                        {
+                            bestRatio = ratio;
+                            bestCells = cells;
+                            bestSeconds = seconds;
+                        }
+                    }
+                }
+            }
+
+            return bestRatio > 0
+                ? bestCells / 5 / (bestSeconds / 60) * Capability(targetSeconds, settings) / Capability(bestSeconds, settings)
+                : 0;
         }
 
         /// <summary>
@@ -783,25 +901,40 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             bool overlapping = settings.chunk_profile == profile_overlapping;
             List<Row>? overlappingRows = null;
 
+            WindowProfile hardestWindow = default, wholeMapWindow = default;
+            double[] overlapWindowDurations = Array.Empty<double>();
+            double hardestWindowPeak = 0, hardestWindowRhythmMultiplier = 1;
+            double mapEnd = words.Max(word => word.End);
+
+            WindowProfile DescribeWindow(double from, double to, double strain)
+                => new WindowProfile(from, to, strain, timeline.MassBetween(from, to) * 12 / ((to - from) / 1000));
+
+            void RecordWindow(double from, double to, double value)
+            {
+                double seconds = (to - from) / 1000;
+                if (value > hardestWindowPeak)
+                {
+                    hardestWindowPeak = value;
+                    hardestWindow = DescribeWindow(from, to, value);
+                    hardestWindowRhythmMultiplier = RhythmBoost(load, from, to, seconds, settings);
+                }
+            }
+
             if (overlapping)
             {
-                double mapEnd = t0;
+                (double baseMs, double stepMs, List<double> durations) = OverlapFamily(settings, mapEnd - t0);
 
-                foreach (LyricDifficulty.Word word in words)
-                    mapEnd = Math.Max(mapEnd, word.End);
-
-                double baseMs = span;
-                double maxMs = Math.Max(baseMs, Math.Min(120, Math.Max(1, settings.overlap_max_seconds)) * 1000);
-                int subdivisions = Math.Max(1, Math.Min(8, (int)Math.Round(settings.overlap_samples)));
-                double stepMs = baseMs / subdivisions;
-
-                var durations = new List<double> { baseMs };
-
-                while (durations[^1] * 2 < maxMs - 1e-6)
-                    durations.Add(durations[^1] * 2);
-
-                if (maxMs > baseMs + 1e-6)
-                    durations.Add(maxMs);
+                overlapWindowDurations = durations.Select(ms => ms / 1000).ToArray();
+                double wholeMapStrain = 0, wholeMapPlain = 0;
+                // Three sample placements need not land on both map edges. Test the full map
+                // explicitly once, preserving the base-duration floor for very short maps.
+                if (settings.overlap_whole_map && mapEnd - t0 >= baseMs)
+                {
+                    wholeMapStrain = ChunkStrain(t0, mapEnd, true);
+                    wholeMapPlain = ChunkStrain(t0, mapEnd, false);
+                    wholeMapWindow = DescribeWindow(t0, mapEnd, wholeMapStrain);
+                    RecordWindow(t0, mapEnd, wholeMapStrain);
+                }
 
                 overlappingRows = new List<Row>();
 
@@ -815,10 +948,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                     foreach (double duration in durations)
                     {
-                        foreach (double position in new[] { 0d, .5, 1d })
+                        foreach (double position in overlap_positions)
                         {
                             double from = centre - duration * position, to = from + duration;
                             double value = ChunkStrain(from, to, true);
+
+                            RecordWindow(from, to, value);
 
                             if (value > strain)
                             {
@@ -830,6 +965,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                             plain = Math.Max(plain, ChunkStrain(from, to, false));
                         }
                     }
+
+                    if (wholeMapStrain > strain)
+                    {
+                        strain = wholeMapStrain;
+                        windowStart = t0;
+                        windowSeconds = (mapEnd - t0) / 1000;
+                    }
+                    plain = Math.Max(plain, wholeMapPlain);
 
                     overlappingRows.Add(new Row
                     {
@@ -1489,6 +1632,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Load = load.Total,
                 Stars = envelopeStars,
                 RhythmMultiplier = noRhythmStars > 0 ? envelopeStars / noRhythmStars : 1,
+                HardestWindow = hardestWindow,
+                WholeMapWindow = wholeMapWindow,
+                OverlapWindowDurations = overlapWindowDurations,
+                DurationSeconds = (mapEnd - t0) / 1000,
+                WholeMapRhythmMultiplier = RhythmBoost(load, t0, mapEnd, (mapEnd - t0) / 1000, settings),
+                HardestWindowRhythmMultiplier = hardestWindowRhythmMultiplier,
+                WholeMapRhythmLoadPerSecond = load.LoadBetween(t0, mapEnd) / Math.Max(1e-9, (mapEnd - t0) / 1000),
+                HardestWindowRhythmLoadPerSecond = hardestWindow.Seconds > 0
+                    ? load.LoadBetween(hardestWindow.StartMs, hardestWindow.EndMs) / hardestWindow.Seconds : 0,
                 Chunks = rows.Select(row => new Chunk(row.A, row.B, row.Strain, row.Plain, row.Merged, row.Sealed)).ToArray(),
             };
         }

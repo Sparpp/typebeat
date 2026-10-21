@@ -30,6 +30,10 @@
 # venv's imports first and writes the sentinel itself when they load, so it only hands this script
 # a venv that is actually broken; a by-hand run simply rebuilds.)
 #
+# The pinned uv is checked twice: a uv on PATH is used only when it reports $uvVersion (otherwise
+# the pinned copy is), and the downloaded zip is unpacked only when its sha256 is $uvSha256 (the
+# release's own .sha256 file). Both change with $uvVersion, as do setup.sh's.
+#
 # -Device cpu  (default): CPU-only torch wheels (~200 MB download).
 # -Device cuda: CUDA 12.1 torch wheels (~2.5 GB download) - alignment runs on an NVIDIA GPU
 #               (align_lyrics.py --device cuda). Requires a reasonably recent NVIDIA driver.
@@ -79,6 +83,7 @@ Set-Location $PSScriptRoot
 
 $uvVersion = '0.5.14'
 $uvUrl = "https://github.com/astral-sh/uv/releases/download/$uvVersion/uv-x86_64-pc-windows-msvc.zip"
+$uvSha256 = 'ee2468e40320a0a2a36435e66bbd0d861228c4c06767f22d97876528138f4ba0'
 $pythonVersion = '3.11'
 $torchVersion = '2.5.1'
 $sentinel = '.venv\.typebeat-setup-ok'
@@ -134,6 +139,19 @@ function Test-Uv([string]$exe) {
     }
 }
 
+# True when $exe reports the pinned $uvVersion ("uv 0.5.14", perhaps with a build note after it);
+# says so when it does not, for the log. Only asked of a uv that Test-Uv found running.
+function Test-UvPinned([string]$exe) {
+    try {
+        $version = "$(& $exe --version)".Trim()
+    } catch {
+        return $false
+    }
+    if ($version -eq "uv $uvVersion" -or $version.StartsWith("uv $uvVersion ")) { return $true }
+    Write-Host "uv at $exe is not the pinned $uvVersion ($version), using the pinned copy instead"
+    return $false
+}
+
 # The fused-evidence pair, then its weights through the aligner's own qmul_weights_path (so the
 # URL, the file name and the sha256 live in align_lyrics.py alone). Best effort (see the header):
 # each failure is one WARNING line, and $fusedInstalled says whether the packages went in. The
@@ -179,12 +197,13 @@ if (-not $PlanOnly -and -not $updating -and (Test-Path '.venv')) {
 }
 
 # Prefer an existing uv; otherwise the pinned local copy; otherwise download that copy. A real
-# run only keeps a candidate that actually runs (see -PlanOnly in the header).
+# run only keeps a candidate that actually runs, and a uv on PATH only at the pinned version (see
+# -PlanOnly in the header).
 $step = 'looking for uv'
 $stepAdvice = $retryPlain
 $uvExe = $null
 $uvCmd = Get-Command uv -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($uvCmd -and ($PlanOnly -or (Test-Uv $uvCmd.Source))) {
+if ($uvCmd -and ($PlanOnly -or ((Test-Uv $uvCmd.Source) -and (Test-UvPinned $uvCmd.Source)))) {
     $uvExe = $uvCmd.Source
 } elseif (Test-Path '.uv\uv.exe') {
     $pinned = (Resolve-Path '.uv\uv.exe').Path
@@ -212,6 +231,12 @@ if (-not $uvExe) {
         Invoke-WebRequest -UseBasicParsing -Uri $uvUrl -OutFile $zip
     } catch {
         Stop-Setup "downloading uv $uvVersion failed" $retryNetwork @($_.Exception.Message, $uvUrl)
+    }
+    $step = "checking uv $uvVersion"
+    $uvSum = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash.ToLowerInvariant()
+    if ($uvSum -ne $uvSha256) {
+        Remove-Item $zip -ErrorAction SilentlyContinue
+        Stop-Setup "the downloaded uv $uvVersion does not match its pinned sha256" $retryNetwork @("expected $uvSha256", "got $uvSum", $uvUrl)
     }
     $step = "unpacking uv $uvVersion"
     New-Item -ItemType Directory -Force -Path '.uv' | Out-Null

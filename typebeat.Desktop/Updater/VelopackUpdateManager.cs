@@ -48,6 +48,13 @@ namespace typebeat.Desktop.Updater
         private volatile bool downloadStalled;
 
         /// <summary>
+        /// Set when a download stalled this session, cleared when one completes. While set, update checks
+        /// try the direct-origin feed first (see <see cref="UpdateFeed.InCheckOrder"/>), because the check
+        /// that found the update went through the feed whose path just stalled.
+        /// </summary>
+        private volatile bool preferOriginFeed;
+
+        /// <summary>
         /// Monotonic millisecond source for the stall watchdog. Deliberately not a wall clock (which
         /// jumps) and not the drawable clock (which only advances on the update thread, while
         /// velopack's progress callbacks arrive on its own download thread).
@@ -77,8 +84,9 @@ namespace typebeat.Desktop.Updater
 
             try
             {
-                // the feed URLs and why there are two of them live in UpdateFeed.
-                Velopack.UpdateManager updateManager = createUpdateManager(UpdateFeed.PRIMARY_URL);
+                // the feed URLs, why there are two of them and their order live in UpdateFeed.
+                string[] feeds = UpdateFeed.InCheckOrder(preferOriginFeed);
+                Velopack.UpdateManager updateManager = createUpdateManager(feeds[0]);
                 UpdateInfo? update;
 
                 try
@@ -87,11 +95,11 @@ namespace typebeat.Desktop.Updater
                 }
                 catch (Exception e)
                 {
-                    // the primary feed is the direct-origin host, which a network may block outright.
-                    // One retry against the Cloudflare-proxied root before giving up for this cycle.
-                    log($"Update check against the primary feed failed ({e.Message}), retrying against the fallback feed");
+                    // either host's path may be broken for a given network, so one retry against the
+                    // other feed before giving up for this cycle.
+                    log($"Update check against {feeds[0]} failed ({e.Message}), retrying against {feeds[1]}");
 
-                    updateManager = createUpdateManager(UpdateFeed.FALLBACK_URL);
+                    updateManager = createUpdateManager(feeds[1]);
                     update = await updateManager.CheckForUpdatesAsync().ConfigureAwait(false);
                 }
 
@@ -186,6 +194,7 @@ namespace typebeat.Desktop.Updater
                     // watchdog can trip in the gap between the last percent change and the await
                     // returning. The download still finished; skipping this line for that would
                     // strand the notification at an active 100% forever.
+                    preferOriginFeed = false;
                     runOutsideOfGameplay(() => progressNotification.State = ProgressNotificationState.Completed, userCancellation.Token);
                 }
             }
@@ -198,7 +207,8 @@ namespace typebeat.Desktop.Updater
                     // a stall is not the user's decision, so it gets a way back: an explicit retry
                     // affordance (FailDownload closes the progress notification outright) plus the
                     // usual background schedule, which velopack resumes the partial package with.
-                    log(@"Update download stalled");
+                    log(@"Update download stalled; later checks this session try the direct-origin feed first");
+                    preferOriginFeed = true;
                     postStalledDownloadNotification(cancellationToken);
                     scheduleNextUpdateCheck();
                 }

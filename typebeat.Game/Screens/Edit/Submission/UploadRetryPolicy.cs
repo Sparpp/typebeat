@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Http;
+using typebeat.Game.Online;
 using typebeat.Game.Online.API;
 
 namespace typebeat.Game.Screens.Edit.Submission
@@ -75,13 +76,6 @@ namespace typebeat.Game.Screens.Edit.Submission
         /// Delay before each chunked resume, in milliseconds. Indexed by resume number minus one.
         /// </summary>
         private static readonly double[] delays_before_chunked_resume = { 5000, 15000, 30000 };
-
-        /// <summary>
-        /// The status codes an edge answers with when it cannot reach the origin, or reached it and gave
-        /// up waiting. None of them is a verdict on the request: the origin never answered.
-        /// </summary>
-        private static bool isGatewayStatus(HttpStatusCode statusCode)
-            => statusCode is HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout;
 
         /// <summary>
         /// How long to wait before starting <paramref name="attemptNumber"/> (1-based).
@@ -312,25 +306,10 @@ namespace typebeat.Game.Screens.Edit.Submission
         /// </remarks>
         public static bool IsGatewayTransient(Exception? exception)
         {
-            for (var candidate = exception; candidate != null; candidate = candidate.InnerException)
-            {
-                switch (candidate)
-                {
-                    case OperationCanceledException:
-                        return false;
-
-                    // a decoded verdict carries the ORIGIN's status code, so it is the authority when it
-                    // has one. A null status means the request was aborted before the response landed,
-                    // in which case the inner exception is still worth looking at.
-                    case APIException { StatusCode: not null } api:
-                        return isGatewayStatus(api.StatusCode.Value);
-
-                    case WebException web:
-                        return isGatewayWebException(web);
-                }
-            }
-
-            return false;
+            // a decoded verdict carries the ORIGIN's status code, so it is the authority when it has one. A null
+            // status means the request was aborted before the response landed, so the inner exception is still
+            // worth looking at (FailureClassifier.GATEWAY does not stop at it).
+            return FailureClassifier.GATEWAY.Matches(exception);
         }
 
         /// <summary>
@@ -348,17 +327,6 @@ namespace typebeat.Game.Screens.Edit.Submission
             ArgumentOutOfRangeException.ThrowIfNegative(attemptsMade);
 
             return IsGatewayTransient(exception) ? Math.Max(0, attemptsMade - 1) : attemptsMade;
-        }
-
-        private static bool isGatewayWebException(WebException exception)
-        {
-            // checked first for the shapes that do carry a response, even though the framework's own
-            // status failure does not.
-            if ((exception.Response as HttpWebResponse)?.StatusCode is HttpStatusCode fromResponse)
-                return isGatewayStatus(fromResponse);
-
-            // otherwise the message is the status enum's name, or its number if some other caller built it.
-            return Enum.TryParse(exception.Message, out HttpStatusCode fromMessage) && isGatewayStatus(fromMessage);
         }
 
         /// <summary>
@@ -394,25 +362,7 @@ namespace typebeat.Game.Screens.Edit.Submission
         /// logged out fails with, which no amount of retrying fixes.</item>
         /// </list>
         /// </remarks>
-        public static bool IsTransportFailure(Exception? exception)
-        {
-            for (var candidate = exception; candidate != null; candidate = candidate.InnerException)
-            {
-                switch (candidate)
-                {
-                    case OperationCanceledException:
-                    case APIException:
-                    case WebException:
-                        return false;
-
-                    case HttpRequestException:
-                    case IOException:
-                        return true;
-                }
-            }
-
-            return false;
-        }
+        public static bool IsTransportFailure(Exception? exception) => FailureClassifier.UPLOAD_TRANSPORT.Matches(exception);
 
         /// <summary>
         /// Whether the FIRST direct attempt's failure hands the submission to the chunked flow
@@ -452,26 +402,7 @@ namespace typebeat.Game.Screens.Edit.Submission
         /// <see cref="OperationCanceledException"/> (the cancel path) and <see cref="APIException"/>
         /// (a decoded server verdict) stay refused for exactly the reasons they are refused above.
         /// </remarks>
-        public static bool IsChunkTransportFailure(Exception? exception)
-        {
-            for (var candidate = exception; candidate != null; candidate = candidate.InnerException)
-            {
-                switch (candidate)
-                {
-                    case OperationCanceledException:
-                    case APIException:
-                        return false;
-
-                    case WebException:
-                    case HttpRequestException:
-                    case IOException:
-                    case APIAccess.WebRequestFlushedException:
-                        return true;
-                }
-            }
-
-            return false;
-        }
+        public static bool IsChunkTransportFailure(Exception? exception) => FailureClassifier.CHUNK_TRANSPORT.Matches(exception);
 
         /// <summary>
         /// Whether <paramref name="exception"/> is worth repeating the request that closes an upload
@@ -574,15 +505,6 @@ namespace typebeat.Game.Screens.Edit.Submission
         /// Whether the origin answered with a body that decoded into a displayable error, anywhere in
         /// <paramref name="exception"/>'s chain.
         /// </summary>
-        private static bool isServerVerdict(Exception? exception)
-        {
-            for (var candidate = exception; candidate != null; candidate = candidate.InnerException)
-            {
-                if (candidate is APIException)
-                    return true;
-            }
-
-            return false;
-        }
+        private static bool isServerVerdict(Exception? exception) => FailureClassifier.SERVER_VERDICT.Matches(exception);
     }
 }

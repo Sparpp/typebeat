@@ -256,7 +256,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             text.Append(CultureInfo.InvariantCulture, $"active={engine.ActiveLineIndex} caret={engine.CaretIndex} finished={engine.IsFinished} ");
             text.Append(CultureInfo.InvariantCulture, $"nextUnsealed={engine.NextUnsealedLineIndex} lineComplete={engine.IsLineComplete} ");
-            text.Append(CultureInfo.InvariantCulture, $"score={engine.Score} combo={engine.Combo} maxCombo={engine.MaxCombo} mistypes={engine.Mistypes} ");
+            text.Append(CultureInfo.InvariantCulture, $"combo={engine.Combo} maxCombo={engine.MaxCombo} mistypes={engine.Mistypes} ");
             text.Append(CultureInfo.InvariantCulture, $"wrongStreak={engine.ConsecutiveWrongKeys} acc={engine.LiveAccuracy:F9} ");
             text.Append(CultureInfo.InvariantCulture, $"wpm={engine.LiveWpm:F9} rolling={engine.LiveRollingWpm:F9} sync={engine.LiveSyncPercent:F9} ");
             text.Append(CultureInfo.InvariantCulture, $"resultWpm={results.Wpm:F9} resultSync={results.SyncPercent:F9} ");

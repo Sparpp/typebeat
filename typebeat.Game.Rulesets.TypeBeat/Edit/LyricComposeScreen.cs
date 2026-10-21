@@ -58,6 +58,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         [Resolved]
         private BindableBeatDivisor beatDivisor { get; set; } = null!;
 
+        public override typebeat.Game.Rulesets.Mods.Mod[] TestGameplayMods
+            => state.ShowOriginalLyrics.Value && LyricOriginals.HasOriginals(EditorBeatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line))
+                ? new typebeat.Game.Rulesets.Mods.Mod[] { new Mods.TypeBeatModPolyglot() }
+                : Array.Empty<typebeat.Game.Rulesets.Mods.Mod>();
+
         private double gridTime => timingSettings.Snap(editorClock.CurrentTime, EditorBeatmap.ControlPointInfo, beatDivisor.Value);
 
         [Cached]
@@ -98,6 +103,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private EditorRulesetAction rulesetAction { get; set; } = null!;
 
         private LineListPanel lineList = null!;
+        private ActiveLineDetailPanel detailPanel = null!;
         private TapTimingOverlay tapOverlay = null!;
         private TypeBeatHitObject? lastAutoScrolled;
 
@@ -172,6 +178,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         protected override void LoadComplete()
         {
             base.LoadComplete();
+
+            TypeBeatEditorOperations.NormalizeOriginalSubdivisions(EditorBeatmap);
 
             // The last line has no following line to wall it, so the operations cap it at the song's
             // end instead (backlog 336). Live, because the track can finish loading after this.
@@ -644,7 +652,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                             {
                                 (Drawable)(lineList = new LineListPanel()),
                                 Empty(),
-                                new ActiveLineDetailPanel(),
+                                detailPanel = new ActiveLineDetailPanel(),
                             },
                         },
                     },
@@ -839,6 +847,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     subdivideSelectedWords(line);
                     return true;
 
+                case Key.Q when line != null && GetContainingInputManager()?.FocusedDrawable is not TextBox:
+                    detailPanel.QuantizeSelectedWords();
+                    return true;
+
+                case Key.P when line != null && state.SelectedUnitsInOrder(line.Line.Units.Count).Length > 0
+                                && GetContainingInputManager()?.FocusedDrawable is not TextBox:
+                    detailPanel.InsertPauseOnSelectedWords();
+                    return true;
+
                 case Key.Escape when state.SelectedLine.Value != null || state.MultiSelectedLines.Count > 0:
                     // Back to playhead-follow, dropping any multi-selection with it.
                     state.SelectedLine.Value = null;
@@ -930,7 +947,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             EditorBeatmap.BeginChange();
 
             foreach (int i in targets)
-                TypeBeatEditorOperations.AddSyllableBoundary(EditorBeatmap, line, i, gridTime);
+                TypeBeatEditorOperations.AddSyllableBoundary(EditorBeatmap, line, i, gridTime, state.ShowOriginalLyrics.Value);
 
             EditorBeatmap.EndChange();
         }

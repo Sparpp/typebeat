@@ -2,6 +2,7 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -241,7 +242,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             lyricsSelector.Current.BindValueChanged(selected =>
             {
                 if (selected.NewValue is FileInfo file && tryReadLyrics(file, out string content))
-                    tryImportTimedLyrics(file, content);
+                    {
+                    providedLyrics = OriginalLyricGenerator.HasOriginalScript(content, Beatmap.Metadata.Language) ? content : null;
+                    if (providedLyrics == null || !TypeBeatEditorOperations.OrderedLines(Beatmap).Any(h => h.Line.RawText.Length > 0))
+                        tryImportTimedLyrics(file, content);
+                }
+                else
+                    providedLyrics = null;
             });
         }
 
@@ -458,13 +465,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 try
                 {
                     // Local only: the server aligner (backlog 413) is an opt-in of the import screen,
-                    // and this re-align does not offer it.
+                    // and this re-align does not offer it. A failed aligner run fails here rather than
+                    // replacing the map's lines with line timing.
                     var (result, timingJson) = await importer.ProduceTimingJsonAsync(
                         tempAudio, lyricsContent, artist, title,
                         reportProgress,
                         token,
                         language: romanisationLanguage(lyricsContent),
-                        vocalMode: vocalMode).ConfigureAwait(false);
+                        vocalMode: vocalMode,
+                        allowLineFallback: false).ConfigureAwait(false);
 
                     if (!result.Success || timingJson == null)
                     {
@@ -497,7 +506,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     try { File.Delete(tempAudio); }
                     catch { /* best-effort */ }
                 }
-            }, token);
+            });
         }
 
         // ---- the lyric font picker (backlog 291) ----
@@ -761,7 +770,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (!LrcParser.HasWordStamps(content))
                 return false;
 
-            var lines = ImportSyllables.Apply(LrcParser.Parse(content, romanisationLanguage(content), out int clamped));
+            var lines = ImportSyllables.Apply(LrcParser.Parse(content, romanisationLanguage(content), out int clamped), romanisationLanguage(content));
 
             if (lines.Count == 0)
             {
@@ -796,7 +805,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             // Syllabified ONCE, here, like every other import sink (backlog 363): this path parses
             // the TTML itself rather than going through the importer's synthesis.
-            lines = ImportSyllables.Apply(lines);
+            lines = ImportSyllables.Apply(lines, romanisationLanguage(content));
 
             TypeBeatEditorOperations.ReplaceLines(Beatmap, lines, TypeBeatEditorOperations.InferGranularity(lines));
 

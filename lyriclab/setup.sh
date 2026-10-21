@@ -10,6 +10,10 @@
 # back to "any python3": torch 2.5.1 publishes wheels for CPython 3.9 to 3.12 only, so a 3.13+
 # venv can never install it, while the uv-managed 3.11 works everywhere (backlog 349).
 #
+# The pinned uv is checked twice: a uv on PATH is used only when it reports UV_VERSION (otherwise
+# the pinned copy is), and a downloaded archive is unpacked only when its sha256 is the one pinned
+# for it below (the release's own .sha256 files). Both change with UV_VERSION, as do setup.ps1's.
+#
 # Usage: setup.sh [cpu|cuda] [--plan-only] [--update]
 #   cpu (default) or cuda (CUDA 12.1 torch wheels).
 #   --plan-only prints which uv would be used (or downloaded) and exits without changing anything.
@@ -54,6 +58,15 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 UV_VERSION='0.5.14'
+# The sha256 of uv-$1.tar.gz, the UV_VERSION archive for one target (see the header).
+uv_sha256() {
+    case "$1" in
+        x86_64-unknown-linux-musl)  echo 'e1ccdfe1691c1f791d84bb6e1697e49416ca4b62103dcdf3b63772f03834f113' ;;
+        aarch64-unknown-linux-musl) echo '64c5321f5141db39e04209d170db34fcef5c8de3f561346dc0c1d132801c4f88' ;;
+        x86_64-apple-darwin)        echo '8caf91b936ede1167abaebae07c2a1cbb22473355fa0ad7ebb2580307e84fb47' ;;
+        aarch64-apple-darwin)       echo 'd548dffc256014c4c8c693e148140a3a21bcc2bf066a35e1d5f0d24c91d32112' ;;
+    esac
+}
 PYTHON_VERSION='3.11'
 TORCH_VERSION='2.5.1'
 SENTINEL='.venv/.typebeat-setup-ok'
@@ -119,6 +132,31 @@ uv_runs() {
     return 1
 }
 
+# True when $1 reports the pinned UV_VERSION ("uv 0.5.14", perhaps with a build note after it);
+# says so when it does not, for the log.
+uv_is_pinned() {
+    local version
+    version="$("$1" --version 2>&1)" || return 1
+    case "$version" in
+        "uv $UV_VERSION"|"uv $UV_VERSION "*) return 0 ;;
+    esac
+    echo "uv at $1 is not the pinned $UV_VERSION ($version), using the pinned copy instead"
+    return 1
+}
+
+# The sha256 of file $1, from whichever of sha256sum (Linux) or shasum (macOS) is installed.
+sha256_of() {
+    local sum
+    if command -v sha256sum >/dev/null 2>&1; then
+        sum="$(sha256sum "$1")" || return 1
+    elif command -v shasum >/dev/null 2>&1; then
+        sum="$(shasum -a 256 "$1")" || return 1
+    else
+        return 1
+    fi
+    echo "${sum%% *}"
+}
+
 # The fused-evidence pair, then its weights through the aligner's own qmul_weights_path (so the
 # URL, the file name and the sha256 live in align_lyrics.py alone). Best effort (see the header):
 # each failure is one WARNING line, and the return status says whether the packages went in. The
@@ -168,9 +206,10 @@ if [ "$PLAN_ONLY" -eq 0 ] && [ "$UPDATING" -eq 0 ] && [ -e .venv ]; then
 fi
 
 # Prefer an existing uv; otherwise the pinned local copy; otherwise download that copy. A real run
-# only keeps a candidate that actually runs (see --plan-only in the header).
+# only keeps a candidate that actually runs, and a uv on PATH only at the pinned version (see
+# --plan-only in the header).
 UV=''
-if command -v uv >/dev/null 2>&1 && { [ "$PLAN_ONLY" -eq 1 ] || uv_runs "$(command -v uv)"; }; then
+if command -v uv >/dev/null 2>&1 && { [ "$PLAN_ONLY" -eq 1 ] || { uv_runs "$(command -v uv)" && uv_is_pinned "$(command -v uv)"; }; }; then
     UV="$(command -v uv)"
 elif [ -x .uv/uv ]; then
     if [ "$PLAN_ONLY" -eq 1 ] || uv_runs "$PWD/.uv/uv"; then
@@ -193,6 +232,7 @@ if [ -z "$UV" ]; then
         *) fail "no uv build for $(uname -m)" 'install uv (https://docs.astral.sh/uv/) and retry' ;;
     esac
     UV_URL="https://github.com/astral-sh/uv/releases/download/$UV_VERSION/uv-$ARCH-$OS_TRIPLE.tar.gz"
+    UV_SHA256="$(uv_sha256 "$ARCH-$OS_TRIPLE")"
 fi
 
 if [ "$PLAN_ONLY" -eq 1 ]; then
@@ -212,6 +252,10 @@ if [ -z "$UV" ]; then
     UV_TMP="$(mktemp -d "${TMPDIR:-/tmp}/typebeat-uv.XXXXXX")" || fail 'a temporary folder for the uv download could not be created'
     trap 'rm -rf "$UV_TMP"' EXIT
     "${FETCH[@]}" "$UV_TMP/uv.tar.gz" "$UV_URL" || fail "downloading uv $UV_VERSION failed" "$RETRY_NETWORK" "${FETCH[0]} exit code $?" "$UV_URL"
+    UV_SUM="$(sha256_of "$UV_TMP/uv.tar.gz")" || fail 'the uv download could not be checked because neither sha256sum nor shasum is installed' \
+        'install uv (https://docs.astral.sh/uv/) and retry'
+    [ "$UV_SUM" = "$UV_SHA256" ] || fail "the downloaded uv $UV_VERSION does not match its pinned sha256" "$RETRY_NETWORK" \
+        "expected $UV_SHA256" "got $UV_SUM" "$UV_URL"
     mkdir -p "$UV_TMP/unpacked"
     tar -xzf "$UV_TMP/uv.tar.gz" -C "$UV_TMP/unpacked" || fail "unpacking uv $UV_VERSION failed" "$RETRY_NETWORK" "$UV_URL"
     # The tarball holds uv-<target>/uv and uvx today; search rather than assume that layout.

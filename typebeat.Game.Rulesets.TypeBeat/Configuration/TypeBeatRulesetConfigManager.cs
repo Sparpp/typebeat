@@ -5,9 +5,12 @@ using System;
 using System.ComponentModel;
 using System.Linq;
 using osu.Framework.Bindables;
+using osu.Framework.Graphics;
 using typebeat.Game.Configuration;
 using typebeat.Game.Rulesets.Configuration;
+using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
+using osuTK.Graphics;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Configuration
 {
@@ -16,14 +19,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// <summary>
         /// Positive = lyrics later relative to the music, negative = earlier. Applied at the
         /// playfield's single engine-feed seam (the lyric-offset clock the engine, stage, HUD
-        /// extras and key handler all read). Settings UI surfacing is deferred to M7.
+        /// extras and key handler all read). Has no settings UI today.
         /// </summary>
         LyricOffsetMs,
 
         /// <summary>
         /// Optional explicit path to the vendored lyriclab aligner directory (the folder holding
         /// align_lyrics.py). Empty = auto-discover by walking up from the game's runtime location.
-        /// Read by the import pipeline's directory resolution; UI surfacing is deferred to M7.
+        /// Read by the import pipeline's directory resolution, and set by the managed aligner install.
+        /// Has no settings control of its own.
         /// </summary>
         LyricLabPath,
 
@@ -181,8 +185,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         ///
         /// <para>The metric was removed from the game because it AFFECTED things, and the fix was to
         /// stop it affecting them rather than to delete it: since backlog 251 no grade, score,
-        /// judgement or submission reads sync anywhere (<see cref="Gameplay.ResultsSummary.Grade"/>
-        /// is accuracy alone), so this key decides nothing but whether the tint is drawn. The
+        /// judgement or submission reads sync anywhere (the rank, <c>TypeBeatScoreProcessor</c>'s
+        /// ladder, is accuracy plus a missed-cell limit), so this key decides nothing but whether the tint is drawn. The
         /// numbers behind it (<see cref="Gameplay.TypingEngine.LiveSyncPercent"/>,
         /// <see cref="Gameplay.ResultsSummary.SyncPercent"/>) are computed either way, which is what
         /// lets the toggle be a pure display switch with no mid-play consequence.</para>
@@ -226,7 +230,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// did not opt in to <see cref="UseServerAligner"/>, whose runs take the server's own default
         /// tier), and it never touches the install: the tier is a per-run flag of the same script, so both
         /// tiers work off one environment. An installed aligner older than version 6 has no tiers,
-        /// so the flag is then left out (see <c>LyricMapImporter.AlignerArguments</c>).</para>
+        /// so the flag is then left out (see <c>AlignerEnvironment.AlignerArguments</c>).</para>
         ///
         /// <para>Appended last, like every new member: Realm stores these rows by member name, so
         /// order does not matter to it, but appending keeps that true for anything that ever
@@ -305,6 +309,45 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// it ticked under local automatic alignment never writes it.
         /// </summary>
         IsolateVocalsOnImport,
+
+        /// <summary>Fade or fill each character at its Autoplay hit time. Display only.</summary>
+        CharacterIndicatorTiming,
+
+        /// <summary>
+        /// Tint each correctly typed character by WHICH WAY its keypress missed the beat: towards
+        /// <see cref="UI.TypeBeatStyle.EarlyTint"/> when early, <see cref="UI.TypeBeatStyle.LateTint"/>
+        /// when late, by how far outside the Great window it landed (see
+        /// <see cref="UI.LyricLineDisplay.TimingTintColour"/>). OFF by default and display only, on
+        /// the same terms as <see cref="ShowSyncMetric"/>: it reads the judged delta a keypress
+        /// already earned and never reaches the replay CONFIG frame. Separate from that switch
+        /// rather than a mode of it, and it wins over the sync metric's brightness ramp while both
+        /// are on, so a Great press stays the clean typed colour.
+        /// </summary>
+        ShowTimingTint,
+
+        /// <summary>
+        /// How strongly the timing tint shades a press just outside the Great window, as a percentage
+        /// of the way from the typed colour to its hue. Display only.
+        /// </summary>
+        TimingTintMinStrength,
+
+        /// <summary>
+        /// How strongly the timing tint shades a press at the Meh edge or beyond, as a percentage of
+        /// the way from the typed colour to its hue. Display only. A value below
+        /// <see cref="TimingTintMinStrength"/> is read as equal to it, so the tint never weakens with
+        /// distance.
+        /// </summary>
+        TimingTintMaxStrength,
+
+        /// <summary>
+        /// The colour an EARLY press is tinted towards, stored as <c>#rrggbb</c> (read through
+        /// <see cref="TypeBeatRulesetConfigManager.TintColour"/>, which falls back to the default for
+        /// anything malformed). Display only.
+        /// </summary>
+        TimingTintEarlyColour,
+
+        /// <summary>The colour a LATE press is tinted towards, stored and read like <see cref="TimingTintEarlyColour"/>. Display only.</summary>
+        TimingTintLateColour
     }
 
     /// <summary>
@@ -416,6 +459,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         // in the constructor body, after the base constructor has finished virtual initialization.
         private readonly Bindable<bool> approachBarsBindable;
         private readonly Bindable<float> paceColourGradientBindable;
+        private readonly Bindable<bool> characterIndicatorTimingBindable;
+        private readonly Bindable<float> indicatorAlignmentBindable;
+
+        public const float DEFAULT_TIMING_TINT_MIN_STRENGTH = 33f;
+        public const float DEFAULT_TIMING_TINT_MAX_STRENGTH = 100f;
+
+        /// <summary>
+        /// The stored spelling of a timing tint colour setting: <c>#rrggbb</c>, lowercase, opaque. The
+        /// settings are kept as strings because a ruleset setting is persisted through its string
+        /// form, which <see cref="Colour4"/> has no parser for.
+        /// </summary>
+        public static string FormatTintColour(Colour4 colour) => FreestyleColourKey.Format(colour);
+
+        /// <summary>
+        /// A stored timing tint colour, or <paramref name="fallback"/> when <paramref name="value"/> is
+        /// not exactly <c>#rrggbb</c>, so a hand-edited or corrupted setting degrades to the default
+        /// rather than to black.
+        /// </summary>
+        public static Color4 TintColour(string? value, Color4 fallback) => FreestyleColourKey.Parse(value) is Colour4 c ? c : fallback;
 
         /// <summary>
         /// The caret style a NEW install starts on. Changing this cannot disturb an existing player, and the reason is
@@ -467,6 +529,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
 
                 paceColourGradientBindable.Disabled = change.NewValue;
             }, true);
+
+            characterIndicatorTimingBindable = GetBindable<bool>(TypeBeatRulesetSetting.CharacterIndicatorTiming);
+            indicatorAlignmentBindable = GetBindable<float>(TypeBeatRulesetSetting.SyllableFadeInEnd);
+            characterIndicatorTimingBindable.BindValueChanged(change => indicatorAlignmentBindable.Disabled = change.NewValue, true);
         }
 
         // Run before the base constructor loads and parses any stored setting. A default alone
@@ -606,6 +672,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.PaceColourMaxChange, 100.0f, 25.0f, 150.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.SyllableBrightness, 60.0f, 0.0f, 100.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.ShowSyncMetric, false);
+            SetDefault(TypeBeatRulesetSetting.ShowTimingTint, false);
+            SetDefault(TypeBeatRulesetSetting.TimingTintMinStrength, DEFAULT_TIMING_TINT_MIN_STRENGTH, 0f, 100f, 1f);
+            SetDefault(TypeBeatRulesetSetting.TimingTintMaxStrength, DEFAULT_TIMING_TINT_MAX_STRENGTH, 0f, 100f, 1f);
+            SetDefault(TypeBeatRulesetSetting.TimingTintEarlyColour, FormatTintColour(UI.TypeBeatStyle.EarlyTint));
+            SetDefault(TypeBeatRulesetSetting.TimingTintLateColour, FormatTintColour(UI.TypeBeatStyle.LateTint));
             SetDefault(TypeBeatRulesetSetting.SyllableFadeIn, false);
             SetDefault(TypeBeatRulesetSetting.SyllableColourFill, false);
             SetDefault(TypeBeatRulesetSetting.SyllableFadeInEnd, 0f, 0f, 100f, 1f);
@@ -619,6 +690,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.PaceBarReveal, PaceBarRevealMode.Off);
             SetDefault(TypeBeatRulesetSetting.JudgementColouredBars, false);
             SetDefault(TypeBeatRulesetSetting.LinePushWarningEdges, false);
+            SetDefault(TypeBeatRulesetSetting.CharacterIndicatorTiming, false);
             SetDefault(TypeBeatRulesetSetting.IndicatorDefaultsApplied, true);
             SetDefault(TypeBeatRulesetSetting.UseServerAligner, false);
             SetDefault(TypeBeatRulesetSetting.IsolateVocalsOnImport, true);

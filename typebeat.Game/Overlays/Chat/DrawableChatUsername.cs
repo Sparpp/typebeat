@@ -93,9 +93,6 @@ namespace typebeat.Game.Overlays.Chat
         [Resolved]
         private Bindable<Channel?>? currentChannel { get; set; }
 
-        [Resolved]
-        private IDialogOverlay? dialogOverlay { get; set; }
-
         private readonly APIUser user;
         private readonly OsuSpriteText drawableText;
 
@@ -207,9 +204,10 @@ namespace typebeat.Game.Overlays.Chat
 
                 items.Add(new OsuMenuItemSpacer());
                 items.Add(new OsuMenuItem(UsersStrings.ReportButtonText, MenuItemType.Destructive, ReportRequested));
-                items.Add(api.LocalUserState.Blocks.Any(b => b.TargetID == user.OnlineID)
-                    ? new OsuMenuItem(UsersStrings.BlocksButtonUnblock, MenuItemType.Standard, () => dialogOverlay?.Push(ConfirmBlockActionDialog.Unblock(user)))
-                    : new OsuMenuItem(UsersStrings.BlocksButtonBlock, MenuItemType.Destructive, () => dialogOverlay?.Push(ConfirmBlockActionDialog.Block(user))));
+
+                // No Block / Unblock: the server keeps no blocks (it answers GET blocks with an empty
+                // list and serves no POST or DELETE), and with chat stubbed there is nothing a block
+                // would apply to, so the item would only ever fail.
 
                 return items.ToArray();
             }

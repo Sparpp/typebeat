@@ -9,9 +9,11 @@ using osu.Framework.Input;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
+using typebeat.Game.Rulesets.TypeBeat.Replays;
 using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Scoring;
 using typebeat.Game.Tests.Visual;
@@ -19,10 +21,8 @@ using typebeat.Game.Tests.Visual;
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 {
     /// <summary>
-    /// The Polyglot mod (backlog 331) through a real Player, on the precedent a non-user-playable mod
-    /// sets in <c>SubmittingPlayer</c>: a play carrying it never asks for a submission token, never
-    /// submits, and is still imported into the local score list (with its replay) once it completes.
-    /// The same play without the mod asks for the token, which is what keeps the first pin honest.
+    /// Polyglot through a real Player: supported languages request a submission token, while
+    /// Chinese and Korean stay local. Each completed play is still imported with its mod and replay.
     /// </summary>
     public partial class TestSceneTypeBeatPolyglot : PlayerTestScene
     {
@@ -41,6 +41,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             beatmap.BeatmapInfo.Ruleset = ruleset;
             beatmap.BeatmapInfo.Metadata.Artist = "Test";
             beatmap.BeatmapInfo.Metadata.Title = "Song";
+            beatmap.BeatmapInfo.Metadata.Language = language;
+
+            if (finishedLineMap)
+                return createFinishedLineBeatmap(beatmap);
 
             var line = new LyricLine
             {
@@ -55,18 +59,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             return beatmap;
         }
 
-        [Test]
-        public void TestAPolyglotPlayStaysOnThisDevice()
+        [TestCase(BeatmapLanguage.Russian, false)]
+        [TestCase(BeatmapLanguage.Chinese, true)]
+        [TestCase(BeatmapLanguage.Korean, true)]
+        public void TestPolyglotSubmissionFollowsTheMapLanguage(BeatmapLanguage mapLanguage, bool localOnly)
         {
+            AddStep("set map language", () => language = mapLanguage);
             loadWith(new TypeBeatModPolyglot());
 
             AddAssert("the engine plays the original", () => ((TypeBeatPlayfield)Player.DrawableRuleset.Playfield).Engine.Lines[0].DisplayText == "αβ");
-            AddAssert("no submission token was requested", () => !Player.TokenCreationRequested);
+            AddAssert("submission token follows the language policy", () => Player.TokenCreationRequested == !localOnly);
 
             AddUntilStep("the play completes", () => Player.ScoreProcessor.HasCompleted.Value);
             AddUntilStep("the play was saved locally", () => player.ImportedScore != null);
             AddAssert("with the mod on it", () => player.ImportedScore!.ScoreInfo.Mods.Any(m => m is TypeBeatModPolyglot));
-            AddAssert("and nothing was submitted", () => Player.SubmittedScore == null);
+            if (localOnly)
+                AddAssert("and nothing was submitted", () => Player.SubmittedScore == null);
         }
 
         [Test]
@@ -107,6 +115,87 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("text input is active as Code with the IME disallowed", () =>
                 os.ActiveProperties?.Equals(new TextInputProperties(TextInputType.Code, AllowIme: false)) == true);
         }
+
+        /// <summary>
+        /// The finished-line gate the Latin path has always had, on the IME path (G2-007): a commit on
+        /// a typed-out line is a letter only as the typed-through newline, which rides the manual
+        /// newline setting. With it on the commit hands the line on (the next line awaits its window,
+        /// so the move is kept and the letter dropped, as on the Latin path); with it off the commit
+        /// is inert and records nothing.
+        /// </summary>
+        [TestCase(true)]
+        [TestCase(false)]
+        public void TestAnImeCommitOnAFinishedLineIsOnlyTheTypedThroughNewline(bool manualNewlines)
+        {
+            AddStep("the finished-line map", () => finishedLineMap = true);
+            AddStep($"manual newlines {(manualNewlines ? "on" : "off")}", () => config.SetValue(TypeBeatRulesetSetting.ManualNewlines, manualNewlines));
+            loadWith(new TypeBeatModPolyglot());
+
+            AddUntilStep("line 0 active", () => engine.ActiveLineIndex == 0);
+            AddStep("commit 'αβ' through the IME", () => os.TriggerImeResult("αβ"));
+            AddUntilStep("line 0 is typed out", () => engine.IsLineComplete);
+
+            AddStep("commit 'γ' through the IME", () => os.TriggerImeResult("γ"));
+
+            if (manualNewlines)
+            {
+                AddUntilStep("the commit handed the line on", () => engine.ActiveLineIndex == 1);
+                AddAssert("the next line's first cell took nothing yet", () => engine.CaretIndex == 0 && engine.Lines[1].Cells[0].State == CellState.Untyped);
+                AddAssert("the newline was recorded as the letter", () => keystrokes.Count == 3 && keystrokes[2].Character == 'γ');
+            }
+            else
+            {
+                AddWaitStep("let the commit land", 5);
+                AddAssert("the line was not handed on", () => engine.ActiveLineIndex == 0 && engine.IsLineComplete);
+                AddAssert("nothing was recorded for it", () => keystrokes.Count == 2);
+            }
+        }
+
+        /// <summary>Whether the next load uses <see cref="createFinishedLineBeatmap"/> rather than the default map.</summary>
+        private bool finishedLineMap;
+        private BeatmapLanguage language;
+
+        public override void SetUpSteps()
+        {
+            AddStep("the default map", () =>
+            {
+                finishedLineMap = false;
+                language = BeatmapLanguage.Unspecified;
+            });
+            AddStep("manual newlines at their default", () => config.GetBindable<bool>(TypeBeatRulesetSetting.ManualNewlines).SetDefault());
+            base.SetUpSteps();
+        }
+
+        /// <summary>"ab" (played as "αβ") with a window long enough to type it out, and a far-away "cd" ("γδ") whose entry stays shut through the test.</summary>
+        private static IBeatmap createFinishedLineBeatmap(Beatmap beatmap)
+        {
+            var line = new LyricLine
+            {
+                RawText = "ab",
+                StartTime = 0,
+                EndTime = 300000,
+                SingEndTime = 200000,
+                Units = new[] { new TimedUnit { Text = "ab", StartTime = 0, EndTime = 200000, Original = "αβ" } },
+            };
+
+            var trailing = new LyricLine
+            {
+                RawText = "cd",
+                StartTime = 600000,
+                EndTime = 900000,
+                SingEndTime = 800000,
+                Units = new[] { new TimedUnit { Text = "cd", StartTime = 700000, EndTime = 800000, Original = "γδ" } },
+            };
+
+            beatmap.HitObjects.Add(new TypeBeatHitObject { StartTime = line.StartTime, LineIndex = 0, Line = line, Granularity = TimingGranularity.Word });
+            beatmap.HitObjects.Add(new TypeBeatHitObject { StartTime = trailing.StartTime, LineIndex = 1, Line = trailing, Granularity = TimingGranularity.Word });
+            return beatmap;
+        }
+
+        private TypeBeatRulesetConfigManager config => (TypeBeatRulesetConfigManager)RulesetConfigs.GetConfigFor(new TypeBeatRuleset())!;
+
+        /// <summary>The recorded keystrokes, without the CONFIG header frames the recorder stamps ahead of the first one.</summary>
+        private List<TypeBeatReplayFrame> keystrokes => Player.GameplayState.Score.Replay.Frames.OfType<TypeBeatReplayFrame>().Where(f => !f.IsConfig && !f.IsConfigExtended).ToList();
 
         private EmulatedTextInput os => ((KeycapManualInputManager)InputManager).TextInput;
 

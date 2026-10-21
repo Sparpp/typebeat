@@ -100,9 +100,9 @@ namespace typebeat.Game.Beatmaps
                         // type!beat's own song language, not osu-web's `language` object (see APIBeatmapSet.SongLanguage).
                         // Total: an older server that omits it, or a name this build does not know, reads as Unspecified.
                         Language = BeatmapLanguageExtensions.FromCanonicalName(res.BeatmapSet?.SongLanguage),
-                        // Whether the current online version carries a vocals stem (backlog 396). An older
-                        // server omits it, which reads as false ("nothing to offer").
-                        HasVocalsStem = res.BeatmapSet?.HasVocalsStem ?? false,
+                        // The current online version's tracked-file manifest (backlog 396). A server that
+                        // predates file_manifest still sends has_vocals_stem, which describes the same thing.
+                        FileManifest = res.BeatmapSet is { } onlineSet ? SetFileManifest.Online(onlineSet.FileManifest, onlineSet.HasVocalsStem) : null,
                         // Tags are not populated because the response does not contain tag data.
                         // TODO: consider web change to include the tag data? or a second web request for the set to retrieve tags?
                     };

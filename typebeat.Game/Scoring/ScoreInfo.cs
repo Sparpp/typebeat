@@ -2,6 +2,7 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using JetBrains.Annotations;
@@ -96,6 +97,7 @@ namespace typebeat.Game.Scoring
         /// </summary>
         /// <remarks>
         /// Not populated if <see cref="IsLegacyScore"/> is <c>false</c>.
+        /// Always 0 on scores set in lazer.
         /// </remarks>
         public long? LegacyTotalScore { get; set; }
 
@@ -208,9 +210,16 @@ namespace typebeat.Game.Scoring
         [MapTo(nameof(Rank))]
         public int RankInt { get; set; }
 
+        #region IScoreInfo
+
         IRulesetInfo IScoreInfo.Ruleset => Ruleset;
         IBeatmapInfo? IScoreInfo.Beatmap => BeatmapInfo;
         IUser IScoreInfo.User => User;
+        IEnumerable<IConfiguredMod> IScoreInfo.Mods => APIMods;
+        IReadOnlyDictionary<HitResult, int> IScoreInfo.Statistics => Statistics;
+        IReadOnlyDictionary<HitResult, int> IScoreInfo.MaximumStatistics => MaximumStatistics;
+
+        #endregion
 
         #region Properties required to make things work with existing usages
 
@@ -360,8 +369,17 @@ namespace typebeat.Game.Scoring
                 : string.Empty;
         }
 
+        /// <summary>
+        /// One ruleset instance per ruleset type for <see cref="GetDisplayRank"/>, which runs once per leaderboard
+        /// row. <see cref="Rulesets.Ruleset.GetDisplayRankForScore"/> reads only the score it is given, so sharing an
+        /// instance gives the same grade as creating one per call.
+        /// </summary>
+        private static readonly ConcurrentDictionary<string, Ruleset> display_rank_rulesets = new ConcurrentDictionary<string, Ruleset>();
+
         /// <summary>The current display grade, without changing the grade saved with the score.</summary>
-        public ScoreRank GetDisplayRank() => Ruleset.Available ? Ruleset.CreateInstance().GetDisplayRankForScore(this) : Rank;
+        public ScoreRank GetDisplayRank() => Ruleset.Available
+            ? display_rank_rulesets.GetOrAdd(Ruleset.InstantiationInfo, _ => Ruleset.CreateInstance()).GetDisplayRankForScore(this)
+            : Rank;
 
         public IEnumerable<HitResultDisplayStatistic> GetStatisticsForDisplay()
         {

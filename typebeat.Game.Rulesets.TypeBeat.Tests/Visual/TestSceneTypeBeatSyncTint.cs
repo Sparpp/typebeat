@@ -34,7 +34,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
     /// colour, never what the delta is.</para>
     ///
     /// <para>This scene's line is a single syllable group sung from the first frame, so its UNTYPED
-    /// cells wear the sung-group highlight (backlog 177) rather than the plain untyped grey. Backlog
+    /// cells wear the sung-group highlight (backlog 177) rather than the plain untyped grey. The
+    /// highlight follows the judge, so the exception is cell 0: the group's first cell is judged on
+    /// the span's start alone (backlog 247), whose Great window has closed by the time the scene is
+    /// up, which is why the untyped baseline is read from cell 1 and the backspace below reverts it. Backlog
     /// 178 demoted that highlight from the palette white to <see cref="TypeBeatStyle.SungChar"/>, a
     /// grey BELOW the ramp's floor, so this fixture re-baselines to it: "untyped" here means
     /// <c>SungChar</c>, and every point of the ramp, floor included, now differs from it. The presses
@@ -125,9 +128,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         private void setSyncMetric(bool enabled)
             => AddStep($"sync metric {(enabled ? "on" : "off")}", () => config.SetValue(TypeBeatRulesetSetting.ShowSyncMetric, enabled));
 
+        private void setTimingTint(bool enabled)
+            => AddStep($"timing tint {(enabled ? "on" : "off")}", () => config.SetValue(TypeBeatRulesetSetting.ShowTimingTint, enabled));
+
         [SetUpSteps]
         public void SetUpSteps()
         {
+            // Off unless a test asks for it, for the same carry-over reason as the sync metric below,
+            // and on its default strength range.
+            setTimingTint(false);
+            AddStep("timing tint default strengths and colours", () =>
+            {
+                config.SetValue(TypeBeatRulesetSetting.TimingTintMinStrength, TypeBeatRulesetConfigManager.DEFAULT_TIMING_TINT_MIN_STRENGTH);
+                config.SetValue(TypeBeatRulesetSetting.TimingTintMaxStrength, TypeBeatRulesetConfigManager.DEFAULT_TIMING_TINT_MAX_STRENGTH);
+                config.GetBindable<string>(TypeBeatRulesetSetting.TimingTintEarlyColour).SetDefault();
+                config.GetBindable<string>(TypeBeatRulesetSetting.TimingTintLateColour).SetDefault();
+            });
+
             // Written explicitly rather than inherited, for both of the reasons the other fixtures
             // do it: the manager is cached across the whole fixture so a previous test's toggle
             // would carry over, and the shipped default is OFF, so without this every ramp
@@ -179,11 +196,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // the first cell's target, so that group is being sung for every step in this fixture.
             // Since backlog 177 the sung group lights its UNTYPED cells whatever the playhead style
             // is, so the highlight grey, not the plain untyped grey, is what "untyped" looks like
-            // here. That costs this fixture nothing: its subject is what a CORRECT cell reads as, and
+            // here (from cell 1 on; cell 0 is judged on the span's start alone, see above). That costs this fixture nothing: its subject is what a CORRECT cell reads as, and
             // a Correct cell rides the sync-tint ramp everywhere, a rule the highlight does not touch
             // (see LyricLineDisplay.CellFillColour).
             AddUntilStep("the line's one group is being sung", () => display.SungSyllable == 0);
-            AddAssert("so every cell starts on the highlight grey", () => same(colour(0), TypeBeatStyle.SungChar));
+            AddAssert("so every cell after the first starts on the highlight grey", () => same(colour(1), TypeBeatStyle.SungChar) && same(colour(4), TypeBeatStyle.SungChar));
             // Brightness is adjustable independently of sync quality; the default highlight
             // remains distinct from the ramp floor without requiring a brightness ordering.
             AddAssert("and the ramp floor is distinct", () => !same(LyricLineDisplay.CorrectCharColour(0), TypeBeatStyle.SungChar));
@@ -212,9 +229,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // window tier, which is the only way this lands on exactly half quality.
             AddAssert("the late char sits at exactly half the ramp", () => same(colour(1), LyricLineDisplay.CorrectCharColour(0.5)));
 
-            // The untyped suffix waits for the preceding freestyle character's window to open.
-            // The scored characters' sync tint must not reach it during that wait.
-            AddAssert("the waiting suffix keeps its untyped grey", () => same(colour(4), TypeBeatStyle.UntypedChar));
+            // The untyped suffix after the freestyle slot is judged on the group's open span, so it
+            // is lit like the rest of the group. The scored characters' sync tint must not reach it.
+            AddAssert("the suffix keeps the sung group's highlight", () => same(colour(4), TypeBeatStyle.SungChar));
             AddAssert("and it did not pick up the late char's tint", () => !same(colour(4), colour(1)));
         }
 
@@ -266,16 +283,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         public void TestBackspaceReturnsTheCharToItsUntypedColour()
         {
             // Half a window late, not dead on: a mid-ramp colour is distinct from both ends, so the
-            // paint and the revert are each visible without leaning on either endpoint.
-            AddStep("type 'a' half a window late", () => press(0, 'a', halfQualityLateDelta(0)));
-            AddUntilStep("painted at half the ramp", () => same(colour(0), LyricLineDisplay.CorrectCharColour(0.5)));
+            // paint and the revert are each visible without leaning on either endpoint. Cell 1, not
+            // cell 0, because cell 1 is the one still inside its Great window (see the class notes).
+            AddStep("type 'a' dead on", () => press(0, 'a', 0));
+            AddStep("type 'b' half a window late", () => press(1, 'b', halfQualityLateDelta(1)));
+            AddUntilStep("painted at half the ramp", () => same(colour(1), LyricLineDisplay.CorrectCharColour(0.5)));
 
             AddStep("backspace", () => engine.ProcessBackspace());
-            AddAssert("cell state and delta both cleared", () => cell(0).State == CellState.Untyped && cell(0).JudgedDelta == null);
+            AddAssert("cell state and delta both cleared", () => cell(1).State == CellState.Untyped && cell(1).JudgedDelta == null);
 
             // The ramp is gone and the cell is an ordinary untyped cell again, which in this scene
             // is one the song is on, so it goes back to the highlight grey it started at.
-            AddUntilStep("char is back to its untyped colour", () => same(colour(0), TypeBeatStyle.SungChar));
+            AddUntilStep("char is back to its untyped colour", () => same(colour(1), TypeBeatStyle.SungChar));
         }
 
         /// <summary>
@@ -310,6 +329,52 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             setSyncMetric(true);
 
             AddUntilStep("the ramp comes back where it was", () => same(colour(1), LyricLineDisplay.CorrectCharColour(0.5)));
+        }
+
+        /// <summary>
+        /// The TIMING TINT's wiring (the maths is pinned by <c>TimingTintTest</c>): with its setting
+        /// on, an early press shades orange, a late one blue (the default colours), and a Great press stays the clean typed
+        /// colour even with the sync metric's ramp on too, because the timing tint wins over it.
+        /// Turning the tint off hands the cells back to the ramp.
+        /// </summary>
+        [Test]
+        public void TestTheTimingTintShowsWhichWayAPressMissed()
+        {
+            setTimingTint(true);
+
+            AddStep("type 'a' 400 ms early", () => press(0, 'a', -400));
+            AddStep("type 'b' 400 ms late", () => press(1, 'b', 400));
+            AddStep("fill the freestyle slot", () => press(slot, 'x', 0));
+            AddStep("type 'c' dead on", () => press(3, 'c', 0));
+
+            AddUntilStep("all repainted", () => cell(3).State == CellState.Correct && !same(colour(3), TypeBeatStyle.SungChar));
+
+            AddAssert("the early char wears the early tint", () => same(colour(0), LyricLineDisplay.TimingTintColour(-400, engine.Windows)));
+            AddAssert("which leans orange", () => colour(0).R > TypeBeatStyle.TypedChar.R && colour(0).B < TypeBeatStyle.TypedChar.B);
+            AddAssert("the late char wears the late tint", () => same(colour(1), LyricLineDisplay.TimingTintColour(400, engine.Windows)));
+            AddAssert("which leans blue", () => colour(1).B > TypeBeatStyle.TypedChar.B && colour(1).R < TypeBeatStyle.TypedChar.R);
+            AddAssert("the Great char is clean despite the sync ramp being on", () => same(colour(3), TypeBeatStyle.TypedChar));
+            AddAssert("the freestyle slot is left alone", () => same(colour(slot), TypeBeatStyle.FreestyleChar));
+
+            AddStep("weaken the tint range to 10-40%", () =>
+            {
+                config.SetValue(TypeBeatRulesetSetting.TimingTintMinStrength, 10f);
+                config.SetValue(TypeBeatRulesetSetting.TimingTintMaxStrength, 40f);
+            });
+            AddUntilStep("the late char repaints at the new strength", () => same(colour(1), LyricLineDisplay.TimingTintColour(400, engine.Windows, minStrength: 0.1, maxStrength: 0.4)));
+            AddStep("pick custom colours", () =>
+            {
+                config.SetValue(TypeBeatRulesetSetting.TimingTintEarlyColour, "#00ff00");
+                config.SetValue(TypeBeatRulesetSetting.TimingTintLateColour, "#ff00ff");
+            });
+            AddUntilStep("the late char repaints in the custom late colour", () => same(colour(1), LyricLineDisplay.TimingTintColour(400, engine.Windows, minStrength: 0.1, maxStrength: 0.4,
+                earlyColour: new Color4(0f, 1f, 0f, 1f), lateColour: new Color4(1f, 0f, 1f, 1f))));
+            AddAssert("and the early char in the custom early colour", () => same(colour(0), LyricLineDisplay.TimingTintColour(-400, engine.Windows, minStrength: 0.1, maxStrength: 0.4,
+                earlyColour: new Color4(0f, 1f, 0f, 1f), lateColour: new Color4(1f, 0f, 1f, 1f))));
+
+            setTimingTint(false);
+
+            AddUntilStep("the late char returns to the sync ramp", () => same(colour(1), LyricLineDisplay.CorrectCharColour(SyncWindows.Default.SyncQuality(400))));
         }
     }
 }

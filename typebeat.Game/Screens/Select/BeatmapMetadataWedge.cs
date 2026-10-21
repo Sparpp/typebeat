@@ -16,6 +16,7 @@ using osu.Framework.Graphics.Containers;
 using osu.Framework.Logging;
 using osu.Framework.Utils;
 using typebeat.Game.Beatmaps;
+using typebeat.Game.Configuration;
 using typebeat.Game.Database;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Localisation;
@@ -69,6 +70,7 @@ namespace typebeat.Game.Screens.Select
         private RealmAccess realm { get; set; } = null!;
 
         private IBindable<APIState> apiState = null!;
+        private ModSettingChangeTracker? settingChangeTracker;
 
         [Resolved]
         private ILinkHandler? linkHandler { get; set; }
@@ -270,7 +272,14 @@ namespace typebeat.Game.Screens.Select
             // mod is a re-reading of the same converted map (see GetTypingPace), which is why the
             // converted beatmap is kept and only the profile is recomputed. The cache below is keyed
             // on both, so a toggle that changes neither is still free.
-            mods.BindValueChanged(_ => Scheduler.AddOnce(updateTypingPace), true);
+            mods.BindValueChanged(change =>
+            {
+                settingChangeTracker?.Dispose();
+                settingChangeTracker = new ModSettingChangeTracker(change.NewValue);
+                // A rate slider mutates the selected mod without replacing the mod list.
+                settingChangeTracker.SettingChanged += _ => Scheduler.AddOnce(updateTypingPace);
+                Scheduler.AddOnce(updateTypingPace);
+            }, true);
 
             apiState = api.State.GetBoundCopy();
             apiState.BindValueChanged(_ => Scheduler.AddOnce(updateDisplay), true);
@@ -304,9 +313,10 @@ namespace typebeat.Game.Screens.Select
 
             bool wedgeVisible = State.Value == Visibility.Visible;
 
-            // The ratings wedge is online data; the typing pace wedge is computed from the local
-            // beatmap, so the two are gated separately and a map with no lyric lines simply drops
-            // its pace section rather than drawing an empty graph.
+            // The ratings wedge is online data; the typing pace wedge shows the server's figures when
+            // it has them and the local beatmap's otherwise (see TypingPaceSource), so it does not
+            // wait on the lookup and is gated separately. A map with no lyric lines simply drops its
+            // pace section rather than drawing an empty graph.
             bool showRatings = wedgeVisible && currentOnlineBeatmap != null;
             bool showTypingPace = wedgeVisible && typingPaceAvailable;
 
@@ -384,12 +394,12 @@ namespace typebeat.Game.Screens.Select
             creator.Data = (metadata.Author.Username, () => linkHandler?.HandleLink(new LinkDetails(LinkAction.OpenUserProfile, metadata.Author)));
 
             if (!string.IsNullOrEmpty(metadata.Source))
-                source.Data = (metadata.Source, () => songSelect?.Search(metadata.Source));
+                source.Data = (metadata.Source, () => songSelect?.AddToSearch(metadata.Source));
             else
                 source.Data = ("-", null);
 
             if (!string.IsNullOrEmpty(metadata.Tags))
-                mapperTags.Tags = (metadata.Tags.Split(' '), t => songSelect?.Search(t));
+                mapperTags.Tags = (metadata.Tags.Split(' '), t => songSelect?.AddToSearch(t));
             else
                 mapperTags.Tags = (Array.Empty<string>(), _ => { });
 
@@ -403,6 +413,14 @@ namespace typebeat.Game.Screens.Select
         private bool typingPaceAvailable;
 
         /// <summary>
+        /// The figures computed from the local beatmap for the current selection and mods, and whether
+        /// that computation is still running (the profile is then from an earlier selection).
+        /// </summary>
+        private TypingPaceProfile? typingPaceLocal;
+
+        private bool typingPaceLocalPending;
+
+        /// <summary>
         /// Identifies the in-flight pace request. Selection changes far faster than a playable
         /// beatmap loads, so results are matched against this rather than cancelled: a
         /// <see cref="CancellationToken"/> would still let an already-scheduled continuation from an
@@ -414,11 +432,11 @@ namespace typebeat.Game.Screens.Select
         private WorkingBeatmap? typingPaceBeatmap;
 
         /// <summary>
-        /// Whether <see cref="typingPaceBeatmap"/> was last converted with a mod that shapes the
-        /// beatmap (Literate). The pace readouts follow those mods, so a toggle has to convert
-        /// again even though the selection itself has not moved.
+        /// The shaping mod combination used to convert <see cref="typingPaceBeatmap"/>. Adding
+        /// Polyglot alongside Literate changes the input stream even while both selections contain
+        /// shaping mods, so the exact combination determines when to convert again.
         /// </summary>
-        private bool typingPaceLiterate;
+        private string typingPaceConversionKey = string.Empty;
 
         /// <summary>
         /// The clock <see cref="typingPacePlayable"/>'s last profile was read at, so a rate toggle
@@ -452,21 +470,25 @@ namespace typebeat.Game.Screens.Select
         {
             var working = beatmap.Value;
             var conversionMods = ModUtils.BeatmapShapingMods(mods.Value);
-            bool literate = conversionMods.Count > 0;
+            string conversionKey = string.Join(",", conversionMods.Select(m => m.GetType().FullName).OrderBy(name => name, StringComparer.Ordinal));
             double rate = typingPaceClockRate();
 
             // updateDisplay also fires on online-lookup and api-state changes, neither of which can
-            // move a local pace figure; re-reading the map for those would be pure waste.
-            if (ReferenceEquals(typingPaceBeatmap, working) && typingPaceLiterate == literate && typingPaceRate == rate)
+            // move a local pace figure; re-reading the map for those would be pure waste. The lookup
+            // can bring the server's figures, though, so the choice between the two is made again.
+            if (ReferenceEquals(typingPaceBeatmap, working) && typingPaceConversionKey == conversionKey && typingPaceRate == rate)
+            {
+                applyTypingPace();
                 return;
+            }
 
             // The map has to be converted again only when the CELLS can have moved. A rate change is a
             // re-reading of the map already held, so it takes the conversion it was handed.
-            bool needsConversion = !ReferenceEquals(typingPaceBeatmap, working) || typingPaceLiterate != literate;
+            bool needsConversion = !ReferenceEquals(typingPaceBeatmap, working) || typingPaceConversionKey != conversionKey;
             IHasTypingPace? previous = typingPacePlayable;
 
             typingPaceBeatmap = working;
-            typingPaceLiterate = literate;
+            typingPaceConversionKey = conversionKey;
             typingPaceRate = rate;
 
             int requestId = ++typingPaceRequestId;
@@ -475,9 +497,16 @@ namespace typebeat.Game.Screens.Select
             {
                 typingPaceAvailable = false;
                 typingPacePlayable = null;
+                typingPaceLocal = null;
+                typingPaceLocalPending = false;
                 updateSubWedgeVisibility();
                 return;
             }
+
+            typingPaceLocalPending = true;
+
+            // The server's figures need no conversion, so they show at once when they apply.
+            applyTypingPace();
 
             Task.Run(() =>
             {
@@ -510,11 +539,40 @@ namespace typebeat.Game.Screens.Select
                     if (requestId != typingPaceRequestId)
                         return;
 
-                    typingPaceAvailable = profile != null;
-                    typingPaceDisplay.Data = profile;
-                    updateSubWedgeVisibility();
+                    typingPaceLocal = profile;
+                    typingPaceLocalPending = false;
+                    applyTypingPace();
                 });
             });
+        }
+
+        /// <summary>
+        /// Shows the server's pace figures when they apply to the selection, otherwise the local ones
+        /// (see <see cref="TypingPaceSource"/>). While the local ones are still being computed and the
+        /// server's do not apply, the display is left as it is, as it always was between selections.
+        /// </summary>
+        private void applyTypingPace()
+        {
+            if (beatmap.IsDefault)
+                return;
+
+            var beatmapInfo = beatmap.Value.BeatmapInfo;
+            var lookup = onlineLookupResult.Value;
+            var onlineBeatmap = lookup?.Status == SongSelect.BeatmapSetLookupStatus.Completed
+                ? lookup.Result?.Beatmaps.FirstOrDefault(b => b.OnlineID == beatmapInfo.OnlineID)
+                : null;
+
+            bool modsChangePace = typingPaceConversionKey.Length > 0 || typingPaceRate != 1;
+            var server = TypingPaceSource.ServerFigures(onlineBeatmap, beatmapInfo, modsChangePace);
+
+            if (server == null && typingPaceLocalPending)
+                return;
+
+            var profile = server ?? typingPaceLocal;
+
+            typingPaceAvailable = profile != null;
+            typingPaceDisplay.Data = profile;
+            updateSubWedgeVisibility();
         }
 
         private void updateOnlineDisplay()
@@ -539,8 +597,8 @@ namespace typebeat.Game.Screens.Select
                 var onlineBeatmapSet = onlineLookupResult.Value.Result;
                 var onlineBeatmap = onlineBeatmapSet.Beatmaps.SingleOrDefault(b => b.OnlineID == beatmapInfo.OnlineID);
 
-                genre.Data = (onlineBeatmapSet.Genre.Name, () => songSelect?.Search(onlineBeatmapSet.Genre.Name));
-                language.Data = (onlineBeatmapSet.Language.Name, () => songSelect?.Search(onlineBeatmapSet.Language.Name));
+                genre.Data = (onlineBeatmapSet.Genre.Name, () => songSelect?.AddToSearch(onlineBeatmapSet.Genre.Name));
+                language.Data = (onlineBeatmapSet.Language.Name, () => songSelect?.AddToSearch(onlineBeatmapSet.Language.Name));
 
                 if (onlineBeatmap != null)
                 {
@@ -584,7 +642,7 @@ namespace typebeat.Game.Screens.Select
                     }
 
                     userTags.FadeIn(transition_duration, Easing.OutQuint);
-                    userTags.Tags = (tags, tag => songSelect?.Search($@"tag=""{tag}""!"));
+                    userTags.Tags = (tags, tag => songSelect?.AddToSearch($@"tag=""{tag}""!"));
                 });
             }, token);
         }
@@ -593,6 +651,7 @@ namespace typebeat.Game.Screens.Select
         {
             userTagsCancellationSource?.Cancel();
             userTagsCancellationSource = null;
+            settingChangeTracker?.Dispose();
             base.Dispose(isDisposing);
         }
     }

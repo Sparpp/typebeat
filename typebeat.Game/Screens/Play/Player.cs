@@ -178,6 +178,8 @@ namespace typebeat.Game.Screens.Play
         /// Whether failing should be allowed.
         /// By default, this checks whether all selected mods allow failing.
         /// </summary>
+        protected virtual System.Collections.Generic.IEnumerable<Mod> GetGameplayMods() => Mods.Value;
+
         protected virtual bool CheckModsAllowFailure() => GameplayState.Mods.OfType<IApplicableFailOverride>().All(m => m.PerformFail());
 
         public readonly PlayerConfiguration Configuration;
@@ -229,7 +231,7 @@ namespace typebeat.Game.Screens.Play
         [BackgroundDependencyLoader(true)]
         private void load(OsuConfigManager config, OsuGameBase game, CancellationToken cancellationToken)
         {
-            var gameplayMods = Mods.Value.Select(m => m.DeepClone()).ToArray();
+            var gameplayMods = GetGameplayMods().Select(m => m.DeepClone()).ToArray();
 
             if (gameplayMods.Any(m => m is UnknownMod))
             {
@@ -764,8 +766,8 @@ namespace typebeat.Game.Screens.Play
         /// <remarks>
         /// Mirrors <see cref="PerformIntroSkip"/> (same sample handling and clock seek), but seeks to an
         /// explicit target rather than <see cref="IGameplayClock.GameplayStartTime"/>. Unlike the intro
-        /// skip — which lands before <see cref="IGameplayClock.GameplayStartTime"/> where the frame-stable
-        /// clock jumps freely — a jump past that point is otherwise clamped/rejected by frame stability, so
+        /// skip (which lands before <see cref="IGameplayClock.GameplayStartTime"/> where the frame-stable
+        /// clock jumps freely), a jump past that point is otherwise clamped/rejected by frame stability, so
         /// (as in <see cref="SetGameplayStartTime"/>) frame stability is dropped for the seek and restored a
         /// frame later. Only used across instrumental gaps that contain no judgements, so the non-frame-stable
         /// jump has nothing to mis-apply.

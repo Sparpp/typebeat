@@ -70,6 +70,11 @@ namespace typebeat.Game.Localisation
         public static LocalisableString ChangeFolderLocation => new TranslatableString(getKey(@"change_folder_location"), @"Change folder location...");
 
         /// <summary>
+        /// "Move your current data to a new folder, or point osu! to backed-up data at an existing location."
+        /// </summary>
+        public static LocalisableString ChangeFolderLocationTooltip => new TranslatableString(getKey(@"change_folder_location_tooltip"), @"Move your current data to a new folder, or point osu! to backed-up data at an existing location.");
+
+        /// <summary>
         /// "Run setup wizard"
         /// </summary>
         public static LocalisableString RunSetupWizard => new TranslatableString(getKey(@"run_setup_wizard"), @"Run setup wizard");
@@ -83,6 +88,11 @@ namespace typebeat.Game.Localisation
         /// "Browse beatmaps, rankings and more in your browser"
         /// </summary>
         public static LocalisableString VisitWebsiteTooltip => new TranslatableString(getKey(@"visit_website_tooltip"), @"Browse beatmaps, rankings and more in your browser");
+
+        /// <summary>
+        /// "Note that when using a non-stable release stream, the game may still update to a stable release if it is newer."
+        /// </summary>
+        public static LocalisableString ReleaseStreamNonStableUpgradeInformation => new TranslatableString(getKey(@"release_stream_non_stable_upgrade_information"), @"Note that when using a non-stable release stream, the game may still update to a stable release if it is newer.");
 
         /// <summary>
         /// "You are running the latest release ({0})"

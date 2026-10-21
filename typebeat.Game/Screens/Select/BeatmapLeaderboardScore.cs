@@ -145,7 +145,7 @@ namespace typebeat.Game.Screens.Select
         [BackgroundDependencyLoader]
         private void load()
         {
-            // Local scores persist only the RealmUser (OnlineID/username/country) — the avatar_url
+            // Local scores persist only the RealmUser (OnlineID/username/country); the avatar_url
             // is dropped. When the row is the signed-in user's own score, fill their avatar in from
             // the API so it shows instead of the placeholder.
             if (string.IsNullOrEmpty(Score.User.AvatarUrl)
@@ -212,10 +212,10 @@ namespace typebeat.Game.Screens.Select
                                     RelativeSizeAxes = Axes.Both,
                                     Colour = foregroundColour
                                 },
-                                new UserCoverBackground
+                                new CoverBackground
                                 {
                                     RelativeSizeAxes = Axes.Both,
-                                    User = Score.User,
+                                    Model = Score.User,
                                     Shear = sheared ? -OsuGame.SHEAR : Vector2.Zero,
                                     Anchor = Anchor.BottomLeft,
                                     Origin = Anchor.BottomLeft,
@@ -334,7 +334,7 @@ namespace typebeat.Game.Screens.Select
                                                     Children = new Drawable[]
                                                     {
                                                         new ScoreComponentLabel(BeatmapsetsStrings.ShowScoreboardHeadersCombo.ToUpper(), $"{Score.MaxCombo.ToString()}x",
-                                                            Score.MaxCombo == Score.GetMaximumAchievableCombo(), 60),
+                                                            Score.IsPerfect(), 60),
                                                         new ScoreComponentLabel(BeatmapsetsStrings.ShowScoreboardHeadersAccuracy.ToUpper(), Score.DisplayAccuracy, Score.Accuracy == 1,
                                                             55),
                                                     },

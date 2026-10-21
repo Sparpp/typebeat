@@ -24,6 +24,7 @@ using osu.Framework.Graphics.Textures;
 using osu.Framework.Input;
 using osu.Framework.Input.Handlers;
 using osu.Framework.Input.Handlers.Joystick;
+using osu.Framework.Input.Handlers.Keyboard;
 using osu.Framework.Input.Handlers.Midi;
 using osu.Framework.Input.Handlers.Mouse;
 using osu.Framework.Input.Handlers.Pen;
@@ -108,8 +109,10 @@ namespace typebeat.Game
 
         public virtual EndpointConfiguration CreateEndpoints()
         {
-            // Every build — debug included — targets the production typebeat-web server by
-            // default. To develop against a local server instead, point the override at it:
+            // Every build (debug included) targets the production typebeat-web server by
+            // default, but a debug build never submits scores to it (ScoreSubmissionGate).
+            // To develop against a local server instead, submission included, point the
+            // override at it:
             //   TYPEBEAT_API_URL=http://localhost:5089 type!beat.exe
             string envOverride = Environment.GetEnvironmentVariable("TYPEBEAT_API_URL");
             if (!string.IsNullOrEmpty(envOverride))
@@ -118,7 +121,16 @@ namespace typebeat.Game
             return new TypebeatEndpointConfiguration();
         }
 
-        protected override OnlineStore CreateOnlineStore() => new TrustedDomainOnlineStore(CreateEndpoints());
+        private EndpointConfiguration sharedEndpoints;
+
+        /// <summary>
+        /// The one endpoint configuration this game runs on, created on first use. <see cref="APIAccess"/> and
+        /// the trusted-domain store both hold this instance, so when the API host failover rewrites
+        /// <see cref="EndpointConfiguration.APIUrl"/> on it, resource lookups trust the new host too.
+        /// </summary>
+        internal EndpointConfiguration Endpoints => sharedEndpoints ??= CreateEndpoints();
+
+        protected override OnlineStore CreateOnlineStore() => new TrustedDomainOnlineStore(Endpoints);
 
         public virtual Version AssemblyVersion => Assembly.GetEntryAssembly()?.GetName().Version ?? new Version();
 
@@ -225,7 +237,9 @@ namespace typebeat.Game
         public readonly Bindable<Dictionary<ModType, IReadOnlyList<Mod>>> AvailableMods = new Bindable<Dictionary<ModType, IReadOnlyList<Mod>>>(new Dictionary<ModType, IReadOnlyList<Mod>>());
 
         private BeatmapDifficultyCache difficultyCache;
+
         private IBeatmapUpdater beatmapUpdater;
+        private OnlineAssetCachingStore onlineAssetStore;
 
         private UserLookupCache userCache;
         private BeatmapLookupCache beatmapCache;
@@ -277,6 +291,9 @@ namespace typebeat.Game
         {
             Name = GAME_NAME;
 
+            // Before any texture loads: no TIFF decoding (see ImageDecodingGuard).
+            ImageDecodingGuard.Apply();
+
             allowableExceptions = UnhandledExceptionsBeforeCrash;
         }
 
@@ -323,6 +340,8 @@ namespace typebeat.Game
             largeStore.AddTextureSource(Host.CreateTextureLoaderStore(onlineStore is TrustedDomainOnlineStore trusted ? new LoopbackAwareStore(trusted) : onlineStore));
             dependencies.Cache(largeStore);
 
+            dependencies.Cache(onlineAssetStore = new OnlineAssetCachingStore(Host, realm, CreateEndpoints()));
+
             dependencies.CacheAs(LocalConfig);
             dependencies.CacheAs<IGameplaySettings>(LocalConfig);
 
@@ -344,7 +363,7 @@ namespace typebeat.Game
             dependencies.Cache(SkinManager = new SkinManager(Storage, realm, Host, Resources, Audio, Scheduler));
             dependencies.CacheAs<ISkinSource>(SkinManager);
 
-            EndpointConfiguration endpoints = CreateEndpoints();
+            EndpointConfiguration endpoints = Endpoints;
 
             MessageFormatter.WebsiteRootUrl = endpoints.WebsiteUrl;
 
@@ -702,6 +721,10 @@ namespace typebeat.Game
                 case MouseHandler mh:
                     return new MouseSettings(mh);
 
+                // Its one setting is SDL's Windows raw keyboard switch, so it is absent elsewhere.
+                case KeyboardHandler kh when RuntimeInfo.OS == RuntimeInfo.Platform.Windows:
+                    return new KeyboardSettings(kh);
+
                 // return null for handlers that shouldn't have settings.
                 default:
                     return null;
@@ -812,6 +835,8 @@ namespace typebeat.Game
             LocalConfig?.Dispose();
 
             beatmapUpdater?.Dispose();
+
+            onlineAssetStore?.Dispose();
 
             realm?.Dispose();
 

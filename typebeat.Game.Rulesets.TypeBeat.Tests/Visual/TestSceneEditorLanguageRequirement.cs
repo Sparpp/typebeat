@@ -110,8 +110,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("setup screen shown", () => Editor.ChildrenOfType<SetupScreen>().Any());
 
             AddAssert("dropdown reflects the unset map", () => languageDropdown().Current.Value, () => Is.EqualTo(BeatmapLanguage.Unspecified));
-            AddAssert("every real language is offered", () => languageDropdown().Items.ToHashSet(),
-                () => Is.EquivalentTo(System.Enum.GetValues<BeatmapLanguage>()));
+            AddAssert("selectable languages are offered in display order", () => languageDropdown().Items.ToArray(),
+                () => Is.EqualTo(BeatmapLanguageExtensions.DisplayOrder));
 
             AddStep("pick japanese", () => languageDropdown().Current.Value = BeatmapLanguage.Japanese);
 

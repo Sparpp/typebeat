@@ -5,7 +5,6 @@ using System.Collections.Generic;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
-using osu.Framework.Localisation;
 using typebeat.Game.Graphics.Fonts;
 using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Overlays.Settings;
@@ -22,16 +21,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// on trial, and the move is of the CONTROLS and not of the settings: Realm keys the stored rows
     /// by enum member name, so every value a player already has reads exactly as it did. The settings
     /// still on trial (the sync metric and the local auto-aligner) stay in Experimental.
-    /// (LyricOffsetMs/LyricLabPath surfacing remains deferred to M7.)
+    /// (LyricOffsetMs and LyricLabPath have no control here.)
     /// </summary>
     public partial class TypeBeatSettingsSubsection : RulesetSettingsSubsection
     {
-        // Blank: the enclosing settings section is itself titled "type!beat", so a subsection
-        // heading here would just repeat it. CreateHeader is suppressed so no gap is left.
-        protected override LocalisableString Header => default;
-
-        protected override Drawable CreateHeader() => Empty();
-
         [Resolved(CanBeNull = true)]
         private LyricFontManager? fontManager { get; set; }
 
@@ -86,7 +79,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 new SettingsItemV2(new FormCheckBox
                 {
                     Caption = "Space to skip current word",
-                    HintText = "Press space in the middle of a word to jump to the next one. In Freestyle, spaces are accepted in their slots instead of skipping. Backspace can reclaim skipped letters. In Gatekeeper mode, space is rejected like any other wrong key. Applies from the next play.",
+                    HintText = "Press space in the middle of a word to jump to the next one. Freestyle slots refuse spaces. Backspace can reclaim skipped letters. In Gatekeeper mode, space is rejected like any other wrong key. Applies from the next play.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.SpaceSkipsWord),
                 }),
                 new SettingsItemV2(new FormCheckBox
@@ -178,10 +171,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     HintText = "Choose how upcoming syllables or letters show judgement timing. Display only.",
                     Current = judgementIndicator,
                 }),
+                new SettingsItemV2(new FormCheckBox
+                {
+                    Caption = "Character timing for indicators",
+                    HintText = "Fade or fill each character over the Indicator Lead-In, completing when Autoplay would type it with the current mods. Text pop-in follows the same timing. Overrides Indicator Alignment. Display only.",
+                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.CharacterIndicatorTiming),
+                }),
                 new SettingsItemV2(new FormSliderBar<float>
                 {
                     Caption = "Indicator Alignment",
-                    HintText = "Sets when the fade or fill and text pop-in complete, from the start to the centre of the Great window. Approach bars always arrive at the centre. Display only.",
+                    HintText = "Sets when the fade or fill and text pop-in complete, from the start to the centre of the Great window. Disabled when character timing is enabled. Approach bars always arrive at the centre. Display only.",
                     Current = config.GetBindable<float>(TypeBeatRulesetSetting.SyllableFadeInEnd),
                     KeyboardStep = 1f,
                     LabelFormat = v => v == 0 ? "Great window start" : v == 100 ? "Great window centre" : $"{v:0}% towards centre",

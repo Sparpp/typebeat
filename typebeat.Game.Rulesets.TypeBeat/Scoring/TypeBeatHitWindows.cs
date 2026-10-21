@@ -28,8 +28,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
         /// <summary>
         /// Where the windows actually come from during a play: the engine's EFFECTIVE ladder, which
-        /// mods rescale (Easy doubles it, Hard Rock halves it, the rate mods multiply in their rate)
-        /// and a replay's CONFIG frame can rebuild. Read on every query rather than copied, so the
+        /// mods rescale (Easy doubles it, the rate mods multiply in their rate; Hard Rock leaves it
+        /// alone since backlog 264), and a replay's CONFIG frame can rebuild. Read on every query rather than copied, so the
         /// hit error meter's bands and every lifetime bound match the windows the engine judges on.
         /// Null outside a play (beatmap conversion, difficulty calculation), where the default
         /// ladder stands, as it always did.

@@ -418,8 +418,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// THE TARGET is the map's hardest window BY RAW SPEED re-expressed at
-        /// <see cref="LyricDifficulty.TargetWindowSeconds"/>, which is the figure the Star Rating
-        /// Sandbox prints beside every map and the one song select renders. This file does not
+        /// <see cref="LyricDifficulty.TargetWindowSeconds"/>, read off the chunked axis's own
+        /// timeline and window family, and the one song select renders. This file does not
         /// re-derive it: the statistic hands the lines to the difficulty model and publishes what
         /// comes back, so the number the player sees and the number the model computed cannot drift
         /// apart. That equality IS the contract, and it is asserted on every shape below.
@@ -437,9 +437,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 var pace = LyricPaceStatistics.Compute(lines);
 
-                double model = LyricDifficulty
-                    .ComputeDetail(lines, 1, false, LyricDifficulty.EnduranceAxis.Envelope)
-                    .TargetWpm;
+                double model = LyricDifficulty.TargetWpm(lines);
 
                 // The model's own figure, FLOORED at the whole-map average: see
                 // TargetWpmIsFlooredAtTheWholeMapAverage for why the two can invert.
@@ -502,8 +500,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// The target is a SPEED figure and nothing else: it is read off the authored density with
-        /// the typability multiplier and the rhythm bonus left out of both the window choice and the
-        /// conversion, so it does not move when either experiment does. The other two figures are
+        /// typability, the judgement windows and the rhythm boost left out of both the window choice
+        /// and the conversion, so it does not move when any of them does. The other two figures are
         /// spelled out beside it so the fixture says what it is not as well as what it is.
         /// </summary>
         [Test]
@@ -511,7 +509,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var lines = twoPaceMap(6, 1000, 21000);
             var pace = LyricPaceStatistics.Compute(lines);
-            var model = LyricDifficulty.ComputeDetail(lines, 1, false, LyricDifficulty.EnduranceAxis.Envelope);
+            var model = LyricDifficulty.ComputeDetail(lines, 1, false);
 
             Assert.AreNotEqual(pace.AverageWpm, pace.TargetWpm);
             Assert.AreNotEqual(pace.LineAverageWpm, pace.TargetWpm);
@@ -523,6 +521,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Greater(model.TargetWpm, pace.AverageWpm, "this fixture is the case where the peak IS the higher figure");
             Assert.AreEqual(model.TargetWpm, pace.TargetWpm, 1e-12);
             Assert.Less(model.TargetWpm, 300, "a sanity bound: this fixture is not a 300 WPM map");
+
+            // And the judgement arms, which move the rating through its rhythm dial, do not reach it.
+            foreach (var arm in new[] { LyricDifficulty.JudgementArm.Easy, LyricDifficulty.JudgementArm.HardRock })
+                Assert.AreEqual(model.TargetWpm, LyricDifficulty.ComputeDetail(lines, 1, false, LyricDifficulty.Live, arm).TargetWpm, 0, arm.ToString());
         }
         [Test]
         public void LiterateCountsTheAuthoredMarksAndKeepsHyphenatedWordsTogether()

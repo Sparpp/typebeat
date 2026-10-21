@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using typebeat.Game.Rulesets.Objects;
 using typebeat.Game.Rulesets.Objects.Drawables;
 using typebeat.Game.Rulesets.Scoring;
@@ -27,7 +28,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
         /// than left to the insertion order the framework happens to add nested objects in. It is
         /// also the order <c>typebeat-core.js</c> walks, which is the point.
         /// </summary>
-        private readonly SortedDictionary<int, DrawableTypeBeatCharObject> charDrawablesByCell = new SortedDictionary<int, DrawableTypeBeatCharObject>();
+        private readonly SortedDictionary<(int Cell, int Phase), DrawableTypeBeatCharObject> charDrawablesByCell = new SortedDictionary<(int Cell, int Phase), DrawableTypeBeatCharObject>();
 
         public DrawableTypeBeatHitObject(TypeBeatHitObject hitObject)
             : base(hitObject)
@@ -48,7 +49,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
 
             if (hitObject is DrawableTypeBeatCharObject charDrawable)
             {
-                charDrawablesByCell[charDrawable.HitObject.CellIndex] = charDrawable;
+                charDrawablesByCell[(charDrawable.HitObject.CellIndex, charDrawable.HitObject.Phase)] = charDrawable;
                 AddInternal(charDrawable);
             }
         }
@@ -65,7 +66,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
         /// shared <see cref="TypeBeatResultMapping.CellResult"/> (which is also what
         /// <see cref="Scoring.TypeBeatReplayScorer"/> re-derives a stored score with, so live play
         /// and recalculation cannot drift). Live play is always <see cref="TypoRule.Deferred"/> and
-        /// always the mapping's default <see cref="Scoring.OffTimeRule.MehHit"/>; nothing in gameplay
+        /// always the mapping's default <see cref="Gameplay.OffTimeRule.MehHit"/>; nothing in gameplay
         /// may select either of the other rules.
         ///
         /// <para>An OFF-TIME press (the right character outside the outermost Meh window) resolves
@@ -86,7 +87,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
         ///
         /// <para>The combo break the mistype costs therefore has no result to travel on, and is
         /// mirrored into the score processor by hand on <see cref="TypingEngine.Mistyped"/> instead
-        /// (see <c>TypeBeatPlayfield.onMistyped</c>). That is the seam a REJECTED key has always
+        /// (see <c>TypeBeatComboFeed.OnMistyped</c>). That is the seam a REJECTED key has always
         /// used, so the two input models now account for a wrong keypress identically. That break is
         /// the cell's whole combo consequence, which is why the seal applies the unfixed typo's hit
         /// combo-neutral (<see cref="Scoring.TypeBeatScoreProcessor.MarkComboNeutral"/>).</para>
@@ -96,10 +97,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
             if (TypeBeatResultMapping.CellResult(judgement.Type, TypoRule.Deferred) is not HitResult result)
                 return;
 
-            if (!charDrawablesByCell.TryGetValue(judgement.CellIndex, out var charDrawable))
+            if (!charDrawablesByCell.TryGetValue((judgement.CellIndex, judgement.Phase), out var charDrawable))
                 return;
 
-            charDrawable.ApplyEngineResult(result, judgement.Delta);
+            charDrawable.ApplyEngineResult(result, judgement.Delta,
+                judgement.Inputs?.Select(i => TypeBeatResultMapping.CellResult(i.Type, TypoRule.Deferred) ?? HitResult.Miss).ToArray());
         }
 
         /// <summary>
@@ -117,12 +119,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
         /// </summary>
         public void ApplySealResults(Func<int, HitResult> resultForCell)
         {
-            foreach ((int cellIndex, var charDrawable) in charDrawablesByCell)
+            foreach ((var key, var charDrawable) in charDrawablesByCell)
             {
                 if (charDrawable.Judged)
                     continue;
 
-                charDrawable.ApplyEngineResult(resultForCell(cellIndex));
+                charDrawable.ApplyEngineResult(charDrawable.HitObject.ScoringEnabled ? resultForCell(key.Cell) : HitResult.IgnoreHit);
             }
 
             if (!Judged)
@@ -131,11 +133,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
 
         /// <summary>
         /// The drawable carrying <paramref name="cellIndex"/>'s score, or null when this line has no such
-        /// cell. Exposed for the playfield's seal, which needs a cell's own target time to tell what the
-        /// play actually reached (see <c>TypeBeatPlayfield.cellWasDueBeforeThePlayStarted</c>).
+        /// cell. Exposed for the playfield's seal, which grants a cell the play started past (see
+        /// <c>TypeBeatPlayfield.cellWasDueBeforeThePlayStarted</c>; the time it compares is the engine's
+        /// own target, this drawable only carries the cell's result).
         /// </summary>
-        public DrawableTypeBeatCharObject? CellAt(int cellIndex)
-            => charDrawablesByCell.TryGetValue(cellIndex, out var cell) ? cell : null;
+        public DrawableTypeBeatCharObject? CellAt(int cellIndex, int phase = 0)
+            => charDrawablesByCell.TryGetValue((cellIndex, phase), out var cell) ? cell : null;
 
         protected override void CheckForResult(bool userTriggered, double timeOffset)
         {

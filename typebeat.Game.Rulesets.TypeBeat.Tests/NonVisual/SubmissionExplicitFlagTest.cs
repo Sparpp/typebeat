@@ -20,9 +20,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     public class SubmissionExplicitFlagTest
     {
         /// <remarks>
-        /// "Response" and "CompletionState" are public members of the request base class that have
-        /// always ridden along in the serialised body; the server ignores them. They are listed here
-        /// so this pin describes what actually goes over the wire.
+        /// "Response" is a public member of the request base class that has always ridden along in
+        /// the serialised body; the server ignores it. It is listed here so this pin describes what
+        /// actually goes over the wire. ("CompletionState" used to ride along too, until upstream
+        /// osu! #38806 marked it [JsonIgnore].)
         /// </remarks>
         private static readonly string[] expected_request_keys =
         {
@@ -33,7 +34,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             "notify_on_discussion_replies",
             "explicit",
             "Response",
-            "CompletionState",
         };
 
         [TestCase(true)]

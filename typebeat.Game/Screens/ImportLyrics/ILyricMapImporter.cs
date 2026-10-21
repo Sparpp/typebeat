@@ -61,11 +61,12 @@ namespace typebeat.Game.Screens.ImportLyrics
         /// </summary>
         /// <remarks>The optional language is the map's, which non-Latin lyrics are romanised under;
         /// null detects it from the lyrics' own script. The vocal mode is the map set's stored
-        /// <see cref="BeatmapSetInfo.AlignerVocalMode"/>.</remarks>
+        /// <see cref="BeatmapSetInfo.AlignerVocalMode"/>. With <paramref name="allowLineFallback"/> false, an
+        /// aligner that ran and failed fails the call rather than falling back to the line stamps.</remarks>
         Task<(LyricImportResult Result, string? TimingJson)> ProduceTimingJsonAsync(
             string audioPath, string lyricsContent, string artist, string title,
             Action<string> progress, CancellationToken token, bool useAutomaticAlignment = true,
-            string? language = null, AlignerVocalMode vocalMode = AlignerVocalMode.Aligned);
+            string? language = null, AlignerVocalMode vocalMode = AlignerVocalMode.Aligned, bool allowLineFallback = true);
 
         /// <summary>
         /// The import screen's remembered "use server aligner" choice (backlog 413), a bound copy of

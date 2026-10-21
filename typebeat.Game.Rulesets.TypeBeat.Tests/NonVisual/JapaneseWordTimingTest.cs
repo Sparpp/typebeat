@@ -170,7 +170,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     Assert.That(replay.JapaneseWordTiming, Is.EqualTo(wordTiming));
                     Assert.That(replay.Lines[0].Cells.Select(c => (c.State, c.TypedChar, c.JudgedDelta)),
                         Is.EqualTo(live.Lines[0].Cells.Select(c => (c.State, c.TypedChar, c.JudgedDelta))));
-                    Assert.That(replay.Score, Is.EqualTo(live.Score));
+                    Assert.That(replay.BuildResults().Counts, Is.EquivalentTo(live.BuildResults().Counts));
                     Assert.That(replay.Mistypes, Is.EqualTo(live.Mistypes));
                     Assert.That(replay.Combo, Is.EqualTo(live.Combo));
                 });
@@ -238,6 +238,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 SyllableTiming = true, AuthoredSyllablesOnly = true, FirstCharTiming = true, CharTimedStretch = true, AlignSubdivisionTargets = true,
             };
+            engine.JapaneseCharacterTiming = false;
             engine.Update(1000);
             return engine;
         }

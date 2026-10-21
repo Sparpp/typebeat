@@ -142,7 +142,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("tick it", () => introToggle(setPanel.ContextMenuItems)!.Action.Value?.Invoke());
 
             AddAssert("set opted in", () => realm.Run(r => r.Find<BeatmapSetInfo>(beatmapSet.ID)!.IntroPoolInclusion) == true);
-            AddAssert("difficulties untouched", () => realm.Run(r => r.Find<BeatmapSetInfo>(beatmapSet.ID)!.Beatmaps.All(b => b.UserSettings.IntroPoolInclusion == null)));
             AddAssert("reopened menu shows it ticked", () => introToggle(setPanel.ContextMenuItems)!.State.Value);
             AddAssert("standalone panel agrees", () => introToggle(standalonePanel.ContextMenuItems)!.State.Value);
         }

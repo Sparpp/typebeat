@@ -66,6 +66,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(engine.Lines[0].Cells.Last().State, Is.EqualTo(CellState.Untyped));
         }
 
+        [TestCase(false)]
+        [TestCase(true)]
+        public void EnterSkipsTheLineDuringAnIncompleteJapaneseReading(bool manualNewlines)
+        {
+            var engine = create("天使", "tenshi");
+            engine.FletcherEnabled = true;
+            engine.ManualNewlines = manualNewlines;
+            engine.ProcessKey('t', 1100);
+            Assert.That(engine.JapanesePending, Is.EqualTo("t"));
+            Assert.That(engine.ProcessEnter(1200), Is.True);
+            Assert.Multiple(() =>
+            {
+                Assert.That(engine.IsLineComplete, Is.True);
+                Assert.That(engine.CaretIndex, Is.EqualTo(engine.Lines[0].Cells.Count));
+                Assert.That(engine.JapanesePending, Is.Empty);
+                Assert.That(engine.Mistypes, Is.Zero);
+                Assert.That(engine.Lines[0].Cells.Select(c => c.State), Is.All.EqualTo(CellState.Untyped),
+                    "line skipping leaves untyped characters for the normal deadline misses");
+            });
+        }
+
         [Test]
         public void CompletedCharactersProtectTheNextCharacterUntilInputBegins()
         {

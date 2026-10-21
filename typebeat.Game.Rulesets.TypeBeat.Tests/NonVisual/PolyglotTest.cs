@@ -1,7 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
-// Backlog 331: the Polyglot mod. The lyric is typed in its ORIGINAL script, local only. These pins
+// Backlog 331: the Polyglot mod. The lyric is typed in its ORIGINAL script. These pins
 // cover the flattening (which text each word plays, the reverse-unit carry of the romanised syllable
 // cuts, the fallbacks), the hangul keys and their recomposition, the NFC matching the engine and the
 // text-input path share, the replay round trip, availability and the local-only gate, and the
@@ -519,6 +519,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(engine.Lines[0].Cells.Select(c => c.State), Is.All.EqualTo(CellState.Correct));
         }
 
+        [TestCase(false, "Noël", "Noel", true)]
+        [TestCase(false, "Noël", "NOEL", true)]
+        [TestCase(false, "Noël", "Noël", true)]
+        [TestCase(true, "Noël", "Noel", true)]
+        [TestCase(true, "NOËL", "NOEL", true)]
+        [TestCase(true, "Noël", "NoEl", false)]
+        [TestCase(true, "NOËL", "NOeL", false)]
+        [TestCase(false, "Noël", "Nool", false)]
+        [TestCase(false, "café", "cafe", false)]
+        public void EDiaeresisAcceptsPlainEAndRetainsTheOriginal(bool literate, string original, string input, bool correct)
+        {
+            var engine = polyglotEngine(line(unit("noel", 1000, 2000, original)), literate: literate);
+            engine.CaseSensitive = literate;
+            string displayBefore = engine.Lines[0].DisplayText;
+
+            foreach (char c in PolyglotText.InputCharacters(input))
+                engine.ProcessKey(c, 1000);
+
+            Assert.That(engine.Lines[0].Cells.All(c => c.State == CellState.Correct), Is.EqualTo(correct));
+            Assert.That(engine.Lines[0].DisplayText, Is.EqualTo(displayBefore));
+            Assert.That(displayBefore, Does.Contain(literate ? original : original.ToLowerInvariant()));
+        }
+
         [Test]
         public void APressIsMatchedInNfc()
         {
@@ -701,7 +724,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         #region The mod, availability and local-only
 
         [Test]
-        public void TheModIsALocalOnlyUnrankedConversion()
+        public void TheModIsARankedConversion()
         {
             var mod = new TypeBeatModPolyglot();
             var calculator = new TypeBeatScoreMultiplierCalculator(new ScoreMultiplierContext(new BeatmapDifficulty()));
@@ -710,8 +733,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 Assert.That(mod.Acronym, Is.EqualTo("PG"));
                 Assert.That(mod.Type, Is.EqualTo(ModType.Conversion));
-                Assert.That(mod.Ranked, Is.False);
-                Assert.That(mod.LocalOnly, Is.True);
+                Assert.That(mod.Ranked, Is.True);
+                Assert.That(mod.LocalOnly, Is.False);
                 Assert.That(mod.Description.ToString(), Is.EqualTo("Type the lyric in its original script. Japanese maps accept romaji."));
                 Assert.That(calculator.CalculateFor(new Mod[] { mod }), Is.EqualTo(1.0).Within(1e-9));
                 Assert.That(new TypeBeatRuleset().AllMods.Count(m => m.Acronym == "PG"), Is.EqualTo(1), "the acronym is free");
@@ -724,7 +747,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             Assert.Multiple(() =>
             {
-                Assert.That(SubmittingPlayer.IsLocalOnly(new Mod[] { new TypeBeatModLiterate(), new TypeBeatModPolyglot() }), Is.True);
+                Assert.That(SubmittingPlayer.IsLocalOnly(new Mod[] { new TypeBeatModLiterate(), new TypeBeatModPolyglot() }), Is.False);
+                var chinese = new BeatmapInfo { Metadata = new BeatmapMetadata { Language = BeatmapLanguage.Chinese } };
+                Assert.That(SubmittingPlayer.IsLocalOnly(new Mod[] { new TypeBeatModLiterate(), new TypeBeatModPolyglot() }, chinese), Is.True);
                 Assert.That(SubmittingPlayer.IsLocalOnly(new Mod[] { new TypeBeatModLiterate() }), Is.False);
                 Assert.That(SubmittingPlayer.IsLocalOnly(Array.Empty<Mod>()), Is.False);
             });

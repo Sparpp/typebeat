@@ -2436,9 +2436,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(3, scoreThreePresses(10000, "abc", new TypeBeatModPuppeteer()).Statistics.GetValueOrDefault(HitResult.Great));
 
             // The live seam and the replay seam are the same constant, applied the same way (see
-            // TypeBeatModPuppeteer.ApplyToDrawableRuleset and TypeBeatReplayScorer.createEngine).
-            Assert.IsInstanceOf<IApplicableToDrawableRuleset<TypeBeatHitObject>>(new TypeBeatModPuppeteer(),
-                "Puppeteer would scale a replay's windows but not a live play's");
+            // TypeBeatModPuppeteer.ApplyToEngine, which both engine factories call).
+            Assert.IsInstanceOf<IApplicableToTypingEngine>(new TypeBeatModPuppeteer(),
+                "Puppeteer would scale neither a live play's windows nor a replay's");
 
             Assert.AreEqual(1e6, TypeBeatModPuppeteer.WINDOW_SCALE, 1e-9);
         }

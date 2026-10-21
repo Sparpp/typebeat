@@ -9,10 +9,8 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using Kawazu;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
-using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Import
 {
@@ -94,6 +92,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         private static bool sameMetadata(string? candidate, string expected)
             => string.Equals(LyricOriginals.CollapseWhitespace(candidate), LyricOriginals.CollapseWhitespace(expected), StringComparison.OrdinalIgnoreCase);
 
+        internal static bool HasOriginalScript(string content, BeatmapLanguage language) => CanGenerate(language) && scriptMatches(content, language);
+
         private static bool scriptMatches(string content, BeatmapLanguage language)
         {
             bool kana = content.Any(c => c is >= '\u3040' and <= '\u30ff');
@@ -114,6 +114,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         internal static IReadOnlyList<string?> MatchLines(IReadOnlyList<LyricLine> lines, string content, BeatmapLanguage language,
                                                          CancellationToken token = default)
         {
+            if (TtmlParser.LooksLikeTtml(content))
+            {
+                if (!TtmlParser.TryParseRaw(content, out var ttmlLines, out _, language: language.ToCanonicalName()))
+                    return new string?[lines.Count];
+                content = string.Join("\n", ttmlLines.Select(l => $"[{TimeSpan.FromMilliseconds(l.StartTime):mm\\:ss\\.fff}]{l.Original ?? string.Join(' ', l.Units.Select(u => u.Original ?? u.Text))}"));
+            }
             var source = new List<(string Text, string Key, double? Time)>();
 
             foreach (string raw in content.Split('\n'))
@@ -155,7 +161,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
                 for (int s = next; s < source.Count; s++)
                 {
-                    if (key.Length > 0 && key == source[s].Key)
+                    if (key.Length > 0 && (key == source[s].Key || language == BeatmapLanguage.Japanese && OriginalLyricAlignment.Matches(source[s].Text, lines[i].RawText, "japanese")))
                     {
                         match = s;
                         break;
@@ -215,9 +221,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 return words.Select((w, i) => LyricOriginals.OriginalFor(w, line.Units[i].Text)).ToArray();
 
             string joined = string.Concat(words);
-            var reading = LyricOriginals.RomaniseWord(joined, language.ToCanonicalName());
-
-            if (reading.Flagged || !string.Equals(reading.Text, string.Concat(line.Units.Select(u => u.Text)), StringComparison.OrdinalIgnoreCase))
+            if (language == BeatmapLanguage.Japanese)
+                return matchJapaneseWords(line, joined) ?? result;
+            if (!OriginalLyricAlignment.Matches(joined, string.Concat(line.Units.Select(u => u.Text)), language.ToCanonicalName()))
                 return result;
 
             int sourceStart = 0;
@@ -226,7 +232,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             for (int i = 0; i < line.Units.Count; i++)
             {
                 textEnd += line.Units[i].Text.Length;
-                int? sourceEnd = i == line.Units.Count - 1 ? joined.Length : reading.SourceIndexOfTextSplit(textEnd);
+                int? sourceEnd = i == line.Units.Count - 1 ? joined.Length : OriginalLyricAlignment.SourceCut(joined, string.Concat(line.Units.Select(u => u.Text)), textEnd, language.ToCanonicalName());
 
                 if (sourceEnd == null || sourceEnd <= sourceStart)
                     return new string?[line.Units.Count];
@@ -238,16 +244,43 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             return result;
         }
 
-        private static bool japaneseWordMatches(string original, string authored)
+        // Validate each authored reading independently. A full-line tagger can choose a different
+        // homophone (一人 -> ichinin) or merge 身の程知らず across several timed words. Neither
+        // should stop an original-script correction from reaching those words in gameplay.
+        private static string?[]? matchJapaneseWords(LyricLine line, string original)
         {
-            string kana = JapaneseRomaji.Hiragana(string.Concat(JapaneseReading.Read(original).Select(r => r.Kana)));
-            kana = new string(kana.Where(Utilities.IsKana).ToArray());
-            string input = new string(authored.ToLowerInvariant().Where(c => char.IsLetter(c) || c is '\'' or '-').ToArray());
-            // A compound's timed piece can have another reading when tagged in isolation
-            // (定 is also a name). Accept the reading validated by the reverse dictionary.
-            return kana.Length > 0 && (JapaneseRomaji.Matches(kana, input) & JapaneseRomaji.Match.Complete) != 0
-                   || JapaneseLyricGenerator.HasDictionaryReading(new string(original.Where(char.IsLetter).ToArray()), input);
+            var failed = new HashSet<(int Word, int Start)>();
+            var result = new string?[line.Units.Count];
+            return match(0, 0) ? result : null;
+
+            bool match(int word, int start)
+            {
+                if (word == line.Units.Count)
+                    return start == original.Length;
+                if (failed.Contains((word, start)))
+                    return false;
+
+                int last = word + 1 == line.Units.Count ? original.Length : original.Length - (line.Units.Count - word - 1);
+                for (int end = word + 1 == line.Units.Count ? last : start + 1; end <= last; end++)
+                {
+                    // Closing marks travel with the preceding word, opening marks with the next.
+                    if (end < original.Length && ("、。，．！？!?,.」』）)]".Contains(original[end])
+                                                  || "「『（([".Contains(original[end - 1])))
+                        continue;
+                    string surface = original[start..end];
+                    if (!OriginalLyricAlignment.Matches(surface, line.Units[word].Text, "japanese") || !match(word + 1, end))
+                        continue;
+                    result[word] = LyricOriginals.OriginalFor(surface, line.Units[word].Text);
+                    return true;
+                }
+
+                failed.Add((word, start));
+                return false;
+            }
         }
+
+        private static bool japaneseWordMatches(string original, string authored)
+            => OriginalLyricAlignment.Matches(original, authored, "japanese");
 
         private static string letters(string text) => new string(text.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
 

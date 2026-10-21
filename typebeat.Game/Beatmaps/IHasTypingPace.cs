@@ -1,6 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -20,12 +21,13 @@ namespace typebeat.Game.Beatmaps
         ///
         /// <para>"This beatmap" is the CONVERTED one: a caller that converted with mods gets a
         /// profile of what those mods produced, so the Literate mod's punctuation cells count in
-        /// the target and average WPM exactly as they do in the play. The peak is the one
-        /// exception, and the profile says why.</para>
+        /// the target and average WPM exactly as they do in the play. Polyglot projects supported
+        /// originals to their required inputs for all three figures, using minimum accepted romaji
+        /// for Japanese. The peak uses the shared curve algorithm with a floor at the map's average.</para>
         /// </summary>
         /// <param name="rate">
         /// The CLOCK to read it at: 1 for no rate mod, 1.5 for DoubleTime, 0.75 for HalfTime, and
-        /// whatever a custom rate mod asks for. The peak scales with the clock. The average is
+        /// whatever a custom rate mod asks for. The peak and curve are recomputed at that clock. The average is
         /// recomputed because each pause is capped at one playback second; the target is recomputed
         /// because its window is re-expressed at a fixed reading duration.
         /// </param>
@@ -36,7 +38,7 @@ namespace typebeat.Game.Beatmaps
     /// Peak, target and average typing pace for a beatmap, plus a WPM curve over its length. All
     /// three are WPM, in the typing-test unit of 5 characters to the word, the same unit as the
     /// gameplay HUD's live counter. They are three different questions: <see cref="PeakWpm"/> is the
-    /// fastest window meeting the rating's minimum duration and character count,
+    /// fastest window meeting the rating's minimum duration and character count, floored at the average,
     /// <see cref="AverageWpm"/> is the whole map's cells over sung time and capped pauses,
     /// and <see cref="TargetWpm"/> is the map's hardest window by raw speed re-expressed as the
     /// speed an equally demanding thirty-second stretch would ask for. The CPM twins they used
@@ -45,21 +47,34 @@ namespace typebeat.Game.Beatmaps
     /// </summary>
     public sealed class TypingPaceProfile
     {
+        /// <summary>
+        /// Raise a displayed peak below the whole-map average to that average, like the target's
+        /// pace floor. This presentation parameter changes neither the raw curve nor difficulty ratings.
+        /// </summary>
+        private const bool pace_floor_peak = true;
+
+        /// <summary>Apply the same peak presentation floor to local and online beatmap statistics.</summary>
+        public static double ApplyPeakFloor(double peak, double average)
+            => pace_floor_peak ? Math.Max(peak, average) : peak;
+
         /// <summary>Raw (unnormalised) WPM at evenly spaced points from the map's first to its last typed cell.</summary>
         public required IReadOnlyList<double> WpmCurve { get; init; }
 
-        /// <summary>Highest WPM over the shortest window meeting the rating's time and character floors.</summary>
+        /// <summary>
+        /// Highest WPM over the shortest window meeting the rating's time and character floors,
+        /// raised to <see cref="AverageWpm"/> when the average is higher. The raw curve is unchanged.
+        /// </summary>
         public required double PeakWpm { get; init; }
 
         /// <summary>
         /// The pace to sustain: the map's PEAK difficulty window read at a fixed duration, i.e.
-        /// <c>LyricPaceStatistics.TargetWpm</c>, which is the same figure the Star Rating Sandbox
-        /// prints beside every map. The peak's difficulty is a ratio (WPM over what a typist can
+        /// <c>LyricPaceStatistics.TargetWpm</c>, read off the chunked rating axis's own windows. The
+        /// peak's difficulty is a ratio (WPM over what a typist can
         /// sustain for that many seconds), so reading it at one duration keeps maps comparable; it
         /// replaced a per-line mean over the map's fastest lines, which answered a different
-        /// question and is kept as <c>LyricPaceStatistics.LineAverageWpm</c>. Typability and the
-        /// rhythm bonus are left out of both the window choice and the conversion, so this figure
-        /// does not move when either experiment does.
+        /// question and is kept as <c>LyricPaceStatistics.LineAverageWpm</c>. Typability, the
+        /// judgement windows and the rhythm boost are left out of both the window choice and the
+        /// conversion, so this figure does not move when any of them does.
         /// </summary>
         public required double TargetWpm { get; init; }
 

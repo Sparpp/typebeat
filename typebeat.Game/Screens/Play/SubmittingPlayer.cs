@@ -6,6 +6,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
 using osu.Framework.Allocation;
@@ -61,7 +62,7 @@ namespace typebeat.Game.Screens.Play
         [CanBeNull]
         private ReplayUploader replayUploader { get; set; }
 
-        private readonly object scoreSubmissionLock = new object();
+        private readonly Lock scoreSubmissionLock = new Lock();
         private TaskCompletionSource<bool> scoreSubmissionSource;
 
         protected SubmittingPlayer(PlayerConfiguration configuration = null)
@@ -113,7 +114,7 @@ namespace typebeat.Game.Screens.Play
             // A LOCAL-ONLY mod (backlog 331) takes the very same path: no token is ever requested, so
             // nothing can be submitted, and the play is still imported into the local score list with
             // its replay by Player, which never looks at the token.
-            if (IsLocalOnly(Mods.Value))
+            if (IsLocalOnly(Mods.Value, Beatmap.Value.BeatmapInfo))
             {
                 handleTokenFailure(new InvalidOperationException("Local-only mod selected."));
                 return false;
@@ -133,21 +134,30 @@ namespace typebeat.Game.Screens.Play
                 return false;
             }
 
+            // A debug build plays against production but never submits to it (see ScoreSubmissionGate): no token is
+            // requested, so nothing can be submitted, and the play is still saved locally.
+            if (!ScoreSubmissionGate.AllowsSubmission(ScoreSubmissionGate.IsDevelopmentBuild, api.Endpoints.APIUrl))
+            {
+                Logger.Log($"Score submission disabled: development build targeting {api.Endpoints.APIUrl}");
+                handleTokenFailure(new InvalidOperationException(ScoreSubmissionGate.REFUSAL_MESSAGE), displayNotification: true);
+                return false;
+            }
+
             string routeWhenSent = api.Endpoints.APIUrl;
-            var failure = runTokenRequest(req, out bool stalled);
+            var failure = runTokenRequest(req);
 
             // If that attempt is what moved the session on to the fallback API host, the token was
             // lost to a route the game has now abandoned, and the play would go unsubmitted for a
             // reason that has already stopped being true. One repeat, on the new host, with a fresh
             // request (a completed one can never fire again).
-            if (failure != null && (stalled || ApiHostSelector.IsFailoverRetryable(failure)) && api.Endpoints.APIUrl != routeWhenSent)
+            if (failure != null && FailureClassifier.TOKEN_FAILOVER.Matches(failure) && api.Endpoints.APIUrl != routeWhenSent)
             {
                 var retry = CreateTokenRequest();
 
                 if (retry != null)
                 {
                     Logger.Log($"Score submission token retrieval failed on {routeWhenSent}, retrying on {api.Endpoints.APIUrl}");
-                    failure = runTokenRequest(retry, out _);
+                    failure = runTokenRequest(retry);
                 }
             }
 
@@ -184,21 +194,21 @@ namespace typebeat.Game.Screens.Play
         }
 
         /// <summary>
-        /// Whether a play under <paramref name="mods"/> stays on this device (<see cref="Mod.LocalOnly"/>):
+        /// Whether a play under <paramref name="mods"/> on <paramref name="beatmap"/> stays on this device:
         /// it requests no token and submits nothing.
         /// </summary>
-        public static bool IsLocalOnly(IEnumerable<Mod> mods) => mods.Any(m => m.LocalOnly);
+        public static bool IsLocalOnly(IEnumerable<Mod> mods, BeatmapInfo beatmap = null) => mods.Any(m => m.IsLocalOnlyFor(beatmap));
 
         /// <summary>
         /// Run one token request through to completion, populating <see cref="token"/> on success.
         /// </summary>
         /// <param name="req">The request to run. Must not have been performed before.</param>
-        /// <param name="stalled">
-        /// Whether the wait expired rather than the request reporting anything, which is
+        /// <returns>
+        /// The failure to report, or <see langword="null"/> if the token was retrieved. A wait that expired rather
+        /// than the request reporting anything is a <see cref="RequestStalledException"/>, which is
         /// transport-class by construction: nothing answered and nothing was refused.
-        /// </param>
-        /// <returns>The failure to report, or <see langword="null"/> if the token was retrieved.</returns>
-        private Exception runTokenRequest(APIRequest<APIScoreToken> req, out bool stalled)
+        /// </returns>
+        private Exception runTokenRequest(APIRequest<APIScoreToken> req)
         {
             var tcs = new TaskCompletionSource<Exception>();
 
@@ -218,13 +228,11 @@ namespace typebeat.Game.Screens.Play
             // Generally a timeout would not happen here as APIAccess will timeout first.
             if (!tcs.Task.Wait(30000))
             {
-                var timeout = new InvalidOperationException("Token retrieval timed out (request never run)");
+                var timeout = new RequestStalledException("Token retrieval timed out (request never run)");
                 req.TriggerFailure(timeout);
-                stalled = true;
                 return timeout;
             }
 
-            stalled = false;
             return tcs.Task.GetResultSafely();
         }
 
@@ -260,7 +268,7 @@ namespace typebeat.Game.Screens.Play
             score.ScoreInfo.Date = DateTimeOffset.Now;
 
             await submitScore(score).ConfigureAwait(false);
-            spectatorClient.EndPlaying(GameplayState);
+            spectatorClient.EndPlaying(token, GameplayState);
 
             // Submission is what makes the play count, and on this backend it is also what PRICES it: the server computes the
             // score's pp and commits the row inside the PUT that just returned above, so the profile statistics are already
@@ -283,8 +291,7 @@ namespace typebeat.Game.Screens.Play
             realm.WriteAsync(r =>
             {
                 var realmBeatmap = r.Find<BeatmapInfo>(Beatmap.Value.BeatmapInfo.ID);
-                if (realmBeatmap != null)
-                    realmBeatmap.LastPlayed = DateTimeOffset.Now;
+                realmBeatmap?.LastPlayed = DateTimeOffset.Now;
             });
 
             spectatorClient.BeginPlaying(token, GameplayState, Score);
@@ -326,7 +333,7 @@ namespace typebeat.Game.Screens.Play
                 Task.Run(async () =>
                 {
                     await submitScore(scoreCopy).ConfigureAwait(false);
-                    spectatorClient.EndPlaying(GameplayState);
+                    spectatorClient.EndPlaying(token, GameplayState);
                 }).FireAndForget();
             }
         }

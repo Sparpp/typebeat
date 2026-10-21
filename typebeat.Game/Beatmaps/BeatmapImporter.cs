@@ -91,11 +91,11 @@ namespace typebeat.Game.Beatmaps
 
                     transferCollectionReferences(realm, original, updated);
 
-                    // The stem the update just downloaded is in this set's file list; record its presence
-                    // so the (detached) set the carousel holds reads the offer as cleared (see
-                    // BeatmapSetInfo.HasLocalVocalsStem). The changed branch builds a NEW set object, so
+                    // The files the update just downloaded are in this set's file list; record their
+                    // manifest so the (detached) set the carousel holds reads the offer as cleared (see
+                    // BeatmapSetInfo.LocalFileManifest). The changed branch builds a NEW set object, so
                     // the old set's value does not carry over here.
-                    updated.RecordLocalVocalsStem();
+                    updated.RecordLocalFileManifest();
 
                     foreach (var beatmap in original.Beatmaps.ToArray())
                     {
@@ -243,11 +243,11 @@ namespace typebeat.Game.Beatmaps
                 beatmap.UpdateLocalScores(realm);
             }
 
-            // Record the local stem presence while the MANAGED set is in hand (its file list is
+            // Record the local file manifest while the MANAGED set is in hand (its file list is
             // populated here; it is stripped on detach, which is what the carousel/predicate sees).
             // Covers a fresh import and the no-change branch of ImportAsUpdate, both of which land
             // here via Import(); the changed branch records it separately.
-            model.RecordLocalVocalsStem();
+            model.RecordLocalFileManifest();
 
             ProcessBeatmap?.Invoke(model, parameters.Batch ? MetadataLookupScope.LocalCacheFirst : MetadataLookupScope.OnlineFirst);
         }

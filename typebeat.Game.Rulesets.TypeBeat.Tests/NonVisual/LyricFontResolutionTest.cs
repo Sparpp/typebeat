@@ -210,6 +210,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
+        public void AnOversizedBundledFileFallsBackUnparsed()
+        {
+            var manager = new LyricFontManager(new FontStore(new DummyRenderer(), null, 100), null);
+
+            // A valid face padded past the cap, so only the size check can refuse it.
+            byte[] padded = new byte[LyricFontManager.MAX_BUNDLED_FONT_BYTES + 1];
+
+            using (var font = openEmbeddedFont())
+            using (var copy = new MemoryStream(padded))
+                font!.CopyTo(copy);
+
+            bool ok = true;
+            Assert.DoesNotThrow(() => ok = manager.EnsureRegisteredFromStream("MapFont-oversized", () => new MemoryStream(padded)));
+            Assert.That(ok, Is.False, "a font file over the size cap reports unusable so the caller falls back");
+        }
+
+        [Test]
         public void AValidBundledFileRegistersUnderItsOwnKey()
         {
             var manager = new LyricFontManager(new FontStore(new DummyRenderer(), null, 100), null);

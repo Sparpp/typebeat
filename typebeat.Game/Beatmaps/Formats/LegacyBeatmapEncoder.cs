@@ -16,7 +16,6 @@ using typebeat.Game.Rulesets.Objects.Types;
 using typebeat.Game.Skinning;
 using typebeat.Game.Storyboards;
 using osuTK;
-using osuTK.Graphics;
 
 namespace typebeat.Game.Beatmaps.Formats
 {
@@ -121,11 +120,11 @@ namespace typebeat.Game.Beatmaps.Formats
             // type!beat addition (backlog 291): the mapper-chosen typing font and its optionally
             // bundled file. Written only when the mapper actually chose one, for the same map-hash
             // reason the [Metadata] Language/AudioGain lines are conditional: an unconditional line
-            // would change every existing beatmap's encoding. The ruleset's native encoder
-            // (LyricOsuFormat) writes the same two keys, spelled identically, so a map exported to
-            // .osz through here and re-imported comes back with the font it left with.
-            if (!string.IsNullOrEmpty(beatmap.Metadata.LyricFont)) writer.WriteLine(FormattableString.Invariant($"LyricFont: {beatmap.Metadata.LyricFont}"));
-            if (!string.IsNullOrEmpty(beatmap.Metadata.LyricFontFile)) writer.WriteLine(FormattableString.Invariant($"LyricFontFile: {Path.GetFileName(beatmap.Metadata.LyricFontFile)}"));
+            // would change every existing beatmap's encoding. Both lines come from TypeBeatOsuKeys,
+            // which the ruleset's native encoder (LyricOsuFormat) shares, so a map exported to .osz
+            // through here and re-imported comes back with the font it left with.
+            if (TypeBeatOsuKeys.LyricFontLine(beatmap.Metadata.LyricFont) is string fontLine) writer.WriteLine(fontLine);
+            if (TypeBeatOsuKeys.LyricFontFileLine(beatmap.Metadata.LyricFontFile) is string fontFileLine) writer.WriteLine(fontFileLine);
         }
 
         private void handleEditor(TextWriter writer)
@@ -133,12 +132,12 @@ namespace typebeat.Game.Beatmaps.Formats
             writer.WriteLine("[Editor]");
 
             if (beatmap.Bookmarks.Length > 0)
-                writer.WriteLine(FormattableString.Invariant($"Bookmarks: {string.Join(',', beatmap.Bookmarks)}"));
+                writer.WriteLine(FormattableString.Invariant($"Bookmarks: {string.Join(',', beatmap.Bookmarks.Select(b => b.ToString(CultureInfo.InvariantCulture)))}"));
             writer.WriteLine(FormattableString.Invariant($"DistanceSpacing: {beatmap.DistanceSpacing}"));
             writer.WriteLine(FormattableString.Invariant($"BeatDivisor: {beatmap.BeatmapInfo.BeatDivisor}"));
             writer.WriteLine(FormattableString.Invariant($"GridSize: {beatmap.GridSize}"));
             writer.WriteLine(FormattableString.Invariant($"TimelineZoom: {beatmap.TimelineZoom}"));
-            writer.WriteLine(FormattableString.Invariant($@"VelocityPresets: {string.Join(',', beatmap.SliderVelocityPresets)}"));
+            writer.WriteLine(FormattableString.Invariant($@"VelocityPresets: {string.Join(',', beatmap.SliderVelocityPresets.Select(sv => sv.ToString(CultureInfo.InvariantCulture)))}"));
         }
 
         private void handleMetadata(TextWriter writer)
@@ -155,13 +154,15 @@ namespace typebeat.Game.Beatmaps.Formats
             if (!string.IsNullOrEmpty(beatmap.Metadata.Tags)) writer.WriteLine(FormattableString.Invariant($"Tags: {beatmap.Metadata.Tags}"));
             // type!beat addition (task 58). Written only when the mapper has actually chosen one:
             // an unspecified map emits no line, so every existing beatmap's encoding is unchanged.
-            if (beatmap.Metadata.Language != BeatmapLanguage.Unspecified) writer.WriteLine(FormattableString.Invariant($"Language: {beatmap.Metadata.Language.ToCanonicalName()}"));
+            // The line is the native encoder's (TypeBeatOsuKeys), so both write the same bytes.
+            if (TypeBeatOsuKeys.LanguageLine(beatmap.Metadata.Language.ToCanonicalName()) is string languageLine) writer.WriteLine(languageLine);
             // type!beat addition: the map's own track gain, and only when a mapper has moved the bar
             // off its default, for the same map-hash reason as the language line above. The VALUE goes
-            // through BeatmapMetadata.EncodeAudioGain, which the ruleset's native encoder shares: a map
-            // exported to .osz through here and re-imported has to come back at the gain it left with,
-            // and the rounded format this used to use quietly walked a fine gain down on every export.
-            if (beatmap.Metadata.AudioGain != BeatmapMetadata.DEFAULT_AUDIO_GAIN) writer.WriteLine(FormattableString.Invariant($"AudioGain: {BeatmapMetadata.EncodeAudioGain(beatmap.Metadata.AudioGain)}"));
+            // through BeatmapMetadata.EncodeAudioGain inside TypeBeatOsuKeys, which the ruleset's native
+            // encoder shares: a map exported to .osz through here and re-imported has to come back at the
+            // gain it left with, and the rounded format this used to use quietly walked a fine gain down
+            // on every export.
+            if (TypeBeatOsuKeys.AudioGainLine(beatmap.Metadata.AudioGain) is string audioGainLine) writer.WriteLine(audioGainLine);
             if (beatmap.BeatmapInfo.OnlineID > 0) writer.WriteLine(FormattableString.Invariant($"BeatmapID: {beatmap.BeatmapInfo.OnlineID}"));
             if (beatmap.BeatmapInfo.BeatmapSet?.OnlineID > 0) writer.WriteLine(FormattableString.Invariant($"BeatmapSetID: {beatmap.BeatmapInfo.BeatmapSet.OnlineID}"));
         }
@@ -418,23 +419,38 @@ namespace typebeat.Game.Beatmaps.Formats
 
         private void handleColours(TextWriter writer)
         {
-            var colours = skin?.GetConfig<GlobalSkinColours, IReadOnlyList<Color4>>(GlobalSkinColours.ComboColours)?.Value;
+            writer.WriteLine(@"[Colours]");
 
-            if (colours == null || colours.Count == 0)
-                return;
+            var comboColours = (skin as IHasComboColours)?.ComboColours;
 
-            writer.WriteLine("[Colours]");
-
-            for (int i = 0; i < Math.Min(colours.Count, LegacyBeatmapDecoder.MAX_COMBO_COLOUR_COUNT); i++)
+            if (comboColours != null)
             {
-                var comboColour = colours[i];
+                for (int i = 0; i < Math.Min(comboColours.Count, LegacyBeatmapDecoder.MAX_COMBO_COLOUR_COUNT); i++)
+                {
+                    var comboColour = comboColours[i];
 
-                writer.Write(FormattableString.Invariant($"Combo{1 + i}: "));
-                writer.Write(FormattableString.Invariant($"{(byte)(comboColour.R * byte.MaxValue)},"));
-                writer.Write(FormattableString.Invariant($"{(byte)(comboColour.G * byte.MaxValue)},"));
-                writer.Write(FormattableString.Invariant($"{(byte)(comboColour.B * byte.MaxValue)},"));
-                writer.Write(FormattableString.Invariant($"{(byte)(comboColour.A * byte.MaxValue)}"));
-                writer.WriteLine();
+                    writer.Write(FormattableString.Invariant($@"Combo{1 + i}: "));
+                    writer.Write(FormattableString.Invariant($@"{(byte)(comboColour.R * byte.MaxValue)},"));
+                    writer.Write(FormattableString.Invariant($@"{(byte)(comboColour.G * byte.MaxValue)},"));
+                    writer.Write(FormattableString.Invariant($@"{(byte)(comboColour.B * byte.MaxValue)},"));
+                    writer.Write(FormattableString.Invariant($@"{(byte)(comboColour.A * byte.MaxValue)}"));
+                    writer.WriteLine();
+                }
+            }
+
+            var customColours = (skin as IHasCustomColours)?.CustomColours;
+
+            if (customColours != null)
+            {
+                foreach ((string key, var colour) in customColours)
+                {
+                    writer.Write(FormattableString.Invariant($@"{key}: "));
+                    writer.Write(FormattableString.Invariant($@"{(byte)(colour.R * byte.MaxValue)},"));
+                    writer.Write(FormattableString.Invariant($@"{(byte)(colour.G * byte.MaxValue)},"));
+                    writer.Write(FormattableString.Invariant($@"{(byte)(colour.B * byte.MaxValue)},"));
+                    writer.Write(FormattableString.Invariant($@"{(byte)(colour.A * byte.MaxValue)}"));
+                    writer.WriteLine();
+                }
             }
         }
 

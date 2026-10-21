@@ -100,14 +100,13 @@ namespace typebeat.Game.Overlays.Mods
 
             Beatmap.BindValueChanged(b =>
             {
-                if (beatmapAttributesDisplay != null)
-                    beatmapAttributesDisplay.BeatmapInfo.Value = b.NewValue?.BeatmapInfo;
+                beatmapAttributesDisplay?.BeatmapInfo.Value = b.NewValue?.BeatmapInfo;
 
                 updateInformation();
             }, true);
 
             Ruleset.BindValueChanged(_ => updateInformation());
-            ActiveMods.BindValueChanged(m =>
+            ActiveMods.BindValueChanged(_ =>
             {
                 updateInformation();
 
@@ -132,11 +131,10 @@ namespace typebeat.Game.Overlays.Mods
                 double multiplier = scoreMultiplierCalculator?.CalculateFor(ActiveMods.Value) ?? 1;
 
                 rankingInformationDisplay.ModMultiplier.Value = multiplier;
-                rankingInformationDisplay.Ranked.Value = ActiveMods.Value.All(m => m.Ranked);
+                rankingInformationDisplay.Ranked.Value = ActiveMods.Value.All(m => m.IsRankedFor(workingBeatmap.BeatmapInfo));
             }
 
-            if (beatmapAttributesDisplay != null)
-                beatmapAttributesDisplay.Mods.Value = ActiveMods.Value;
+            beatmapAttributesDisplay?.Mods.Value = ActiveMods.Value;
         }
 
         protected override void Update()

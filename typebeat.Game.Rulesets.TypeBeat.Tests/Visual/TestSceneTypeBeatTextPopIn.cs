@@ -37,6 +37,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         [TearDownSteps]
         public void RestoreSettings() => AddStep("restore pop-in defaults", () =>
         {
+            config.SetValue(TypeBeatRulesetSetting.CharacterIndicatorTiming, false);
             config.SetValue(TypeBeatRulesetSetting.PaceBarReveal, PaceBarRevealMode.Build);
             config.SetValue(TypeBeatRulesetSetting.JudgementColouredBars, false);
             config.SetValue(TypeBeatRulesetSetting.ShowPaceColours, true);
@@ -52,10 +53,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             config.SetValue(TypeBeatRulesetSetting.ApproachBars, true);
         });
 
-        private void load(string text, bool hardRock = false, bool splitStretch = false, LyricLine? source = null)
+        private void load(string text, bool hardRock = false, bool splitStretch = false, LyricLine? source = null, bool easy = false)
         {
             AddStep("create lyrics with pop-in", () =>
             {
+                config.SetValue(TypeBeatRulesetSetting.CharacterIndicatorTiming, false);
                 config.SetValue(TypeBeatRulesetSetting.PaceBarReveal, PaceBarRevealMode.Build);
                 config.SetValue(TypeBeatRulesetSetting.JudgementColouredBars, false);
                 config.SetValue(TypeBeatRulesetSetting.ShowPaceColours, true);
@@ -68,7 +70,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 config.SetValue(TypeBeatRulesetSetting.TextPopIn, true);
                 config.SetValue(TypeBeatRulesetSetting.SyllableBrightness, 50f);
                 var ruleset = new TypeBeatRuleset();
-                Mod[] mods = hardRock ? new Mod[] { new TypeBeatModHardRock() } : Array.Empty<Mod>();
+                Mod[] mods = hardRock ? new Mod[] { new TypeBeatModHardRock() } : easy ? new Mod[] { new TypeBeatModEasy() } : Array.Empty<Mod>();
                 var line = source ?? new LyricLine
                 {
                     RawText = text, StartTime = 0, EndTime = 6000, SingEndTime = 5000,
@@ -165,20 +167,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             at("done Great window opens", () => 186008.333333 - engine.Windows.GreatEarly);
             AddUntilStep("d lights at its subdivision window", () => colourIs(8, TypeBeatStyle.SungCharForBrightness(50)));
             AddAssert("held letters have not opened their own windows", () => colourIs(9, TypeBeatStyle.UntypedChar) && display.CellVisualScale(9) == LyricLineDisplay.TEXT_POP_IN_MIN_SCALE);
+            // The suffix is judged on the open syllable span, not on the held vowel before it, so it
+            // lights with the syllable under the span rule and keeps its own targets under HR.
+            if (!hardRock)
+                AddAssert("ne lights with the syllable it is judged on", () => colourIs(19, TypeBeatStyle.SungCharForBrightness(50)) && colourIs(20, TypeBeatStyle.SungCharForBrightness(50))
+                    && display.CellVisualScale(19) == 1 && display.CellVisualScale(20) == 1);
+            else
+                AddAssert("ne waits for its own targets under HR", () => colourIs(19, TypeBeatStyle.UntypedChar) && colourIs(20, TypeBeatStyle.UntypedChar)
+                    && display.CellVisualScale(19) == LyricLineDisplay.TEXT_POP_IN_MIN_SCALE && display.CellVisualScale(20) == LyricLineDisplay.TEXT_POP_IN_MIN_SCALE);
             at("first held o Great window opens", () => 186008.333333 + 4625.0 / 13 - engine.Windows.GreatEarly);
             AddUntilStep("held o lights and finishes pop-in at its corrected window", () => colourIs(9, TypeBeatStyle.SungCharForBrightness(50)) && display.CellVisualScale(9) == 1);
             AddAssert("next held o remains grey", () => colourIs(10, TypeBeatStyle.UntypedChar));
-            AddAssert("ne waits through the held vowel", () => colourIs(19, TypeBeatStyle.UntypedChar) && colourIs(20, TypeBeatStyle.UntypedChar)
-                && display.CellVisualScale(19) == LyricLineDisplay.TEXT_POP_IN_MIN_SCALE && display.CellVisualScale(20) == LyricLineDisplay.TEXT_POP_IN_MIN_SCALE);
-            at("before the last o window", () => display.Line.Cells[18].TargetTime - engine.Windows.GreatEarly - 1);
-            AddUntilStep("ne is still grey just before the last o opens", () => colourIs(19, TypeBeatStyle.UntypedChar) && colourIs(20, TypeBeatStyle.UntypedChar));
             at("last held o window opens", () => display.Line.Cells[18].TargetTime - engine.Windows.GreatEarly);
             AddUntilStep("final o lights", () => colourIs(18, TypeBeatStyle.SungCharForBrightness(50)));
             if (!hardRock)
             {
-                AddAssert("ne lights together with the final o", () => colourIs(19, TypeBeatStyle.SungCharForBrightness(50)) && colourIs(20, TypeBeatStyle.SungCharForBrightness(50))
-                    && display.CellVisualScale(19) == 1 && display.CellVisualScale(20) == 1);
-                at("seek back before the suffix approach", () => display.Line.Cells[18].TargetTime - engine.Windows.GreatEarly - LyricLineDisplay.TEXT_POP_IN_DURATION_MS - 1);
+                AddAssert("ne is still lit with the final o", () => colourIs(19, TypeBeatStyle.SungCharForBrightness(50)) && colourIs(20, TypeBeatStyle.SungCharForBrightness(50)));
+                at("seek back before the syllable approach", () => 186008.333333 - engine.Windows.GreatEarly - LyricLineDisplay.TEXT_POP_IN_DURATION_MS - 1);
                 AddUntilStep("suffix returns to small grey text", () => colourIs(19, TypeBeatStyle.UntypedChar) && colourIs(20, TypeBeatStyle.UntypedChar)
                     && display.CellVisualScale(19) == LyricLineDisplay.TEXT_POP_IN_MIN_SCALE && display.CellVisualScale(20) == LyricLineDisplay.TEXT_POP_IN_MIN_SCALE);
                 at("suffix syllable tail", () => 190633.333333 + engine.Windows.GreatLate);
@@ -230,7 +235,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         [Test]
-        public void OverdoneSuffixFadesWithTheLastHeldCharacterAndPreservesFeedback()
+        public void OverdoneSuffixFadesWithItsSyllableAndPreservesFeedback()
         {
             load("", source: NonVisual.SubdivisionAlignmentTest.OverdoneLine());
             AddStep("enable fade without pop-in", () =>
@@ -238,13 +243,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 config.SetValue(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.FadeIn);
                 config.SetValue(TypeBeatRulesetSetting.TextPopIn, false);
             });
-            at("before the last o approach", () => display.Line.Cells[18].TargetTime - engine.Windows.GreatEarly - 100 - 1);
+            // "d" opens the syllable (judged on its start) and "ne" is judged on the whole span, so
+            // all three fade in on the syllable's start while the held o's wait for their own targets.
+            at("before the syllable approach", () => 186008.333333 - engine.Windows.GreatEarly - 100 - 1);
             AddUntilStep("suffix remains grey", () => colourIs(19, TypeBeatStyle.UntypedChar) && colourIs(20, TypeBeatStyle.UntypedChar));
-            at("midway through final o approach", () => display.Line.Cells[18].TargetTime - engine.Windows.GreatEarly - 50);
-            AddUntilStep("suffix and final o fade together", () => Enumerable.Range(18, 3).All(i => colourIs(i, TypeBeatStyle.SungCharForBrightness(50 * 31f / 1023f))));
+            at("midway through the syllable approach", () => 186008.333333 - engine.Windows.GreatEarly - 50);
+            AddUntilStep("suffix and the syllable's first letter fade together", () => new[] { 8, 19, 20 }.All(i => colourIs(i, TypeBeatStyle.SungCharForBrightness(50 * 31f / 1023f))));
+            AddAssert("held o's wait for their own targets", () => colourIs(9, TypeBeatStyle.UntypedChar) && colourIs(18, TypeBeatStyle.UntypedChar));
             AddAssert("fade works independently of size animation", () => display.CellVisualScale(19) == 1 && display.CellVisualScale(20) == 1);
-            at("final o Great window opens", () => display.Line.Cells[18].TargetTime - engine.Windows.GreatEarly);
-            AddUntilStep("suffix reaches full sung brightness", () => Enumerable.Range(18, 3).All(i => colourIs(i, TypeBeatStyle.SungCharForBrightness(50))));
+            at("the syllable's Great window opens", () => 186008.333333 - engine.Windows.GreatEarly);
+            AddUntilStep("suffix reaches full sung brightness", () => new[] { 8, 19, 20 }.All(i => colourIs(i, TypeBeatStyle.SungCharForBrightness(50))));
             at("back to first character Great window", () => display.Line.Cells[0].TargetTime - engine.Windows.GreatEarly);
             AddUntilStep("first character lights", () => colourIs(0, TypeBeatStyle.SungCharForBrightness(50)));
             AddStep("type first character", () => engine.ProcessKey('i', songClock.CurrentTime));

@@ -147,15 +147,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// The one thing the mod does, and the only engine hook it is allowed to have. Applied
-        /// through <c>IApplicableToDrawableRuleset</c>, the same seam Mashing and Flashlight use,
-        /// rather than through the beatmap-conversion seam Literate needs.
+        /// through <c>IApplicableToTypingEngine</c>, the same seam Mashing uses, rather than through
+        /// the beatmap-conversion seam Literate needs.
         /// </summary>
         [Test]
         public void ItsOnlyEffectIsClearingTheEngineFlag()
         {
             var mod = new TypeBeatModGatekeeper();
 
-            Assert.IsTrue(mod is IApplicableToDrawableRuleset<TypeBeatHitObject>);
+            Assert.IsTrue(mod is IApplicableToTypingEngine);
+            Assert.IsFalse(mod is IApplicableToDrawableRuleset<TypeBeatHitObject>);
             Assert.IsFalse(mod is IApplicableToScoreProcessor);
             Assert.IsFalse(mod is IApplicableToHealthProcessor);
             Assert.IsFalse(mod is IApplicableAfterBeatmapConversion);

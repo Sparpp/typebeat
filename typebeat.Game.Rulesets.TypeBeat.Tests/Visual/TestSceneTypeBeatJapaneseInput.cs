@@ -12,6 +12,7 @@ using osuTK.Input;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Replays.Legacy;
+using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
@@ -87,7 +88,123 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         [Test]
-        public void TestJapaneseWordsIgnoreRomanisedSubdivisions()
+        public void TestRetypeUpgradesExistingScoreWithoutExtraCombo()
+        {
+            load();
+            AddStep("complete moon with one early input", () =>
+            {
+                double target = engine.Lines[0].Cells[0].TargetTime;
+                engine.ProcessKey('t', target - 400);
+                foreach (char key in "uki")
+                    engine.ProcessKey(key, target);
+            });
+            AddAssert("one Meh and three Greats were scored", () => Player.GameplayState.ScoreProcessor.Statistics.GetValueOrDefault(HitResult.Meh) == 1
+                && Player.GameplayState.ScoreProcessor.Statistics.GetValueOrDefault(HitResult.Great) == 3);
+            AddStep("erase and retype moon in time", () =>
+            {
+                engine.ProcessBackspace();
+                double target = engine.Lines[0].Cells[0].TargetTime;
+                foreach (char key in "tuki")
+                    engine.ProcessKey(key, target);
+            });
+            AddAssert("existing score upgraded to four Greats", () => Player.GameplayState.ScoreProcessor.Accuracy.Value == 1
+                && Player.GameplayState.ScoreProcessor.Statistics.GetValueOrDefault(HitResult.Meh) == 0
+                && Player.GameplayState.ScoreProcessor.Statistics.GetValueOrDefault(HitResult.Great) == 4
+                && Player.GameplayState.ScoreProcessor.Combo.Value == 4 && engine.Combo == 4);
+            AddStep("erase and retype moon late", () =>
+            {
+                engine.ProcessBackspace();
+                double target = engine.Lines[0].Cells[0].TargetTime;
+                foreach (char key in "tuki")
+                    engine.ProcessKey(key, target + 1000);
+            });
+            AddAssert("Greats and combo are retained", () => Player.GameplayState.ScoreProcessor.Accuracy.Value == 1
+                && Player.GameplayState.ScoreProcessor.Statistics.GetValueOrDefault(HitResult.Great) == 4
+                && Player.GameplayState.ScoreProcessor.Combo.Value == 4);
+        }
+
+        [TestCase("tuki", 4)]
+        [TestCase("tsuki", 5)]
+        public void TestCompletedCharacterCommitsInputGradesAndMinimumComboTogether(string input, int grades)
+        {
+            AddStep("use a single kanji", () => testLine = new LyricLine
+            {
+                RawText = "tsuki", Original = "月", StartTime = 0, EndTime = 600000, SingEndTime = 300000,
+                Units = new[] { new TimedUnit { Text = "tsuki", Original = "月", StartTime = 0, EndTime = 300000 } },
+            });
+            load();
+            AddAssert("map maximum uses the minimum romaji", () => Player.GameplayState.ScoreProcessor.MaximumCombo == 4);
+            press(input[..^1]);
+            AddAssert("pending keys have no grades or combo", () => engine.Combo == 0
+                && Player.GameplayState.ScoreProcessor.Combo.Value == 0
+                && Player.GameplayState.ScoreProcessor.Statistics.Where(p => p.Key.AffectsAccuracy()).Sum(p => p.Value) == 0);
+            press(input[^1..]);
+            AddAssert("completion commits every input grade with fixed combo", () => engine.Combo == 4
+                && Player.GameplayState.ScoreProcessor.Combo.Value == 4
+                && Player.GameplayState.ScoreProcessor.Statistics.Where(p => p.Key.AffectsAccuracy()).Sum(p => p.Value) == grades);
+            AddAssert("new scoring is recorded and replays exactly", () => frames.Single(f => f.IsConfigExtended).JapaneseInputScoring && reDerivedMatchesLive());
+        }
+
+        [Test]
+        public void TestKanaLayoutCommitsOneGradeWithMinimumRomajiCombo()
+        {
+            AddStep("use kana with a two-key romaji reading", () => testLine = new LyricLine
+            {
+                RawText = "shi", Original = "し", StartTime = 0, EndTime = 600000, SingEndTime = 300000,
+                Units = new[] { new TimedUnit { Text = "shi", Original = "し", StartTime = 0, EndTime = 300000 } },
+            });
+            load();
+            AddStep("type the kana layout's character", () =>
+            {
+                os.CommitOnNextPress("し");
+                InputManager.Key(Key.D);
+            });
+            AddUntilStep("kana has one grade and two combo", () => engine.Combo == 2
+                && Player.GameplayState.ScoreProcessor.Combo.Value == 2
+                && Player.GameplayState.ScoreProcessor.Statistics.Where(p => p.Key.AffectsAccuracy()).Sum(p => p.Value) == 1);
+            AddAssert("direct kana replays exactly", reDerivedMatchesLive);
+        }
+
+        [TestCase("つ", "き")]
+        [TestCase("tu", "ki")]
+        public void TestFuriganaHighlightsEachCompletedKana(string first, string rest)
+        {
+            load();
+            AddAssert("reading starts dim", () => ruby("つき").Colour == TypeBeatStyle.UntypedChar);
+            input(first);
+            AddUntilStep("only the first kana is bright", () => engine.JapanesePendingKanaCount == 1
+                && display.ChildrenOfType<OsuSpriteText>().Any(t => t.Text.ToString() == "つ" && t.Colour == TypeBeatStyle.TypedChar)
+                && ruby("つき").Colour == TypeBeatStyle.UntypedChar);
+            AddAssert("partial reading has no score or combo", () => engine.Combo == 0
+                && Player.GameplayState.ScoreProcessor.Statistics.Where(p => p.Key.AffectsAccuracy()).Sum(p => p.Value) == 0);
+            AddStep("erase pending input", () => InputManager.Key(Key.BackSpace));
+            AddUntilStep("erased kana is dim again", () => engine.JapanesePendingKanaCount == 0
+                && !display.ChildrenOfType<OsuSpriteText>().Any(t => t.Text.ToString() == "つ"));
+            input(first.Length == 1 ? first : "u");
+            input(rest);
+            AddUntilStep("completed kanji and reading are bright", () => engine.CaretIndex == 1
+                && ruby("つき").Colour == TypeBeatStyle.TypedChar);
+            AddAssert("completion awards the fixed romaji combo", () => engine.Combo == 4);
+            AddAssert("kana progress and completion replay exactly", () => frames.Single(f => f.IsConfigExtended).JapaneseKanaInput && reDerivedMatchesLive());
+        }
+
+        private void input(string text)
+        {
+            foreach (char c in text)
+            {
+                if (c <= 127)
+                    press(c.ToString());
+                else
+                    AddStep($"type kana {c}", () =>
+                    {
+                        os.CommitOnNextPress(c.ToString());
+                        InputManager.Key(Key.A);
+                    });
+            }
+        }
+
+        [Test]
+        public void TestJapaneseCharactersUseMatchingRomanisedSubdivisions()
         {
             AddStep("use a subdivided kana word", () => testLine = new LyricLine
             {
@@ -102,11 +219,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 },
             });
             load();
-            AddAssert("the whole mapper word has one timing window", () => engine.Lines[0].Syllables.Count == 1
-                && engine.Lines[0].Syllables[0].StartTime == 0 && engine.Lines[0].Syllables[0].EndTime == 300000);
+            AddAssert("matching subdivisions anchor Japanese characters", () => engine.Lines[0].Cells.Select(c => c.TargetTime).SequenceEqual(new[] { 0d, 50, 100, 200, 300 }));
             press("konnichiha");
             AddAssert("all kana typed correctly", () => engine.Lines[0].Cells.All(c => c.State == CellState.Correct) && engine.Mistypes == 0);
-            AddAssert("the recorder stores the word timing rule", () => frames.Single(f => f.IsConfigExtended).JapaneseWordTiming);
+            AddAssert("the recorder stores the word timing rule", () => frames.Single(f => f.IsConfigExtended).JapaneseCharacterTiming);
             AddAssert("the recorded timing and score replay exactly", reDerivedMatchesLive);
         }
 
@@ -128,8 +244,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             load();
             AddAssert("original spaces are joined too", () => engine.Lines[0].DisplayText == "月とテンシ");
             AddAssert("scoring objects use the same cell stream", () => Player.GameplayState.Beatmap.HitObjects.OfType<TypeBeatHitObject>().Single().NestedHitObjects.OfType<TypeBeatCharObject>().Count()
-                == engine.Lines[0].Cells.Count(c => c.IsTypeable));
-            press("tukitotennshi");
+                == engine.Lines[0].Cells.Sum(c => c.IsTypeable ? c.EndTargetTime.HasValue ? 2 : 1 : 0));
+            press("tuki");
+            press("to");
+            press("tennshi");
             AddAssert("kanji, hiragana and katakana are correct", () => engine.Lines[0].Cells.All(c => c.State == CellState.Correct) && engine.Mistypes == 0);
             AddAssert("spaced or unspaced originals replay exactly", reDerivedMatchesLive);
         }
@@ -216,7 +334,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         {
             AddStep("word skipping on", () => config.SetValue(TypeBeatRulesetSetting.SpaceSkipsWord, true));
             load();
-            AddStep("play under the legacy Japanese input era", () => engine.JapaneseInputEra3 = false);
+            AddStep("legacy single-character skip rule", () => engine.JapaneseInputEra3 = false);
             press("t");
             AddStep("skip the unfinished moon", () => InputManager.Key(Key.Space));
             AddAssert("only 月 was skipped", () => engine.CaretIndex == 1 && engine.JapanesePending.Length == 0
@@ -347,7 +465,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 ReplayEngineFeed.Apply(replayed, decoded);
             }
             return engine.Lines.SelectMany(l => l.Cells).Zip(replayed.Lines.SelectMany(l => l.Cells)).All(p => p.First.State == p.Second.State && p.First.TypedChar == p.Second.TypedChar && p.First.JudgedDelta == p.Second.JudgedDelta)
-                   && engine.Score == replayed.Score && engine.Mistypes == replayed.Mistypes && engine.Combo == replayed.Combo;
+                   && engine.Mistypes == replayed.Mistypes && engine.Combo == replayed.Combo;
         }
     }
 }

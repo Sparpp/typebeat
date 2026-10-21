@@ -209,14 +209,14 @@ namespace typebeat.Game.Rulesets.Scoring
 
             Accuracy.ValueChanged += _ => updateRank();
 
-            Mods.ValueChanged += mods =>
+            Mods.ValueChanged += _ =>
             {
                 updateScoreMultiplier();
                 updateScore();
                 updateRank();
             };
 
-            Beatmap.ValueChanged += beatmap =>
+            Beatmap.ValueChanged += _ =>
             {
                 updateScoreMultiplier();
             };
@@ -244,10 +244,16 @@ namespace typebeat.Game.Rulesets.Scoring
             if (result.FailedAtJudgement && !ApplyNewJudgementsWhenFailed)
                 return;
 
-            ScoreResultCounts[result.Type] = ScoreResultCounts.GetValueOrDefault(result.Type) + 1;
+            var scoringResults = GetScoringResults(result);
+            int resultCount = scoringResults?.Count ?? 1;
+            if (scoringResults == null)
+                ScoreResultCounts[result.Type] = ScoreResultCounts.GetValueOrDefault(result.Type) + 1;
+            else
+                foreach (var type in scoringResults)
+                    ScoreResultCounts[type] = ScoreResultCounts.GetValueOrDefault(type) + 1;
 
             if (result.Type.IncreasesCombo())
-                Combo.Value++;
+                Combo.Value += GetComboIncrease(result);
             else if (result.Type.BreaksCombo())
                 Combo.Value = 0;
 
@@ -258,12 +264,19 @@ namespace typebeat.Game.Rulesets.Scoring
 
             if (result.Judgement.MaxResult.AffectsAccuracy())
             {
-                currentMaximumBaseScore += GetBaseScoreForResult(result.Judgement.MaxResult);
-                currentAccuracyJudgementCount++;
+                currentMaximumBaseScore += GetBaseScoreForResult(result.Judgement.MaxResult) * resultCount;
+                currentAccuracyJudgementCount += resultCount;
             }
 
-            if (result.Type.AffectsAccuracy())
-                currentBaseScore += GetBaseScoreForResult(result.Type);
+            if (scoringResults == null)
+            {
+                if (result.Type.AffectsAccuracy())
+                    currentBaseScore += GetBaseScoreForResult(result.Type);
+            }
+            else
+                foreach (var type in scoringResults)
+                    if (type.AffectsAccuracy())
+                        currentBaseScore += GetBaseScoreForResult(type);
 
             if (result.Type.IsBonus())
                 currentBonusPortion += GetBonusScoreChange(result);
@@ -283,11 +296,10 @@ namespace typebeat.Game.Rulesets.Scoring
                 updateScore();
 
                 // Not only on accuracy change (the ctor wiring): RankFromScore reads the RESULT
-                // COUNTS, and in a completion-ranked ruleset those can move rank while accuracy
-                // stands still, e.g. a run whose judged cells all carry the same weight (every cell
-                // a Meh or an unfixed typo). Reachable in practice since an off-time press became a
-                // Meh, and without this the HUD and results rank keep whatever the first judgement
-                // set while the stored row is ranked correctly server-side.
+                // COUNTS, and in a ruleset whose rank reads them (type!beat's missed-cell limit on
+                // SS and S) a judgement can move rank while leaving accuracy where it was. Without
+                // this the HUD and results rank keep whatever the first judgement set while the
+                // stored row is ranked correctly server-side.
                 updateRank();
             }
         }
@@ -314,16 +326,29 @@ namespace typebeat.Game.Rulesets.Scoring
             if (result.FailedAtJudgement && !ApplyNewJudgementsWhenFailed)
                 return;
 
-            ScoreResultCounts[result.Type] = ScoreResultCounts.GetValueOrDefault(result.Type) - 1;
+            var scoringResults = GetScoringResults(result);
+            int resultCount = scoringResults?.Count ?? 1;
+            if (scoringResults == null)
+                ScoreResultCounts[result.Type] = ScoreResultCounts.GetValueOrDefault(result.Type) - 1;
+            else
+                foreach (var type in scoringResults)
+                    ScoreResultCounts[type] = ScoreResultCounts.GetValueOrDefault(type) - 1;
 
             if (result.Judgement.MaxResult.AffectsAccuracy())
             {
-                currentMaximumBaseScore -= GetBaseScoreForResult(result.Judgement.MaxResult);
-                currentAccuracyJudgementCount--;
+                currentMaximumBaseScore -= GetBaseScoreForResult(result.Judgement.MaxResult) * resultCount;
+                currentAccuracyJudgementCount -= resultCount;
             }
 
-            if (result.Type.AffectsAccuracy())
-                currentBaseScore -= GetBaseScoreForResult(result.Type);
+            if (scoringResults == null)
+            {
+                if (result.Type.AffectsAccuracy())
+                    currentBaseScore -= GetBaseScoreForResult(result.Type);
+            }
+            else
+                foreach (var type in scoringResults)
+                    if (type.AffectsAccuracy())
+                        currentBaseScore -= GetBaseScoreForResult(type);
 
             if (result.Type.IsBonus())
                 currentBonusPortion -= GetBonusScoreChange(result);
@@ -348,10 +373,25 @@ namespace typebeat.Game.Rulesets.Scoring
         /// <param name="result">The judgement result.</param>
         protected virtual double GetBonusScoreChange(JudgementResult result) => GetBaseScoreForResult(result.Type);
 
+        /// <param name="result">The judgement result.</param>
+        /// <summary>Optional input grades awarded together when one display object is completed.</summary>
+        protected virtual IReadOnlyList<HitResult>? GetScoringResults(JudgementResult result) => null;
+
+        /// <summary>Combo earned by completing an object, independently of its number of input grades.</summary>
+        protected virtual int GetComboIncrease(JudgementResult result) => 1;
+
+        /// <summary>Adjust the simulated maximum when a valid input path needs a different number of grades.</summary>
+        protected void AdjustMaximumJudgements(HitResult maximum, int count, double comboPortion)
+        {
+            MaximumResultCounts[maximum] = MaximumResultCounts.GetValueOrDefault(maximum) + count;
+            maximumBaseScore += GetBaseScoreForResult(maximum) * count;
+            maximumAccuracyJudgementCount += count;
+            maximumComboPortion += comboPortion;
+        }
+
         /// <summary>
         /// Gets the final score change to be applied to the combo portion of the score.
         /// </summary>
-        /// <param name="result">The judgement result.</param>
         protected virtual double GetComboScoreChange(JudgementResult result) => GetBaseScoreForResult(result.Judgement.MaxResult) * Math.Pow(result.ComboAfterJudgement, COMBO_EXPONENT);
 
         public virtual int GetBaseScoreForResult(HitResult result)
@@ -630,9 +670,11 @@ namespace typebeat.Game.Rulesets.Scoring
         }
 
         /// <summary>
-        /// The 0..1 value the results-screen grade gauge fills to — the same metric the rank is
+        /// The 0..1 value the results-screen grade gauge fills to: the same metric the rank is
         /// awarded on, so the gauge lands on the shown grade. Accuracy by default; rulesets that
-        /// grade on something else override this.
+        /// grade on something else override this. type!beat does not: since migration 045 its rank
+        /// is accuracy (<c>ACCURACY_CUTOFF_*</c>) plus a missed-cell limit (<c>S_MISS_LIMIT</c>), the
+        /// rule typebeat-web's <c>RankParityTest</c> pins against the server and the browser.
         /// </summary>
         public virtual double GradeProgress(ScoreInfo score) => score.Accuracy;
 

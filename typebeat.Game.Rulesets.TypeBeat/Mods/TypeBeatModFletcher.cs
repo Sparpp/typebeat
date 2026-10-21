@@ -3,9 +3,7 @@
 
 using osu.Framework.Localisation;
 using typebeat.Game.Rulesets.Mods;
-using typebeat.Game.Rulesets.TypeBeat.Objects;
-using typebeat.Game.Rulesets.TypeBeat.UI;
-using typebeat.Game.Rulesets.UI;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Mods
 {
@@ -21,18 +19,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// <para>Implemented by holding <see cref="Gameplay.TypingEngine.FletcherEnabled"/> and
     /// <see cref="Gameplay.TypingEngine.FlexibleLineSnap"/> at FALSE, which is the classic engine
     /// path this fork ran on for its whole life before 208 and is therefore the best-pinned code in
-    /// the ruleset. The authoritative site for both is <c>DrawableTypeBeatRuleset.createEngine</c>,
-    /// which reads this mod off the mod list before the engine exists: they are ERA flags the replay
-    /// recorder's CONFIG frame reads, and an era flag cannot be applied late. The
-    /// <see cref="ApplyToDrawableRuleset"/> below re-asserts the same two values (it cannot
-    /// disagree, both are derived from "this mod is in the list") and is what makes the mod
-    /// <c>HasImplementation</c>, hence selectable.</para>
+    /// the ruleset. Both are written by <see cref="ApplyToEngine"/>, which every engine factory
+    /// calls on the freshly built engine: they are ERA flags the replay recorder's CONFIG frame
+    /// reads, and an era flag cannot be applied late. A stored replay's own CONFIG frame (bit 5) is
+    /// fed afterwards and wins, so the scorer's engine re-derives the caret the run was played
+    /// with.</para>
     ///
     /// <para>Judgement itself is untouched, exactly as it was when the mod meant the opposite: every
     /// char is still judged against its own target time, so accuracy, sync% and the judgement counts
     /// mean what they always did.</para>
     /// </summary>
-    public class TypeBeatModFletcher : Mod, IApplicableToDrawableRuleset<TypeBeatHitObject>
+    public class TypeBeatModFletcher : Mod, IApplicableToTypingEngine
     {
         public override string Name => "Fletcher";
 
@@ -69,10 +66,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// </summary>
         public override bool Ranked => true;
 
-        public void ApplyToDrawableRuleset(DrawableRuleset<TypeBeatHitObject> drawableRuleset)
+        public void ApplyToEngine(TypingEngine engine)
         {
-            var engine = ((DrawableTypeBeatRuleset)drawableRuleset).Engine;
-
             engine.FletcherEnabled = false;
             engine.FlexibleLineSnap = false;
         }

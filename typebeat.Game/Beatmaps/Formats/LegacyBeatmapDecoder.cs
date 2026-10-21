@@ -306,7 +306,7 @@ namespace typebeat.Game.Beatmaps.Formats
                     beatmap.CountdownOffset = Parsing.ParseInt(pair.Value);
                     break;
 
-                case @"LyricFont":
+                case TypeBeatOsuKeys.LYRIC_FONT:
                     // type!beat addition (backlog 291): the mapper-chosen typing font family. Total
                     // like AudioGain: absent (every file written before this key existed) leaves the
                     // metadata's own empty default, and any string is accepted since an unresolvable
@@ -314,7 +314,7 @@ namespace typebeat.Game.Beatmaps.Formats
                     metadata.LyricFont = pair.Value;
                     break;
 
-                case @"LyricFontFile":
+                case TypeBeatOsuKeys.LYRIC_FONT_FILE:
                     // type!beat addition (backlog 291): the bundled font file's name inside the set,
                     // an ordinary set file like AudioFilename above.
                     metadata.LyricFontFile = pair.Value.ToStandardisedPath();
@@ -331,7 +331,7 @@ namespace typebeat.Game.Beatmaps.Formats
                 case @"Bookmarks":
                     beatmap.Bookmarks = pair.Value.Split(',').Select(v =>
                     {
-                        bool result = int.TryParse(v, out int val);
+                        bool result = int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out int val);
                         return new { result, val };
                     }).Where(p => p.result).Select(p => p.val).ToArray();
                     break;
@@ -339,7 +339,7 @@ namespace typebeat.Game.Beatmaps.Formats
                 case @"VelocityPresets":
                     beatmap.SliderVelocityPresets = pair.Value.Split(',').Select(v =>
                     {
-                        bool result = double.TryParse(v, out double val);
+                        bool result = double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out double val);
                         return new { result, val };
                     }).Where(p => p.result).Select(p => p.val).ToArray();
                     break;
@@ -402,7 +402,7 @@ namespace typebeat.Game.Beatmaps.Formats
                     metadata.Tags = pair.Value;
                     break;
 
-                case @"Language":
+                case TypeBeatOsuKeys.LANGUAGE:
                     // type!beat addition (task 58): the mapper's declared song language. Total by
                     // construction, an unrecognised value decodes to Unspecified, so a file from a
                     // newer client can never fail to load here. Absent (every file written before
@@ -410,7 +410,7 @@ namespace typebeat.Game.Beatmaps.Formats
                     metadata.Language = BeatmapLanguageExtensions.FromCanonicalName(pair.Value);
                     break;
 
-                case @"AudioGain":
+                case TypeBeatOsuKeys.AUDIO_GAIN:
                     // type!beat addition: the map's own track gain, a linear multiplier. Total like the
                     // language line above: absent (every file written before this key existed) or
                     // unparseable leaves the default in place rather than failing the load, and a

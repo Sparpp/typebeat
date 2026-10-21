@@ -61,6 +61,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public bool IsCountable => IsTypeable && Expected != ' ';
 
         public double TargetTime { get; internal set; }
+        public double? EndTargetTime { get; internal set; }
+        public int MinimumRomajiInputs { get; internal set; }
+        public IReadOnlyList<JapaneseInputJudgement>? InputJudgements { get; internal set; }
+        public JudgementType? EndJudgedTier { get; internal set; }
+        internal double? FirstEndDelta { get; set; }
 
         public CellState State { get; internal set; }
 
@@ -69,22 +74,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>Delta of the awarded correct keypress, or the wrong keypress.</summary>
         public double? JudgedDelta { get; internal set; }
 
-        /// <summary>The first awarded tier, including correction and rush-cap limits. Rebuilt from replay input.</summary>
+        /// <summary>The best awarded tier, including correction and rush-cap limits. Rebuilt from replay input.</summary>
         public JudgementType? JudgedTier { get; internal set; }
 
         /// <summary>
-        /// Delta of the FIRST correct judgement: set once, never cleared (survives backspace).
-        /// Its presence makes later correct retypes scoring-inert, so backspace-retype cannot
-        /// farm score/combo/accuracy.
+        /// Delta of the awarded correct judgement, retained through backspace and replaced only
+        /// when a retype improves its tier. Its presence prevents duplicate combo and scoring cells.
         /// </summary>
         internal double? FirstCorrectDelta { get; set; }
+        internal int SyncSampleStart { get; set; } = -1;
+        internal int SyncSampleCount { get; set; }
+        internal int EndSyncSampleIndex { get; set; } = -1;
 
         /// <summary>
         /// Whether a wrong character has been typed into this cell at a time when it had not yet
         /// been judged, i.e. whether this cell's ONE awarded judgement is (or will be) a CORRECTION
         /// rather than a clean first attempt. Backlog 210 reads it to cap that judgement at
         /// <see cref="JudgementType.Ok"/> (see
-        /// <see cref="Scoring.TypeBeatResultMapping.AwardedTier"/>).
+        /// <see cref="EraRules.AwardedTier"/>).
         ///
         /// <para>HISTORY, unlike <see cref="State"/>: set once, never cleared, and it survives the
         /// backspace that erases the wrong character, which is the whole of what it is for. It is
@@ -93,16 +100,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// needs to tell an unfixed typo from a cell nobody typed), this one is history (was it
         /// EVER wrong before it was judged, which is what pricing the correction needs).</para>
         ///
-        /// <para>Set only while <see cref="FirstCorrectDelta"/> is still null, which is what makes
-        /// it a STATE and not a counter, and what settles the two cycle cases at once. Wrong, fix,
-        /// wrong, fix: the flag is already set and stays set, so the second fix (an inert retype)
-        /// re-derives exactly the capped tier the first one was awarded. Correct, backspace, wrong,
-        /// fix: the cell was already judged CLEAN before it ever held a wrong character, the flag is
-        /// never set, and that clean judgement stands, which is right because a cell takes only its
-        /// first result and that result was earned honestly.</para>
+        /// <para>Set only before the first correct award. A later retype keeps this correction
+        /// cap when its timing improves; a cell first judged clean does not acquire the cap from
+        /// a wrong character typed into it after erasure.</para>
         ///
         /// <para>Era-independent, deliberately: it records what HAPPENED, and
-        /// <see cref="Scoring.CorrectionCreditRule"/> decides what that is worth, so re-deriving a
+        /// <see cref="CorrectionCreditRule"/> decides what that is worth, so re-deriving a
         /// stored score under either arm reads the same flag.</para>
         /// </summary>
         internal bool HeldWrongBeforeJudged { get; set; }
@@ -110,13 +113,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>
         /// Whether this cell's ONE awarded judgement was made with the caret out past the rush cap
         /// under <see cref="TypingEngine.RushCapCostsAccuracy"/> (backlog 347), which awarded it
-        /// <see cref="Scoring.TypeBeatResultMapping.RushCapTier"/> whatever its delta said.
+        /// <see cref="EraRules.RushCapTier"/> whatever its delta said.
         ///
-        /// <para>HISTORY, like <see cref="HeldWrongBeforeJudged"/>: set when the cell is first
-        /// judged, never cleared by a backspace, so an inert retype re-derives the same Meh the first
-        /// judgement took rather than re-reading the untouched delta as a Great. Also what the lyric
-        /// display reads to draw the cell in the off-time styling, since the delta alone cannot say
-        /// why the cell was graded Meh.</para>
+        /// <para>Retained through erasure. An improved retype replaces this flag along with its
+        /// award; older replay rules keep the first award and flag. The display needs it because
+        /// the timing delta alone cannot say why the cell was graded Meh.</para>
         /// </summary>
         public bool JudgedPastRushCap { get; internal set; }
 
@@ -229,7 +230,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private LyricLine? japaneseAuthoredLine;
         private JapaneseInputPlan? japaneseInput;
         private bool japaneseInputEra3 = true;
-        internal JapaneseInputPlan? JapaneseInput => japanese ? japaneseInput ??= JapaneseInputPlan.Create(DisplayText, japaneseAuthoredLine, japaneseWordTiming, japaneseInputEra3) : null;
+        internal JapaneseInputPlan? JapaneseInput => japanese ? japaneseInput ??= JapaneseInputPlan.Create(DisplayText, japaneseAuthoredLine, japaneseWordTiming, era3: japaneseInputEra3, characterTiming: japaneseCharacterTiming) : null;
 
         /// <summary>Select the romaji input plan's era (see <see cref="TypingEngine.JapaneseInputEra3"/>) on the same cells.</summary>
         internal void SetJapaneseInputEra3(bool enabled)
@@ -455,18 +456,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private double legacySealGrace;
         private bool alignedSubdivisionTargets;
         private bool japaneseWordTiming = true;
-        private Func<bool, TypingLine>? japaneseTimingFactory;
+        private bool japaneseCharacterTiming;
+        private int[]? rawCellIndices;
+        private Func<bool, bool, TypingLine>? japaneseTimingFactory;
         private TypingLine? legacyJapaneseTiming;
         private TypingLine? wordJapaneseTiming;
 
         /// <summary>Select Japanese word timing without replacing cells held by the renderer.</summary>
         internal void SetJapaneseWordTiming(bool enabled)
         {
+            if (japaneseCharacterTiming)
+            {
+                japaneseWordTiming = enabled;
+                return;
+            }
             if (!japanese || japaneseWordTiming == enabled)
                 return;
 
-            var timing = enabled ? wordJapaneseTiming ??= japaneseTimingFactory!(true)
-                                 : legacyJapaneseTiming ??= japaneseTimingFactory!(false);
+            var timing = enabled ? wordJapaneseTiming ??= japaneseTimingFactory!(true, false)
+                                 : legacyJapaneseTiming ??= japaneseTimingFactory!(false, false);
             timing.SetAlignedSubdivisionTargets(alignedSubdivisionTargets);
             if (timing.DisplayText != DisplayText)
                 throw new InvalidOperationException("Japanese timing eras must have the same display cells.");
@@ -474,6 +482,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             japaneseWordTiming = enabled;
             japaneseInput = null;
             Source = timing.Source;
+            rawCellIndices = timing.rawCellIndices;
             AuthoredGrouping = timing.AuthoredGrouping;
             NaturalGrouping = timing.NaturalGrouping;
             Words = timing.Words;
@@ -487,6 +496,93 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             legacyTargets = timing.legacyTargets;
             legacySealGrace = timing.legacySealGrace;
             rebuildSungPoints();
+        }
+
+        internal void SetJapaneseCharacterTiming(bool enabled)
+        {
+            if (!japanese || japaneseCharacterTiming == enabled)
+                return;
+            var timing = japaneseTimingFactory!(japaneseWordTiming, enabled);
+            timing.SetAlignedSubdivisionTargets(alignedSubdivisionTargets);
+            japaneseCharacterTiming = enabled;
+            japaneseInput = null;
+            Source = timing.Source;
+            rawCellIndices = timing.rawCellIndices;
+            AuthoredGrouping = timing.AuthoredGrouping;
+            NaturalGrouping = timing.NaturalGrouping;
+            Words = timing.Words;
+            Array.Copy(timing.cellWord, cellWord, cellWord.Length);
+            alignedTimingFactory = timing.alignedTimingFactory;
+            alignedTargets = timing.alignedTargets;
+            legacyTargets = timing.legacyTargets;
+            SealGraceMs = timing.SealGraceMs;
+            alignedSealGrace = timing.alignedSealGrace;
+            legacySealGrace = timing.legacySealGrace;
+            alignedSubdivisionTargets = timing.alignedSubdivisionTargets;
+            for (int i = 0; i < Cells.Count; i++)
+            {
+                Cells[i].TargetTime = timing.Cells[i].TargetTime;
+                Cells[i].EndTargetTime = timing.Cells[i].EndTargetTime;
+                Cells[i].MinimumRomajiInputs = timing.Cells[i].MinimumRomajiInputs;
+            }
+            rebuildSungPoints();
+        }
+
+        private void configureJapaneseEndpoints()
+        {
+            if (!japaneseCharacterTiming || JapaneseInput == null)
+                return;
+            for (int i = 0; i < Cells.Count; i++)
+            {
+                string? reading = JapaneseInput.CharacterReadingAt(i);
+                if (reading == null)
+                    continue;
+                Cells[i].MinimumRomajiInputs = JapaneseRomaji.MinimumInputs(reading, i + 1 < Cells.Count ? JapaneseInput.CharacterReadingAt(i + 1) ?? "" : "");
+                if (Cells[i].MinimumRomajiInputs > 2)
+                    Cells[i].EndTargetTime = JapaneseCharacterEnd(i);
+            }
+            for (int i = 0; i < Cells.Count; i++)
+            {
+                var group = JapaneseInput.At(i);
+                if (group == null || group.StartCell != i)
+                    continue;
+                string? input = JapaneseRomaji.ShortestInput(group.Reading, JapaneseInput.Following(group));
+                int[]? ends = input == null ? null : JapaneseRomaji.InputEnds(group.Reading, input, JapaneseInput.Following(group));
+                if (ends == null)
+                    continue;
+                int kana = 0, previous = 0;
+                for (int c = group.StartCell; c < group.EndCellExclusive; c++)
+                {
+                    kana += (JapaneseInput.CharacterReadingAt(c) ?? "").Length;
+                    int end = kana > 0 && kana <= ends.Length ? ends[kana - 1] : previous;
+                    Cells[c].MinimumRomajiInputs = Math.Max(1, end - previous);
+                    previous = end;
+                }
+            }
+        }
+
+        /// <summary>The end of a Japanese character's sung span, including authored rests.</summary>
+        internal double JapaneseCharacterEnd(int cell)
+        {
+            double end = Source.Units.LastOrDefault()?.EndTime ?? Source.SingEndTime;
+            int raw = rawCellIndices?[cell] ?? cell;
+            int offset = 0;
+            foreach (var unit in Source.Units)
+            {
+                if (raw >= offset && raw < offset + unit.Text.Length)
+                {
+                    int local = raw - offset;
+                    int ordinal = unit.Text.Take(local).Count(Typeability.IsPolyglotTypeCell);
+                    double[] targets = CellTargetsFor(unit, unit.Text.Count(Typeability.IsPolyglotTypeCell), Typeability.IsPolyglotTypeCell);
+                    end = ordinal + 1 < targets.Length ? targets[ordinal + 1] : unit.EndTime;
+                    foreach (var pause in unit.Pauses)
+                        if (pause.SplitChar > local && unit.Text.Take(pause.SplitChar).Count(Typeability.IsPolyglotTypeCell) == ordinal + 1)
+                            end = pause.StartTime;
+                    break;
+                }
+                offset += unit.Text.Length + 1;
+            }
+            return Math.Max(Cells[cell].TargetTime, end);
         }
 
         /// <summary>Switch timing eras without replacing cells referenced by the renderer or engine.</summary>
@@ -509,6 +605,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             for (int i = 0; i < Cells.Count; i++)
                 Cells[i].TargetTime = aligned ? alignedTargets[i] : legacyTargets![i];
             SealGraceMs = aligned ? alignedSealGrace : legacySealGrace;
+            configureJapaneseEndpoints();
             rebuildSungPoints();
         }
 
@@ -678,18 +775,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// syllable cuts be carried back onto the original.</param>
         /// <param name="alignSubdivisionTargets">The target era (see <see cref="FromLyricLine"/>).</param>
         /// <param name="japaneseWordTiming">Ignore romanised subdivisions within Japanese words.</param>
-        public static TypingLine ForMods(LyricLine line, bool literate, bool polyglot, string? language, bool alignSubdivisionTargets = false, bool japaneseWordTiming = true)
+        public static TypingLine ForMods(LyricLine line, bool literate, bool polyglot, string? language, bool alignSubdivisionTargets = false, bool japaneseWordTiming = true, bool japaneseCharacterTiming = false)
         {
             if (!polyglot)
                 return FromLyricLine(line, literate, alignSubdivisionTargets);
 
-            var derived = PolyglotLine.Derive(line, language, japaneseWordTiming);
+            var derived = PolyglotLine.Derive(line, language, japaneseWordTiming, japaneseCharacterTiming);
             var result = withTargetEra(build(derived.Line, literate, CellRules.Polyglot, derived.NaturalSplits, derived.RawCluster), alignSubdivisionTargets);
             result.japanese = JapaneseReading.IsJapanese(language);
             result.japaneseAuthoredLine = line;
             result.japaneseWordTiming = japaneseWordTiming;
+            result.japaneseCharacterTiming = japaneseCharacterTiming;
             if (result.japanese)
-                result.japaneseTimingFactory = wordTiming => ForMods(line, literate, true, language, japaneseWordTiming: wordTiming);
+                result.japaneseTimingFactory = (wordTiming, characterTiming) => ForMods(line, literate, true, language, japaneseWordTiming: wordTiming, japaneseCharacterTiming: characterTiming);
+            result.configureJapaneseEndpoints();
             return result;
         }
 
@@ -794,6 +893,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     pos++;
                 }
 
+                // Punctuation must interpolate within the stretch on its authored side of a
+                // pause. Interpolating across the whole token would put marks inside the silence.
+                // Keep the letter targets above, and use each stretch's edges for missing anchors.
+                if (k < token.Length && unit != null && PausedWord.Of(token, unitStart, unitEnd, unit, rules.IsCell) is PausedWord.Cut paused)
+                {
+                    int tokenStart = pos - token.Length;
+                    foreach (var piece in paused.Pieces)
+                        interpolateUntimedTargets(targets, tokenStart + piece.FirstChar, piece.CharCount, piece.StartTime, piece.StartTime, piece.EndTime);
+                }
+
                 if (m < tokens.Length - 1)
                 {
                     // Inter-word space cell: preceding unit's EndTime.
@@ -816,29 +925,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // char spread itself uses. A run with nothing after it (trailing punctuation, the '.'
             // of "sat.") attaches to the PRECEDING char's target; one with nothing before it (a
             // line opening on a quote) attaches to the FOLLOWING char's.
-            for (int i = 0; i < n; i++)
-            {
-                if (targets[i].HasValue)
-                    continue;
-
-                int end = i;
-
-                while (end + 1 < n && !targets[end + 1].HasValue)
-                    end++;
-
-                double? before = i > 0 ? targets[i - 1] : null;
-                double? after = end + 1 < n ? targets[end + 1] : null;
-                int len = end - i + 1;
-
-                for (int m = 0; m < len; m++)
-                {
-                    targets[i + m] = before is double p
-                        ? (after is double q ? p + (m + 1) * (q - p) / (len + 1) : p)
-                        : after ?? line.StartTime;
-                }
-
-                i = end;
-            }
+            // Paused stretches have already resolved their marks without crossing a rest.
+            interpolateUntimedTargets(targets, 0, n, line.StartTime);
 
             // Guard: targets non-decreasing (clamp to previous if data is inverted).
             for (int i = 1; i < n; i++)
@@ -905,9 +993,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             var result = new TypingLine(line, cells, Math.Min(sealGrace, max_seal_grace_ms), authored, natural, words, cellWord, lastUnitEnd,
                 buildJamoHeads(cells, defaultSources, rawCluster));
+            result.rawCellIndices = defaultSources?.ToArray();
             if (!alignSubdivisions)
                 result.alignedTimingFactory = () => build(line, literate, rules, naturalSplits, rawCluster, alignSubdivisions: true);
             return result;
+        }
+
+        /// <summary>Interpolate untimed marks using only anchors inside one permitted span.</summary>
+        private static void interpolateUntimedTargets(double?[] targets, int start, int count, double fallback,
+                                                       double? leading = null, double? trailing = null)
+        {
+            int limit = start + count;
+            for (int i = start; i < limit; i++)
+            {
+                if (targets[i].HasValue)
+                    continue;
+
+                int end = i;
+                while (end + 1 < limit && !targets[end + 1].HasValue)
+                    end++;
+
+                double? before = i > start ? targets[i - 1] : leading;
+                double? after = end + 1 < limit ? targets[end + 1] : trailing;
+                int length = end - i + 1;
+                for (int m = 0; m < length; m++)
+                {
+                    targets[i + m] = before is double p
+                        ? (after is double q ? p + (m + 1) * (q - p) / (length + 1) : p)
+                        : after ?? fallback;
+                }
+                i = end;
+            }
         }
 
         private static SyllableGrouping grouping((SyllableGroup[] groups, int[] cellSyllable, int[] markerCells) built, TypingCell[] cells)

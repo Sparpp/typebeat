@@ -4,7 +4,6 @@
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using typebeat.Game.Rulesets.Objects;
-using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Screens.Edit;
 
@@ -15,6 +14,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// not the map, so it should not sort and allocate the same song in every panel each frame.
     /// Mutation operations must continue using <see cref="TypeBeatEditorOperations.OrderedLines"/>
     /// for a fresh view of any in-progress transaction.
+    ///
+    /// <para>The order is sorted again only after the beatmap reports a change. A line is immutable,
+    /// so replacing it (or renumbering its LineIndex, the other half of the key) is the only way an
+    /// edit moves the sort key, and every editor edit does both through
+    /// <see cref="TypeBeatEditorOperations"/>, which queues the hit object's update. The
+    /// beatmap raises the update when the edit commits, or on its next frame inside a longer
+    /// transaction such as a drag, and the beatmap updates before the editor's surfaces do.</para>
     /// </summary>
     public sealed class EditorLineSnapshot
     {
@@ -23,23 +29,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         public static EditorLineSnapshot For(EditorBeatmap beatmap) => snapshots.GetValue(beatmap, map => new EditorLineSnapshot(map));
 
         private readonly EditorBeatmap beatmap;
-        private readonly OrderedLinesCache orderedLines = new OrderedLinesCache();
         private IReadOnlyList<TypeBeatHitObject>? lines;
 
         /// <summary>Changes whenever the map is edited, including undo and reprocessing.</summary>
         public int Revision { get; private set; }
 
-        public IReadOnlyList<TypeBeatHitObject> Lines
-        {
-            get
-            {
-                var current = orderedLines.Get(beatmap);
-                // Also catch direct immutable-line replacements that did not raise an editor event.
-                if (lines != null && !ReferenceEquals(lines, current))
-                    Revision++;
-                return lines = current;
-            }
-        }
+        /// <summary>The lines in typing order. Do not mutate the result.</summary>
+        public IReadOnlyList<TypeBeatHitObject> Lines => lines ??= TypeBeatEditorOperations.OrderedLines(beatmap);
 
         private EditorLineSnapshot(EditorBeatmap beatmap)
         {

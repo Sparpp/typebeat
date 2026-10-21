@@ -212,7 +212,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var judged = new List<CharJudgement>();
             engine.CharJudged += j => judged.Add(j);
-            long score = engine.Score;
 
             Assert.That(engine.ProcessKey(' ', gapTime(engine)), Is.True);
 
@@ -223,7 +222,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(cells(engine)[gap].TypedChar, Is.EqualTo('m'));
                 Assert.That(cells(engine)[gap].JudgedDelta, Is.Null, "and the cell was never judged");
                 Assert.That(judged, Is.Empty, "a step-over judges nothing");
-                Assert.That(engine.Score, Is.EqualTo(score));
                 Assert.That(engine.Combo, Is.Zero, "no combo gained, and none broken a second time");
                 Assert.That(engine.Mistypes, Is.EqualTo(1), "the step-over is not itself a mistype");
                 Assert.That(engine.LiveAccuracy, Is.EqualTo(5 / 6.0).Within(1e-12), "and it counts CORRECT: 4 letters + this space, over 6 presses");

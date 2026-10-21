@@ -22,6 +22,7 @@ using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
+using typebeat.Game.Rulesets.TypeBeat.Replays;
 using osuTK;
 using osuTK.Graphics;
 
@@ -92,6 +93,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private readonly BindableFloat syllableBrightness = new BindableFloat(60f);
         private readonly Bindable<JudgementIndicatorMode> judgementIndicator = new Bindable<JudgementIndicatorMode>(JudgementIndicatorMode.FadeIn);
         private readonly BindableBool approachBars = new BindableBool(true);
+        private readonly BindableBool characterIndicatorTiming = new BindableBool();
         private readonly Bindable<PaceBarRevealMode> paceBarReveal = new Bindable<PaceBarRevealMode>(PaceBarRevealMode.Off);
         private readonly BindableBool judgementColouredBars = new BindableBool();
         private readonly BindableFloat syllableFadeInEnd = new BindableFloat();
@@ -105,6 +107,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         // scene, must start on what the game actually ships.
         private readonly Bindable<bool> syncTint = new Bindable<bool>();
 
+        // The timing tint (TypeBeatRulesetSetting.ShowTimingTint), off by default on the same terms.
+        private readonly Bindable<bool> timingTint = new Bindable<bool>();
+        private readonly BindableFloat timingTintMinStrength = new BindableFloat(TypeBeatRulesetConfigManager.DEFAULT_TIMING_TINT_MIN_STRENGTH);
+        private readonly BindableFloat timingTintMaxStrength = new BindableFloat(TypeBeatRulesetConfigManager.DEFAULT_TIMING_TINT_MAX_STRENGTH);
+        private readonly Bindable<string> timingTintEarlyColour = new Bindable<string>(TypeBeatRulesetConfigManager.FormatTintColour(TypeBeatStyle.EarlyTint));
+        private readonly Bindable<string> timingTintLateColour = new Bindable<string>(TypeBeatRulesetConfigManager.FormatTintColour(TypeBeatStyle.LateTint));
+
         // The "get ready" cue: two depleting bars under the upcoming line's first char. A solid
         // bar lands on the line BOUNDARY (StartTime) and a 50%-opaque bar lands on the FIRST
         // WORD; a mapper may set the boundary earlier than the first word, so the two can be
@@ -113,6 +122,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         // direct per-frame sets (no transforms; must behave under frozen/scrubbed clocks).
         private const double approach_lead_ms = TypingEngine.CUE_LEAD_MS;
         // Values at the DEFAULT font size; each is drawn times sizeRatio (backlog 334).
+        // Mirrored in typebeat-web: typebeat-player.js CUE_BAR_MAX_PX.
         private const float approach_bar_max_width = 140;
         private const float approach_bar_height = 4;
 
@@ -131,7 +141,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         // How long the push warning takes to reach its full strength once its window opens. It is a
         // warning the player did not ask for, so it announces itself instead of appearing at half
         // brightness between one frame and the next; the WIDTH drain, not the entrance, is what
-        // carries the countdown.
+        // carries the countdown. Mirrored in typebeat-web: typebeat-player.js PUSH_FADE_IN_MS.
         private const double push_fade_in_ms = 400;
 
         private readonly TypingEngine engine;
@@ -211,6 +221,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         /// <summary>The grouping-switch handler subscribed to the engine at load (see <c>load</c>), or null.</summary>
         private Action? regroup;
+        private (bool syllableTiming, bool charTimedStretch, bool firstCharTiming, bool wordShelter)? autoplayTimingRules;
 
         public LyricStage(TypingEngine engine)
         {
@@ -236,7 +247,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
                 foreach (var cell in lines[i].Cells)
                 {
-                    if (LyricLineDisplay.IsCountable(cell))
+                    if (FlashlightWindow.IsCountable(cell))
                         c++;
                 }
 
@@ -269,8 +280,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // only to the lyric stack. Resolved once here: an unset/unknown/failed font stays null so
             // the displays fall back to the built-in lyric font.
             string? lyricFont = resolveLyricFont(config, fontManager);
-            float lyricFontSize = config?.GetBindable<float>(TypeBeatRulesetSetting.LyricFontSize).Value
-                                  ?? TypeBeatStyle.LYRIC_FONT_SIZE;
 
             // POLYGLOT (backlog 331): the lines are drawn in their original script, which the lyric
             // font may not cover. Every character they can show (the cells and the originals, a hangul
@@ -296,7 +305,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             for (int i = 0; i < lines.Count; i++)
             {
 
-                var d = new LyricLineDisplay(lines[i], FontSize, lyricFont, paceBands[i], freestyleColour)
+                var d = new LyricLineDisplay(lines[i], engine, FontSize, lyricFont, paceBands[i], freestyleColour)
 
                 {
                     Anchor = Anchor.Centre,
@@ -333,6 +342,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // one), and the marks and bands drawn at load followed the grouping in force then.
             regroup = () =>
             {
+                autoplayTimingRules = null;
                 paceBands = buildPaceBands();
 
                 for (int i = 0; i < displays.Length; i++)
@@ -396,97 +406,48 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     d.SetSungPosition(0);
             });
 
+            // Every display-only setting below binds the same way: live, straight to each lyric display,
+            // and fired immediately so the value reaches the displays built above. The order of these
+            // calls is the order in which the settings are first pushed.
+            void bindToDisplays<T>(TypeBeatRulesetSetting setting, Bindable<T> bindable, Action<LyricLineDisplay, T> apply)
+            {
+                config?.BindWith(setting, bindable);
+                bindable.BindValueChanged(e =>
+                {
+                    foreach (var d in displays)
+                        apply(d, e.NewValue);
+                }, true);
+            }
+
             // The space error dot (backlog 197) is a DISPLAY setting, so it binds straight to the
             // lyric displays here and deliberately never reaches the replay CONFIG frame the
             // playfield writes for judgement-affecting settings: nothing about a keystroke, a
             // judgement or a stored score moves with it. Live-bound like the caret styles, and fired
             // immediately so a stage built with no config (every bare test scene) starts off.
-            config?.BindWith(TypeBeatRulesetSetting.UseSpaceErrorDot, spaceErrorDot);
-            spaceErrorDot.BindValueChanged(e =>
-            {
-                foreach (var d in displays)
-                    d.SetSpaceErrorDotsEnabled(e.NewValue);
-            }, true);
+            bindToDisplays(TypeBeatRulesetSetting.UseSpaceErrorDot, spaceErrorDot, (d, v) => d.SetSpaceErrorDotsEnabled(v));
 
             // The syllable markers (backlog 225) are a DISPLAY setting on exactly the same terms:
             // bound straight to the lyric displays, live, and deliberately never reaching the replay
             // CONFIG frame. The displays already exist by here, so firing immediately is what pushes
             // the setting into a line built before the binding ran.
-            config?.BindWith(TypeBeatRulesetSetting.ShowSyllableMarkers, syllableMarkers);
-            syllableMarkers.BindValueChanged(e =>
-            {
-                foreach (var d in displays)
-                    d.SetSyllableMarkersEnabled(e.NewValue);
-            }, true);
+            bindToDisplays(TypeBeatRulesetSetting.ShowSyllableMarkers, syllableMarkers, (d, v) => d.SetSyllableMarkersEnabled(v));
 
-            config?.BindWith(TypeBeatRulesetSetting.TextPopInAmount, textPopInAmount);
-            textPopInAmount.BindValueChanged(e =>
+            bindToDisplays(TypeBeatRulesetSetting.TextPopInAmount, textPopInAmount, (d, v) => d.SetTextPopInAmount(v));
+            bindToDisplays(TypeBeatRulesetSetting.ApproachBars, approachBars, (d, v) => d.SetApproachBarsEnabled(v));
+            bindToDisplays(TypeBeatRulesetSetting.PaceBarReveal, paceBarReveal, (d, v) => d.SetPaceBarReveal(v));
+            bindToDisplays(TypeBeatRulesetSetting.JudgementColouredBars, judgementColouredBars, (d, v) => d.SetJudgementColouredBarsEnabled(v));
+            bindToDisplays(TypeBeatRulesetSetting.JudgementIndicator, judgementIndicator, (d, v) => d.SetJudgementIndicator(v));
+            bindToDisplays(TypeBeatRulesetSetting.PaceColourGradient, paceColourGradient, (d, v) => d.SetPaceColourGradient(v));
+            bindToDisplays(TypeBeatRulesetSetting.SyllableFadeInEnd, syllableFadeInEnd, (d, v) => d.SetSyllableFadeInEnd(v));
+            bindToDisplays(TypeBeatRulesetSetting.SyllableFadeInDuration, syllableFadeInDuration, (d, v) => d.SetSyllableFadeInDuration(v));
+            bindToDisplays(TypeBeatRulesetSetting.TextPopIn, textPopIn, (d, v) => d.SetTextPopInEnabled(v));
+            bindToDisplays(TypeBeatRulesetSetting.SyllableBrightness, syllableBrightness, (d, v) => d.SetSungBrightness(v));
+            config?.BindWith(TypeBeatRulesetSetting.CharacterIndicatorTiming, characterIndicatorTiming);
+            characterIndicatorTiming.BindValueChanged(e =>
             {
+                updateAutoplayIndicatorTimes();
                 foreach (var d in displays)
-                    d.SetTextPopInAmount(e.NewValue);
-            }, true);
-
-            config?.BindWith(TypeBeatRulesetSetting.ApproachBars, approachBars);
-            approachBars.BindValueChanged(e =>
-            {
-                foreach (var d in displays)
-                    d.SetApproachBarsEnabled(e.NewValue);
-            }, true);
-
-            config?.BindWith(TypeBeatRulesetSetting.PaceBarReveal, paceBarReveal);
-            paceBarReveal.BindValueChanged(e =>
-            {
-                foreach (var d in displays)
-                    d.SetPaceBarReveal(e.NewValue);
-            }, true);
-
-            config?.BindWith(TypeBeatRulesetSetting.JudgementColouredBars, judgementColouredBars);
-            judgementColouredBars.BindValueChanged(e =>
-            {
-                foreach (var d in displays)
-                    d.SetJudgementColouredBarsEnabled(e.NewValue);
-            }, true);
-
-            config?.BindWith(TypeBeatRulesetSetting.JudgementIndicator, judgementIndicator);
-            judgementIndicator.BindValueChanged(e =>
-            {
-                foreach (var d in displays)
-                    d.SetJudgementIndicator(e.NewValue);
-            }, true);
-
-            config?.BindWith(TypeBeatRulesetSetting.PaceColourGradient, paceColourGradient);
-            paceColourGradient.BindValueChanged(e =>
-            {
-                foreach (var d in displays)
-                    d.SetPaceColourGradient(e.NewValue);
-            }, true);
-
-            config?.BindWith(TypeBeatRulesetSetting.SyllableFadeInEnd, syllableFadeInEnd);
-            syllableFadeInEnd.BindValueChanged(e =>
-            {
-                foreach (var d in displays)
-                    d.SetSyllableFadeInEnd(e.NewValue);
-            }, true);
-
-            config?.BindWith(TypeBeatRulesetSetting.SyllableFadeInDuration, syllableFadeInDuration);
-            syllableFadeInDuration.BindValueChanged(e =>
-            {
-                foreach (var d in displays)
-                    d.SetSyllableFadeInDuration(e.NewValue);
-            }, true);
-
-            config?.BindWith(TypeBeatRulesetSetting.TextPopIn, textPopIn);
-            textPopIn.BindValueChanged(e =>
-            {
-                foreach (var d in displays)
-                    d.SetTextPopInEnabled(e.NewValue);
-            }, true);
-
-            config?.BindWith(TypeBeatRulesetSetting.SyllableBrightness, syllableBrightness);
-            syllableBrightness.BindValueChanged(e =>
-            {
-                foreach (var d in displays)
-                    d.SetSungBrightness(e.NewValue);
+                    d.SetCharacterIndicatorTiming(e.NewValue);
             }, true);
 
             // The sync tint (backlog 251) is a DISPLAY setting on those same terms, and the terms
@@ -494,12 +455,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // so hiding it removes a readout and nothing else. It never reaches the replay CONFIG
             // frame either, which is what lets a replay re-derive identically whichever way the
             // player who recorded it had the metric set.
-            config?.BindWith(TypeBeatRulesetSetting.ShowSyncMetric, syncTint);
-            syncTint.BindValueChanged(e =>
+            bindToDisplays(TypeBeatRulesetSetting.ShowSyncMetric, syncTint, (d, v) => d.SetSyncTintEnabled(v));
+
+            // The timing tint is the same kind of readout, and measures on the engine's CURRENT
+            // ladder, pulled at paint time, so a mod's window scale moves where the tint begins
+            // exactly as it moves where a Great ends.
+            config?.BindWith(TypeBeatRulesetSetting.ShowTimingTint, timingTint);
+            timingTint.BindValueChanged(e =>
             {
                 foreach (var d in displays)
-                    d.SetSyncTintEnabled(e.NewValue);
+                    d.SetTimingTintEnabled(e.NewValue, () => engine.Windows);
             }, true);
+
+            // Its strength range applies live, both ends pushed together so a display never holds one
+            // new end and one stale one.
+            config?.BindWith(TypeBeatRulesetSetting.TimingTintMinStrength, timingTintMinStrength);
+            config?.BindWith(TypeBeatRulesetSetting.TimingTintMaxStrength, timingTintMaxStrength);
+            timingTintMinStrength.BindValueChanged(_ => pushTimingTintStrength());
+            timingTintMaxStrength.BindValueChanged(_ => pushTimingTintStrength(), true);
+
+            // And so do its two colours, stored as #rrggbb and read with the defaults as the fallback.
+            config?.BindWith(TypeBeatRulesetSetting.TimingTintEarlyColour, timingTintEarlyColour);
+            config?.BindWith(TypeBeatRulesetSetting.TimingTintLateColour, timingTintLateColour);
+            timingTintEarlyColour.BindValueChanged(_ => pushTimingTintColours());
+            timingTintLateColour.BindValueChanged(_ => pushTimingTintColours(), true);
 
             // Line spacing is user-adjustable and applies live: a change invalidates the laid-out
             // focus so the next Update re-runs the layout with the new gap.
@@ -624,6 +603,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             engine.WrongKeyRejected += onWrongKeyRejected;
             engine.AbandonReclaimed += onAbandonReclaimed;
             engine.Rewound += onRewound;
+        }
+
+        private void pushTimingTintStrength()
+        {
+            foreach (var d in displays)
+                d.SetTimingTintStrength(timingTintMinStrength.Value, timingTintMaxStrength.Value);
+        }
+
+        private void pushTimingTintColours()
+        {
+            var early = TypeBeatRulesetConfigManager.TintColour(timingTintEarlyColour.Value, TypeBeatStyle.EarlyTint);
+            var late = TypeBeatRulesetConfigManager.TintColour(timingTintLateColour.Value, TypeBeatStyle.LateTint);
+
+            foreach (var d in displays)
+                d.SetTimingTintColours(early, late);
         }
 
         /// <summary>
@@ -795,6 +789,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
                 // Player caret follows the typing caret index.
                 int caretIndex = engine.CaretIndex;
+                d.SetJapaneseInputProgress(caretIndex, engine.JapanesePendingKanaCount);
                 Vector2 playerPoint = d.ToSpaceOfOtherDrawable(d.PositionOfCell(caretIndex), this);
                 playerCaret.Height = d.LineHeight;
                 playerCaret.SetCellWidth(d.CellWidthAt(caretIndex));
@@ -984,7 +979,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 return;
             }
 
-            var windows = LyricLineDisplay.ComputeStreamWindows(lineCountableCounts, caretStreamSlot, radius, maxRightSlot);
+            var windows = FlashlightWindow.ComputeStreamWindows(lineCountableCounts, caretStreamSlot, radius, maxRightSlot);
 
             for (int k = 0; k < displays.Length; k++)
             {
@@ -1006,7 +1001,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             for (int i = 0; i < caret; i++)
             {
-                if (LyricLineDisplay.IsCountable(cells[i]))
+                if (FlashlightWindow.IsCountable(cells[i]))
                     before++;
             }
 
@@ -1465,12 +1460,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         // binding in load() zeroes for.
         private int sweptLine = -1;
 
+        /// <summary>Cache Autoplay's schedule until replay timing rules or the line grouping change.</summary>
+        private void updateAutoplayIndicatorTimes()
+        {
+            if (!characterIndicatorTiming.Value)
+                return;
+
+            var rules = (syllableTiming: engine.SyllableTiming && !engine.HardRockFromMod, charTimedStretch: engine.CharTimedStretch,
+                         firstCharTiming: engine.FirstCharTiming, wordShelter: engine.WordShelter);
+            if (autoplayTimingRules == rules)
+                return;
+
+            autoplayTimingRules = rules;
+            double lastTime = double.NegativeInfinity;
+            for (int i = 0; i < displays.Length; i++)
+            {
+                var line = engine.Lines[i];
+                displays[i].SetAutoplayHitTimes(TypeBeatAutoGenerator.GetPressTimes(line, engine.GroupingOf(line), rules.syllableTiming,
+                    rules.charTimedStretch, rules.firstCharTiming, rules.wordShelter, ref lastTime));
+            }
+        }
+
         /// <summary>
         /// Feed the current song line and its neighbours so each syllable can stay lit for its
         /// complete Great window across a line split. A negative line index clears all candidates.
         /// </summary>
         private void setSungSyllable(int lineIndex, double time)
         {
+            updateAutoplayIndicatorTimes();
             // Great windows can straddle a line split. Feed both visible neighbours until
             // their own final/first syllable leaves its full window.
             int lo = lineIndex >= 0 ? Math.Max(0, lineIndex - 1) : 0;
@@ -1484,9 +1501,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             for (int candidate = lo; candidate <= hi; candidate++)
             {
-                displays[candidate].SetSungWindow(time, engine.Windows.GreatEarly, engine.Windows.GreatLate,
-                    characterTiming: engine.HardRockFromMod || !engine.SyllableTiming, charTimedStretch: engine.CharTimedStretch, okEarly: engine.Windows.OkEarly,
-                    freestyleWindowMultiplier: SyncWindows.FREESTYLE_WINDOW_SCALE);
+                displays[candidate].SetSungWindow(time);
                 syllableLitLines.Add(candidate);
             }
         }

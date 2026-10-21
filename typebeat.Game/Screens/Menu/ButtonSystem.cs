@@ -146,7 +146,7 @@ namespace typebeat.Game.Screens.Menu
             {
                 Padding = new MarginPadding { Left = WEDGE_WIDTH },
             });
-            // type!beat: Import snaps to the brand's deep lime (#8db12e — the accent itself is too
+            // type!beat: Import snaps to the brand's deep lime (#8db12e: the accent itself is too
             // light behind white text); Exit was osu-pink #ee3399, now the website's coral --bad.
             buttonsTopLevel.Add(new MainMenuButton(ButtonSystemStrings.Import, @"button-default-select", OsuIcon.Beatmap, new Color4(141, 177, 46, 255), (_, _) => OnImportLyrics?.Invoke(), Key.I));
             buttonsTopLevel.Add(new MainMenuButton(ButtonSystemStrings.Browse, @"button-default-select", OsuIcon.Beatmap, new Color4(51, 153, 204, 255), (_, _) => OnBrowse?.Invoke(), Key.B));

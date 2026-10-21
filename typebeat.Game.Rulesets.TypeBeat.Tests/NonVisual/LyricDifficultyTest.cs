@@ -14,22 +14,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     public class LyricDifficultyTest
     {
         /// <summary>
-        /// The game ships the CHUNKED axis (see <see cref="LyricDifficulty.Live"/>), so every fixture
-        /// in this file asks for the ENVELOPE axis by name: this file documents that model, and its
-        /// numbers only mean anything on it.
+        /// The SHIPPED rating (the chunked axis, see <see cref="LyricDifficulty.Live"/>), exactly as
+        /// every caller reads it, shipped typability included. The exact pins below are the same
+        /// numbers for the current client formula, including the negative-z whole-map bonus. The
+        /// mirrored web formula must use these same pins when its parity fixtures are updated.
         ///
-        /// <para>TYPABILITY IS OFF. Every pin below was taken from the Star Rating Sandbox, whose own
-        /// reference reading predates typability, so the fixture has to read what the sandbox read or
-        /// the agreement it exists to prove is not being tested. The in-client index has its own
-        /// fixtures in <c>TypabilityModelTest</c>.</para>
+        /// <para>These fixtures used to read the ENVELOPE model with typability off, the sandbox
+        /// reading that model was ported from. That model is gone (it last fed only Target WPM), so the
+        /// fixtures whose claim was a property of the envelope itself went with it, and the ones whose
+        /// claim is about a map went to the axis that ships.</para>
         /// </summary>
-        private static double Envelope(IEnumerable<LyricLine> lines, double rate = 1, bool literate = false)
-            => EnvelopeDetail(lines, rate, literate).Stars;
-
-        /// <summary>As <see cref="Envelope"/>, for the fixtures that read more than the stars.</summary>
-        private static LyricDifficulty.ModelResult EnvelopeDetail(IEnumerable<LyricLine> lines, double rate = 1, bool literate = false)
-            => LyricDifficulty.ComputeDetail(lines, rate, literate, LyricDifficulty.EnduranceAxis.Envelope,
-                LyricDifficulty.JudgementArm.None, LyricDifficulty.NoScores);
+        private static double Shipped(IEnumerable<LyricLine> lines, double rate = 1, bool literate = false)
+            => LyricDifficulty.Compute(lines, rate, literate);
 
         /// <summary>
         /// The LIVE axis (the chunked one) with typability switched off, which is what a fixture about
@@ -47,11 +43,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// about the SLOT WEIGHT has to pin - the model's own cell currency - because on the live
         /// (chunked) axis two maps whose cells weigh the same can still rate differently: the axis
         /// prices how many of those cells are TYPEABLE and how finely they are subdivided, and a
-        /// freestyle slot is a keypress with no key to find. Both arms build the same word list, so
-        /// this figure is the same on either.
+        /// freestyle slot is a keypress with no key to find.
         /// </summary>
         private static double CellMass(IEnumerable<LyricLine> lines)
-            => LyricDifficulty.ComputeDetail(lines.ToList(), 1, false, LyricDifficulty.EnduranceAxis.Envelope).Cells;
+            => LyricDifficulty.ComputeDetail(lines.ToList()).Cells;
 
         private static LyricLine line(double start, double end, params (string text, double s, double e)[] units) => new LyricLine
         {
@@ -90,80 +85,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             return lines.ToArray();
         }
 
-        /// <summary>
-        /// The shared ANCHOR, and the one fixture whose expectation is not this repo's own opinion:
-        /// every digit below was produced by the prototype the model is a port of
-        /// (docs/sr-envelope-model.js in the parent superrepo, run over the same four words as
-        /// <c>W</c> rows), and the two agree to the last bit rather than to a tolerance. The web
-        /// port's LyricPaceTest pins the same number, so the three implementations are held
-        /// together here. The digit string moved once, when the anchor went 10.6 to 12.0: the model
-        /// is LINEAR in the anchor, so this is the prototype's own value times 12 / 10.6 and the
-        /// prototype's <c>anchor</c> has to be moved with it for the two to keep agreeing bit for
-        /// bit.
-        ///
-        /// <para>It moved a second time with the character cutoff (<c>LyricDifficulty.MinimumWindowChars</c>,
-        /// which the sandbox's <c>minimumChars</c> dial now sets to 16): this four-word map carries
-        /// 22 cells, so the shortest stretch holding 16 of them is longer than the 1.36 second
-        /// duration floor and the peak is read off that longer window instead. Both floors are in
-        /// the reading, so the number moved with the dial and not with the model.</para>
-        ///
-        /// <para>Four words over 4.6 seconds, which is deliberately more than the 1.36 second
-        /// smallest window: see <see cref="AMapShorterThanTheSmallestWindowRatesExactlyZero"/>
-        /// for what happens under that.</para>
-        /// </summary>
-        private static LyricLine[] anchorMap() => new[]
-        {
-            line(0, 2600, ("hello", 0, 600), ("brave", 700, 1300)),
-            line(2600, 5200, ("world", 2600, 3400), ("again", 3600, 4600)),
-        };
-
-        private const double anchor_stars = 1.433936415287919;
-
-        [Test]
-        public void MatchesTheReferenceModel()
-        {
-            Assert.That(Envelope(anchorMap()), Is.EqualTo(anchor_stars));
-        }
-
         [Test]
         public void EmptyMapIsZero()
         {
-            Assert.AreEqual(0, Envelope(Array.Empty<LyricLine>()));
-        }
-
-        /// <summary>
-        /// THE SHORT-MAP RULE, stated rather than discovered. Windows are scheduled in REAL seconds
-        /// and are deliberately never clamped down to the map, because a window's ratio only means
-        /// anything against S(t) at the window's own duration. A map whose whole sung timeline is
-        /// shorter than the smallest scheduled window therefore has no window that fits, so its peak
-        /// ratio is 0 and so is the range that ratio scales.
-        ///
-        /// <para>EXACTLY ZERO since backlog 273, where before it rated its length term alone. The
-        /// length term is gone, so there is nothing left for such a map to rate, and Is.Zero here is
-        /// now a statement about the model rather than about a term being small.</para>
-        ///
-        /// <para>THE FIXTURE CARRIES 23 CELLS SO THE DURATION IS THE ONLY THING UNDER TEST. "cat cat"
-        /// over 800 ms was this suite's anchor for six backlog items, but the character cutoff
-        /// (<c>LyricDifficulty.MinimumWindowChars</c>, 16) prices its 7 cells at zero whatever its
-        /// length, so the same two words stretched over three seconds no longer rate anything and the
-        /// duration claim needs a map that clears the cutoff to be about the duration at all. That
-        /// second claim is kept below rather than dropped: 7 cells is below the floor however long
-        /// the map runs.</para>
-        /// </summary>
-        [Test]
-        public void AMapShorterThanTheSmallestWindowRatesExactlyZero()
-        {
-            // Six "cat"s: 18 letters and the 5 spaces between them, which clears the 16-cell floor.
-            var tooShort = new[] { line(0, 1000, ("cat", 0, 167), ("cat", 167, 333), ("cat", 333, 500), ("cat", 500, 667), ("cat", 667, 833), ("cat", 833, 1000)) };
-            var longEnough = new[] { line(0, 3000, ("cat", 0, 500), ("cat", 500, 1000), ("cat", 1000, 1500), ("cat", 1500, 2000), ("cat", 2000, 2500), ("cat", 2500, 3000)) };
-            var belowTheFloor = new[] { line(0, 3000, ("cat", 0, 1500), ("cat", 1500, 3000)) };
-
-            Assert.Multiple(() =>
-            {
-                Assert.That(Envelope(tooShort), Is.Zero, "1.0 s of singing fits no scheduled window at all");
-                Assert.That(Envelope(longEnough), Is.EqualTo(2.1710013017631233), "3 s of the same six words does");
-                Assert.That(Envelope(belowTheFloor), Is.Zero, "and 3 s of \"cat cat\" does not: 7 cells is under the cutoff");
-            });
+            Assert.AreEqual(0, Shipped(Array.Empty<LyricLine>()));
         }
 
         /// <summary>
@@ -174,10 +99,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// whether the author put them on one line or two, and that is correct: on two lines the
         /// player really does type one keystroke fewer.
         ///
-        /// <para>FOUR WORDS RATHER THAN TWO, because the comparison has to clear the character cutoff
-        /// to be readable at all (see <see cref="AMapShorterThanTheSmallestWindowRatesExactlyZero"/>):
-        /// one line of four carries 3 spaces over the same timeline that four lines of one carry
-        /// none, which is the whole of the difference between the two ratings below.</para>
+        /// <para>FOUR WORDS RATHER THAN TWO, so the two layouts are clear to compare: one line of four
+        /// carries 3 spaces over the same timeline that four lines of one carry none, which is the
+        /// whole of the difference between the two ratings below.</para>
         /// </summary>
         [Test]
         public void AnInterWordSpaceIsACellAndBelongsToItsLine()
@@ -193,8 +117,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(Envelope(oneLine), Is.EqualTo(1.6979519367095162), "23 cells: four words + the 3 spaces between them");
-                Assert.That(Envelope(twoLines), Is.EqualTo(1.4256092329973917), "20 cells: no space over a line break");
+                Assert.That(Shipped(oneLine), Is.EqualTo(2.1078517699642552), "23 cells: four words + the 3 spaces between them");
+                Assert.That(Shipped(twoLines), Is.EqualTo(1.7962369444673221), "20 cells: no space over a line break");
             });
         }
 
@@ -203,9 +127,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var map = buildMap(lineCount: 12, wordsPerLine: 4, lineMs: 2400);
 
-            double halfTime = Envelope(map, 0.75);
-            double noMod = Envelope(map, 1.0);
-            double doubleTime = Envelope(map, 1.5);
+            double halfTime = Shipped(map, 0.75);
+            double noMod = Shipped(map, 1.0);
+            double doubleTime = Shipped(map, 1.5);
 
             // Faster clock -> the same cells inside a shorter window -> a higher ratio against the
             // same S(t); slower clock -> lower.
@@ -226,9 +150,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(Envelope(map, 0.75), Is.EqualTo(6.260654550067575), "sr_ht");
-                Assert.That(Envelope(map), Is.EqualTo(8.16426556177434), "difficulty_rating");
-                Assert.That(Envelope(map, 1.50), Is.EqualTo(11.762970854950098), "sr_dt");
+                Assert.That(Shipped(map, 0.75), Is.EqualTo(6.8512192811076789), "sr_ht");
+                Assert.That(Shipped(map), Is.EqualTo(8.6903668295584655), "difficulty_rating");
+                Assert.That(Shipped(map, 1.50), Is.EqualTo(12.738265542265243), "sr_dt");
             });
         }
 
@@ -245,11 +169,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // sr_dt passes it routinely).
             var map = buildMap(lineCount: 40, wordsPerLine: 6, lineMs: 2000);
 
-            double noMod = Envelope(map);
-            double doubleTime = Envelope(map, 1.50);
+            double noMod = Shipped(map);
+            double doubleTime = Shipped(map, 1.50);
 
-            Assert.That(noMod, Is.EqualTo(8.908767792639306).Within(1e-9));
-            Assert.That(doubleTime, Is.EqualTo(13.185566464522914).Within(1e-9), "under the old ceiling this read exactly 10.00");
+            Assert.That(noMod, Is.EqualTo(9.7738950146424912).Within(1e-9));
+            Assert.That(doubleTime, Is.EqualTo(14.110578133445392).Within(1e-9), "under the old ceiling this read exactly 10.00");
         }
 
         [Test]
@@ -259,57 +183,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // Same-pace continuation appended contiguously after the base map.
             var extended = baseMap.Concat(buildMap(lineCount: 8, wordsPerLine: 4, lineMs: 2400, startAt: 8 * 2400)).ToArray();
 
-            double baseSr = Envelope(baseMap);
-            double extendedSr = Envelope(extended);
+            double baseSr = Shipped(baseMap);
+            double extendedSr = Shipped(extended);
 
-            // The defining property, and under the envelope (backlog 273) it is structural rather
-            // than incidental: N is a sum of non-negative per-bin terms and the peak is a maximum,
-            // so appending anything can only raise both, never lower either.
+            // The defining property: the same pace for twice as long is never easier.
             Assert.GreaterOrEqual(extendedSr, baseSr);
             // Length counts, but only through the characters it adds and saturating; doubling the
             // map must not double the rating.
             Assert.Less(extendedSr, baseSr * 2);
-        }
-
-        /// <summary>
-        /// A LONG INSTRUMENTAL GAP, and the one fixture in this file whose exact value pins the
-        /// <c>min(1, env/ratio_0)</c> CLAMP. Twenty seconds of dense singing, forty-five seconds of
-        /// nothing, twenty seconds of easy singing.
-        ///
-        /// <para>WHY THE CLAMP EXISTS AND WHY IT NEEDS A FIXTURE. The peak ratio is computed the
-        /// prototype's way, as cells over five over minutes and THEN over S(t), while the envelope
-        /// divides the same cells by the pre-multiplied denominator in one step. Those two agree to
-        /// within a bit, not always exactly, so at the peak's own bins <c>env/ratio_0</c> can come
-        /// out at 1.0000000000000002 and, raised to the eighth, would carry that error into N. It
-        /// really happens: over the twelve reference packages the clamp fires about two thousand
-        /// times, always by exactly one unit in the last place. Most fixtures then round back to the
-        /// same double anyway, which is why the clamp can be deleted and leave the rest of this file
-        /// green; the gap shape does not, so this pin is where a deletion lands.</para>
-        ///
-        /// <para>A gap is also what makes the shape reachable: the dense half and the easy half are
-        /// far enough apart that a long window covering both is worse than a short one covering the
-        /// dense half alone, so the peak sits at a short duration and the long windows genuinely
-        /// contribute a lower envelope instead of everything saturating together.</para>
-        /// </summary>
-        [Test]
-        public void AMapWithALongInstrumentalGapIsRatedOnItsSingingAlone()
-        {
-            var gapped = buildMap(lineCount: 10, wordsPerLine: 6, lineMs: 2000)
-                .Concat(buildMap(lineCount: 10, wordsPerLine: 2, lineMs: 2000, startAt: 65000)).ToArray();
-
-            var denseHalf = buildMap(lineCount: 10, wordsPerLine: 6, lineMs: 2000);
-
-            Assert.Multiple(() =>
-            {
-                // The 45 seconds of silence cost nothing and the easy tail after it earns a little,
-                // which together is the claim that the gap is not averaged into the rating.
-                //
-                // The two figures this used to pin are dropped rather than re-pinned: the port and
-                // the sandbox still disagree slightly on maps that join sections of different
-                // density, so a number taken from either side would be an opinion, and the claim is
-                // the ordering below.
-                Assert.That(Envelope(gapped), Is.GreaterThan(Envelope(denseHalf)));
-            });
         }
 
         [Test]
@@ -319,7 +200,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var spike = buildMap(lineCount: 6, wordsPerLine: 6, lineMs: 1200); // ~fast
             var filler = buildMap(lineCount: 24, wordsPerLine: 3, lineMs: 3000); // long, easy
 
-            Assert.Greater(Envelope(spike), Envelope(filler));
+            Assert.Greater(Shipped(spike), Shipped(filler));
         }
 
         [Test]
@@ -328,208 +209,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // ~4 words / 2.4 s line, 40 lines: about 230 CPM sustained for a minute and a half,
             // which is fast but not superhuman, so it has to land in the middle of the scale.
             var map = buildMap(lineCount: 40, wordsPerLine: 4, lineMs: 2400);
-            double sr = Envelope(map);
+            double sr = Shipped(map);
 
             TestContext.WriteLine($"40-line map -> {sr:0.00} stars");
             Assert.That(sr, Is.InRange(2.0, 6.5));
         }
-
-        /// <summary>
-        /// A CUT VERSION CAN NEVER OUTRATE THE FULL VERSION IT WAS CUT FROM. The peak is scored
-        /// against HUMAN CAPABILITY rather than against the map's own peak, so the cut and the full
-        /// version share a RANGE, and inside that shared range the full version has strictly more
-        /// characters to fill it with. Keeping a difficulty's hardest chorus and dropping everything
-        /// after it can only remove characters from N, never rescale the range.
-        ///
-        /// <para>Three versions of one map, sharing an identical hardest chorus. The CUT is that
-        /// chorus alone; one full version carries an easy tail after it and the other a tail as
-        /// dense as the chorus itself (an Insane keeping backing-vocal lines a Hard drops). All
-        /// three are pinned exactly, because the ORDER is the claim and a tolerance would let a
-        /// future change reorder them inside it.</para>
-        ///
-        /// <para>NOTE HOW LITTLE THE EASY TAIL IS WORTH under the envelope (backlog 273): about
-        /// 0.016 of a star, where the feats model paid it 0.55. That is the model working as
-        /// designed, not a weakened claim. Those bins sit far below the chorus, so their d^8 weight
-        /// is nearly nothing, and "there is more of it" is deliberately a soft signal now that the
-        /// flat length term is gone. The DENSE tail, whose characters really are near the peak, is
-        /// still worth well over a star, and the gap between the two tails is what the second
-        /// assertion pins.</para>
-        /// </summary>
-        [Test]
-        public void ACutVersionNeverOutratesTheFullVersionItWasCutFrom()
-        {
-            var peakChorus = buildMap(lineCount: 4, wordsPerLine: 4, lineMs: 1200);
-            double peakEndMs = 4 * 1200;
-
-            var cut = peakChorus;
-            var easyTail = peakChorus.Concat(buildMap(lineCount: 10, wordsPerLine: 2, lineMs: 2400, startAt: peakEndMs)).ToArray();
-            var hardTail = peakChorus.Concat(buildMap(lineCount: 10, wordsPerLine: 4, lineMs: 1200, startAt: peakEndMs)).ToArray();
-
-            double cutSr = Envelope(cut);
-            double easySr = Envelope(easyTail);
-            double hardSr = Envelope(hardTail);
-
-            TestContext.WriteLine($"cut {cutSr:0.000}; full with an easy tail {easySr:0.000}; full with a dense tail {hardSr:0.000}");
-
-            Assert.Multiple(() =>
-            {
-                Assert.That(cutSr, Is.EqualTo(6.040220880568299));
-                Assert.That(hardSr, Is.EqualTo(7.621171412439358));
-
-                // The two claims the numbers above encode, restated so a failure says which broke.
-                Assert.That(easySr, Is.GreaterThan(cutSr), "the cut cannot outrate what it was cut from");
-                Assert.That(hardSr - easySr, Is.GreaterThan(1.0), "and the characters a dense tail puts near the peak have to show");
-            });
-        }
-
-        #region The envelope: how a map fills the range its hardest window opens (backlog 273)
-
-        /// <summary>
-        /// The WPM the fastest humans sustain for <paramref name="seconds"/>, restated here rather
-        /// than read off the model, so the fixtures below can be built to a stated RATIO of it.
-        /// </summary>
-        private static double capability(double seconds) => 220 + 221 * Math.Pow(1.35 / seconds, 0.35);
-
-        /// <summary>
-        /// How many four-character words (five cells each, counting the space after them) it takes
-        /// to run at <paramref name="ratio"/> of record pace for <paramref name="seconds"/>:
-        /// <c>ratio * S(t) * 5 * (t/60)</c> cells, over five cells to the word.
-        /// </summary>
-        private static int wordsFor(double seconds, double ratio) => (int)Math.Round(ratio * capability(seconds) * (seconds / 60));
-
-        /// <summary>One LINE of <paramref name="words"/> identical four-character words, evenly filling its span.</summary>
-        private static LyricLine section(double startMs, double seconds, int words)
-        {
-            double step = seconds * 1000.0 / words;
-            var units = new (string, double, double)[words];
-
-            for (int i = 0; i < words; i++)
-                units[i] = ("abcd", startMs + i * step, startMs + (i + 1) * step);
-
-            return line(startMs, startMs + seconds * 1000, units);
-        }
-
-        /// <summary>The same builder at an EASY 60 WPM, i.e. one five-cell word a second.</summary>
-        private static LyricLine easySection(double startMs, double seconds)
-            => section(startMs, seconds, Math.Max(1, (int)Math.Round(60.0 * seconds / 60)));
-
-        /// <summary><paramref name="n"/> bursts of 1.5 s at ratio 0.75, spaced evenly through an easy 120 s map.</summary>
-        private static LyricLine[] burstMap(int n)
-        {
-            var lines = new List<LyricLine>();
-            double t = 0;
-            double easy = (120.0 - n * 1.5) / n;
-
-            for (int k = 0; k < n; k++)
-            {
-                lines.Add(easySection(t * 1000, easy));
-                t += easy;
-                lines.Add(section(t * 1000, 1.5, wordsFor(1.5, 0.75)));
-                t += 1.5;
-            }
-
-            return lines.ToArray();
-        }
-
-        /// <summary>
-        /// THE HEADLINE PROPERTY OF THE ENVELOPE, and the reason the feats model was replaced. Four
-        /// maps whose HARDEST STRETCH runs at the same 0.75 of record pace, so all four open the
-        /// same range; what separates them is how many characters sit near that peak.
-        ///
-        /// <para>The feats model had the eight bursts AHEAD of the sustain, because eight
-        /// non-overlapping windows filled eight decaying slots while one long sustain filled one.
-        /// That was the defect: how a difficulty happens to be CHOPPED UP is not a difficulty. The
-        /// envelope counts characters, so a 120 second sustain (which fills 98% of its range) beats
-        /// four 15 second sections, which beat eight 1.5 second bursts, which beat one.</para>
-        ///
-        /// <para>Pinned exactly, and the ORDER is restated underneath so a failure says whether the
-        /// arithmetic moved or the claim broke. The numbers are this port's own measurement, not the
-        /// backlog item's: the item quotes 7.771 / 7.758 / 6.701 / 5.944 from the SR sandbox over
-        /// its own per-word extract, and the fixtures here are built from the capability curve
-        /// directly, which lands them a few hundredths away with the ordering intact. Those quoted
-        /// figures are at the ORIGINAL 10.6 anchor; at the 12.0 anchor pinned below they read
-        /// 8.797 / 8.782 / 7.586 / 6.729, since the model is linear in the anchor.</para>
-        /// </summary>
-        [Test]
-        public void ASustainedStretchBeatsTheSameDifficultyChoppedIntoBursts()
-        {
-            var sustain = new[] { section(0, 120, wordsFor(120, 0.75)) };
-
-            var fourSections = new List<LyricLine>();
-            double t = 0;
-
-            for (int k = 0; k < 4; k++)
-            {
-                fourSections.Add(easySection(t * 1000, 15));
-                t += 15;
-                fourSections.Add(section(t * 1000, 15, wordsFor(15, 0.75)));
-                t += 15;
-            }
-
-            double sustainSr = Envelope(sustain);
-            double fourSr = Envelope(fourSections.ToArray());
-            double eightSr = Envelope(burstMap(8));
-            double oneSr = Envelope(burstMap(1));
-
-            TestContext.WriteLine($"sustain {sustainSr:0.000}; four 15 s sections {fourSr:0.000}; eight bursts {eightSr:0.000}; one burst {oneSr:0.000}");
-
-            Assert.Multiple(() =>
-            {
-                Assert.That(sustainSr, Is.EqualTo(8.798896190030623));
-
-                Assert.That(fourSr, Is.GreaterThan(eightSr), "which beats the same pace split into eight bursts");
-                Assert.That(eightSr, Is.GreaterThan(oneSr), "and eight bursts beat one");
-
-                // The sustain-over-four ordering and the three dropped figures are the same
-                // section-density disagreement noted on
-                // AMapWithALongInstrumentalGapIsRatedOnItsSingingAlone: the split sections come back
-                // about a percent high against the sandbox, which is enough to invert the top pair.
-
-                // Non-vacuity: all four really do share a peak, so the ordering above is the FILL
-                // talking and not four different ranges. Their floors agree to a few tenths of a
-                // percent (the bin grid rounds each window's start differently), which is what
-                // "the same 0.75" survives as once the timeline is discretised.
-                Assert.That(oneSr / sustainSr, Is.GreaterThan(1 / 1.3333 - 0.01),
-                    "one burst cannot fall below the shared floor, which is 1/(1 + envelope_range) of a filled range");
-            });
-        }
-
-        /// <summary>
-        /// LENGTH IS NOW A SOFT SIGNAL AND NOTHING ELSE. Backlog 152's flat
-        /// <c>0.12 * log10(cells/100)</c> is deleted (backlog 273), so padding a map counts only
-        /// through the characters the padding adds, weighted by how near the peak they sit. Sixty
-        /// seconds of 60 WPM singing bolted onto an already saturated 123 second sustain is worth
-        /// about a twelfth of one percent, where the old term paid it a flat 0.02 of a star on top.
-        ///
-        /// <para>POSITIVE is the claim, not merely non-negative: there is deliberately NO CUTOFF
-        /// under the per-character weight, so easy padding is worth a little rather than exactly
-        /// nothing. Delete the <c>d^envelope_power</c> term's tail (say by cutting off under 0.5)
-        /// and this equality fails on the second digit.</para>
-        /// </summary>
-        [Test]
-        public void PaddingAHardMapWithEasySingingAddsALittleAndNotNothing()
-        {
-            var sustain = section(0, 123, wordsFor(123, 0.75));
-            var padded = new[] { sustain, easySection(123000, 60) };
-
-            double bare = Envelope(new[] { sustain });
-            double withPadding = Envelope(padded);
-
-            TestContext.WriteLine($"123 s sustain {bare:0.000000}; padded with 60 s at 60 WPM {withPadding:0.000000} ({(withPadding / bare - 1) * 100:0.0000}%)");
-
-            Assert.Multiple(() =>
-            {
-                Assert.That(bare, Is.EqualTo(8.942163764721732));
-
-                Assert.That(withPadding, Is.GreaterThan(bare), "easy padding is worth a little, never nothing");
-                // A bound rather than the exact 0.0856% this used to pin: see the note on
-                // AMapWithALongInstrumentalGapIsRatedOnItsSingingAlone. Still far below the flat
-                // 0.02 of a star the deleted length term paid.
-                Assert.That(withPadding / bare - 1, Is.LessThan(0.005), "and a little means under half a percent");
-            });
-        }
-
-        #endregion
 
         #region The Literate stream (backlog 144)
 
@@ -547,8 +231,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 line(2200, 5000, ("Typing", 2200, 3000), ("is", 3000, 3400), ("a", 3400, 3700), ("rhythm;", 3700, 4300), ("not", 4300, 4700), ("a", 4700, 4850), ("race.", 4850, 5000)),
             };
 
-            double plain = Envelope(map);
-            double literate = Envelope(map, 1, literate: true);
+            double plain = Shipped(map);
+            double literate = Shipped(map, 1, literate: true);
 
             TestContext.WriteLine($"plain -> {plain:0.0000}; literate -> {literate:0.0000}");
 
@@ -581,11 +265,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     ("fucking", 2100, 2700), ("Pablo", 2700, 3300), ("Escobar", 3300, 4100)),
             };
 
-            // The one fixture in this file that reads typability back: it has to go through the
-            // shipped score source, since <see cref="EnvelopeDetail"/> is pinned to the sandbox's
-            // unscored reading.
-            var plain = LyricDifficulty.ComputeDetail(map, 1, false, LyricDifficulty.EnduranceAxis.Envelope);
-            var literate = LyricDifficulty.ComputeDetail(map, 1, true, LyricDifficulty.EnduranceAxis.Envelope);
+            // The one fixture in this file that reads typability back, through the shipped score source.
+            var plain = LyricDifficulty.ComputeDetail(map, 1, false);
+            var literate = LyricDifficulty.ComputeDetail(map, 1, true);
 
             TestContext.WriteLine($"plain z {plain.TypabilityMeanZ:0.0000} (played {playedScore.Z:0.0000}); " +
                                   $"literate z {literate.TypabilityMeanZ:0.0000} (authored {authoredScore.Z:0.0000})");
@@ -612,8 +294,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 foreach (double rate in new[] { 0.75, 1.00, 1.50 })
                 {
-                    Assert.That(Envelope(map, rate, literate: true),
-                        Is.EqualTo(Envelope(map, rate)), $"rate {rate}");
+                    Assert.That(Shipped(map, rate, literate: true),
+                        Is.EqualTo(Shipped(map, rate)), $"rate {rate}");
                 }
             });
         }
@@ -623,12 +305,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// the CROSS PRODUCT of the two (029_literate_stars.sql) instead of deriving three of the
         /// six ratings from the other three. The obvious saving is
         /// <c>sr_literate_dt = sr_literate · (sr_dt/sr_base)</c>; it is wrong, and this is where
-        /// that is written down so the next reader does not have to rediscover it. Under the
-        /// envelope model the reason is that the two changes act on DIFFERENT AXES: the rate
-        /// compresses the timeline, which moves which windows fit at all and therefore which window
-        /// is the peak, while Literate adds cells to the words already there, which moves the
-        /// per-bin density and so the whole envelope relative to that peak. Stars are the PRODUCT of
-        /// those two (a peak-scaled range times a fill), so neither is a scalar on the other.
+        /// that is written down so the next reader does not have to rediscover it. The two changes
+        /// act on DIFFERENT THINGS: the rate compresses the timeline, which moves every window's
+        /// length against the capability curve, while Literate adds cells (and Shift presses) to the
+        /// words already there, which moves each window's density, so neither is a scalar on the
+        /// other.
         /// </summary>
         [Test]
         public void TheLiterateRatingIsNotTheRateRatingTimesAConstant()
@@ -639,10 +320,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 line(2200, 5000, ("Typing", 2200, 3000), ("is", 3000, 3400), ("a", 3400, 3700), ("rhythm;", 3700, 4300), ("not", 4300, 4700), ("a", 4700, 4850), ("race.", 4850, 5000)),
             };
 
-            double plainBase = Envelope(map);
-            double plainDt = Envelope(map, 1.50);
-            double literateBase = Envelope(map, 1, literate: true);
-            double literateDt = Envelope(map, 1.50, literate: true);
+            double plainBase = Shipped(map);
+            double plainDt = Shipped(map, 1.50);
+            double literateBase = Shipped(map, 1, literate: true);
+            double literateDt = Shipped(map, 1.50, literate: true);
 
             double predicted = literateBase * (plainDt / plainBase);
 
@@ -715,28 +396,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void AMapWithNoFreestyleSlotsRatesBitIdenticallyToBeforeTheyWerePriced()
         {
-            var anchor = anchorMap();
             var big = buildMap(lineCount: 40, wordsPerLine: 8, lineMs: 1200);
             var realistic = buildMap(lineCount: 40, wordsPerLine: 4, lineMs: 2400);
             var mid = buildMap(lineCount: 12, wordsPerLine: 6, lineMs: 1800);
-            var punctuated = new[]
-            {
-                line(0, 2000, ("Hello,", 0, 700), ("bad-cat!", 700, 1400), ("sat...", 1400, 2000)),
-                line(2200, 5000, ("Typing", 2200, 3000), ("is", 3000, 3400), ("a", 3400, 3700), ("rhythm;", 3700, 4300), ("not", 4300, 4700), ("a", 4700, 4850), ("race.", 4850, 5000)),
-            };
 
             Assert.Multiple(() =>
             {
-                Assert.That(Envelope(anchor), Is.EqualTo(anchor_stars), "the shared reference anchor");
-                Assert.That(Envelope(big), Is.EqualTo(19.695650220525547));
-                Assert.That(Envelope(big, 1.50), Is.EqualTo(28.553224233675905));
-                Assert.That(Envelope(realistic), Is.EqualTo(4.896180402042062));
-                Assert.That(Envelope(mid, 0.75), Is.EqualTo(6.260654550067575));
-                Assert.That(Envelope(mid), Is.EqualTo(8.16426556177434));
-                Assert.That(Envelope(mid, 1.50), Is.EqualTo(11.762970854950098));
-                Assert.That(Envelope(mid, 1, literate: true), Is.EqualTo(8.16426556177434));
-                Assert.That(Envelope(punctuated, 1, literate: true), Is.EqualTo(3.5620837044806435));
-                Assert.That(Envelope(punctuated, 1.50, literate: true), Is.EqualTo(4.583755790239398));
+                Assert.That(Shipped(big), Is.EqualTo(20.989384416358078));
+                Assert.That(Shipped(big, 1.50), Is.EqualTo(30.813485280756332));
+                Assert.That(Shipped(realistic), Is.EqualTo(5.1418377347840236));
+                Assert.That(Shipped(mid, 0.75), Is.EqualTo(6.8512192811076789));
+                Assert.That(Shipped(mid), Is.EqualTo(8.6903668295584655));
+                Assert.That(Shipped(mid, 1.50), Is.EqualTo(12.738265542265243));
+                // No mark and no capital in the pool, so the Literate stream is the same stream.
+                Assert.That(Shipped(mid, 1, literate: true), Is.EqualTo(8.6903668295584655));
             });
         }
 
@@ -750,7 +423,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// this be an equality: the two maps occupy the same timeline word for word and they are cut
         /// into lines at the same places, so they carry the same inter-word spaces and the same 170
         /// priced cells plain (230 under Literate). Price a slot at anything but a quarter and the
-        /// two timelines hold different densities, which moves both the peak and the envelope.</para>
+        /// two timelines hold different densities.</para>
         ///
         /// <para>Two spacings, because the model reads a word's SPAN as well as its onset: LOOSE
         /// (400 ms step, 350 ms span) leaves a gap between words, TIGHT (80 ms step, 60 ms span)
@@ -792,9 +465,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var freestyle = uniformMap(tokens(60, i => letters(i, 1) + new string(marker, 4) + ","), wordsPerLine: 6, stepMs: 400, spanMs: 350);
             var fixedKeys = uniformMap(tokens(60, i => letters(i, 5) + ","), wordsPerLine: 6, stepMs: 400, spanMs: 350);
 
-            double excludedSr = Envelope(excluded, 1, literate);
-            double freestyleSr = Envelope(freestyle, 1, literate);
-            double fixedSr = Envelope(fixedKeys, 1, literate);
+            double excludedSr = Shipped(excluded, 1, literate);
+            double freestyleSr = Shipped(freestyle, 1, literate);
+            double fixedSr = Shipped(fixedKeys, 1, literate);
 
             TestContext.WriteLine($"literate {literate}: excluded (pre-211) {excludedSr:0.000}, quartered {freestyleSr:0.000}, all fixed keys {fixedSr:0.000}");
 
@@ -803,22 +476,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(freestyleSr, Is.GreaterThan(excludedSr), "pricing the slots has to raise the rating");
                 Assert.That(freestyleSr, Is.LessThan(fixedSr), "a slot is not a letter");
             });
-        }
-
-        /// <summary>
-        /// THE FREESTYLE MAP'S OWN EXACT PIN, which the equalities either side of it cannot give:
-        /// both of those would still hold if BOTH maps moved together to some other weight. The
-        /// fixture's 60 words carry one fixed key and four slots each, and its 10 lines carry 5
-        /// inter-word spaces apiece, so its priced cell count is <c>60 * (1 + 4/4) + 10 * 5 = 170</c>;
-        /// count a slot as a whole cell and it would be 350, count it as nothing and it would be 110,
-        /// and both of those move the timeline densities this number is computed from.
-        /// </summary>
-        [Test]
-        public void AFreestyleMapRatesItsQuarteredDensity()
-        {
-            var free = uniformMap(tokens(60, i => letters(i, 1) + new string(marker, 4) + ","), wordsPerLine: 6, stepMs: 400, spanMs: 350);
-
-            Assert.That(Envelope(free), Is.EqualTo(2.7463413849647913));
         }
 
         /// <summary>

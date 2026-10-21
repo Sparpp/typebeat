@@ -107,7 +107,7 @@ namespace typebeat.Game.Skinning
                 new ArgonProSkin(this),
             };
 
-            // Ensure the default entries are present (and their display names current — the
+            // Ensure the default entries are present (and their display names current: the
             // argon row predates its rename to "Default" on older installs).
             realm.Write(r =>
             {
@@ -153,7 +153,7 @@ namespace typebeat.Game.Skinning
 
             Realm.Run(realm =>
             {
-                // Only the default (argon) skin is surfaced from the built-ins — the legacy osu
+                // Only the default (argon) skin is surfaced from the built-ins; the legacy osu
                 // skin lineage (argon pro / triangles / classic / retro) stays registered in
                 // realm (resource fallbacks, and users who selected one keep it) but is not
                 // offered. User-imported/created skins list as always.

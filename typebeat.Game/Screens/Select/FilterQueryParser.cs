@@ -7,6 +7,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
 using osu.Framework.Logging;
+using typebeat.Game.Beatmaps;
 using typebeat.Game.Screens.Select.Filter;
 
 namespace typebeat.Game.Screens.Select
@@ -124,6 +125,10 @@ namespace typebeat.Game.Screens.Select
                 case "source":
                     return TryUpdateCriteriaText(ref criteria.Source, op, value);
 
+                case "lang":
+                case "language":
+                    return tryUpdateLanguage(criteria, op, value);
+
                 case "tag":
                     var tagFilter = new FilterCriteria.OptionalTextFilter();
                     TryUpdateCriteriaText(ref tagFilter, op, value);
@@ -134,6 +139,71 @@ namespace typebeat.Game.Screens.Select
                     return criteria.RulesetCriteria?.TryParseCustomKeywordCriteria(key, op, value) ?? false;
             }
         }
+
+        /// <summary>
+        /// <c>lang:</c> and <c>language:</c>, read exactly as the website's search box reads them
+        /// (typebeat-web <c>Search/BeatmapSearchQuery.cs</c>, folding through <c>Packages/BeatmapLanguages.cs</c>):
+        /// equality only, the value matched case-insensitively against a language's name or one of the
+        /// site's aliases, quotes dropped. Anything else, "unspecified" included, is left as search text,
+        /// and a map whose language is not set never matches. Each one given must hold, so two different
+        /// languages match nothing. Pinned against the site by typebeat-web's <c>SearchOperatorParityTest</c>.
+        /// </summary>
+        private static bool tryUpdateLanguage(FilterCriteria criteria, Operator op, string value)
+        {
+            if (op != Operator.Equal)
+                return false;
+
+            var language = languageFromSearchTerm(value.Replace("\"", string.Empty));
+
+            if (language == BeatmapLanguage.Unspecified)
+                return false;
+
+            criteria.Languages.Add(language);
+            return true;
+        }
+
+        private static BeatmapLanguage languageFromSearchTerm(string term)
+        {
+            term = term.Trim();
+
+            // A whole member name only. Enum.TryParse (and so FromCanonicalName) also reads a comma list
+            // as the members OR'd together ("english,japanese" is Chinese), which the site keeps as text.
+            foreach (var language in Enum.GetValues<BeatmapLanguage>())
+            {
+                if (language != BeatmapLanguage.Unspecified && string.Equals(term, language.ToString(), StringComparison.OrdinalIgnoreCase))
+                    return language;
+            }
+
+            return language_aliases.TryGetValue(term, out var aliased) ? aliased : BeatmapLanguage.Unspecified;
+        }
+
+        /// <summary>
+        /// The website's input aliases for <c>lang:</c>, entry for entry (<c>BeatmapLanguages.aliases</c> in
+        /// typebeat-web): ISO codes, common shorthands, endonyms and spelling variants. The names themselves
+        /// are matched by <see cref="languageFromSearchTerm"/> and are not repeated here.
+        /// </summary>
+        private static readonly Dictionary<string, BeatmapLanguage> language_aliases = new Dictionary<string, BeatmapLanguage>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["en"] = BeatmapLanguage.English, ["eng"] = BeatmapLanguage.English, ["engl"] = BeatmapLanguage.English,
+            ["en-us"] = BeatmapLanguage.English, ["en-gb"] = BeatmapLanguage.English,
+            ["jp"] = BeatmapLanguage.Japanese, ["ja"] = BeatmapLanguage.Japanese, ["jpn"] = BeatmapLanguage.Japanese,
+            ["jap"] = BeatmapLanguage.Japanese, ["nihongo"] = BeatmapLanguage.Japanese,
+            ["cn"] = BeatmapLanguage.Chinese, ["zh"] = BeatmapLanguage.Chinese, ["chn"] = BeatmapLanguage.Chinese,
+            ["chi"] = BeatmapLanguage.Chinese, ["zho"] = BeatmapLanguage.Chinese,
+            ["mandarin"] = BeatmapLanguage.Chinese, ["cantonese"] = BeatmapLanguage.Chinese,
+            ["kr"] = BeatmapLanguage.Korean, ["ko"] = BeatmapLanguage.Korean, ["kor"] = BeatmapLanguage.Korean, ["hangul"] = BeatmapLanguage.Korean,
+            ["fr"] = BeatmapLanguage.French, ["fra"] = BeatmapLanguage.French, ["fre"] = BeatmapLanguage.French, ["francais"] = BeatmapLanguage.French,
+            ["de"] = BeatmapLanguage.German, ["ger"] = BeatmapLanguage.German, ["deu"] = BeatmapLanguage.German, ["deutsch"] = BeatmapLanguage.German,
+            ["es"] = BeatmapLanguage.Spanish, ["esp"] = BeatmapLanguage.Spanish, ["spa"] = BeatmapLanguage.Spanish,
+            ["espanol"] = BeatmapLanguage.Spanish, ["castellano"] = BeatmapLanguage.Spanish,
+            ["it"] = BeatmapLanguage.Italian, ["ita"] = BeatmapLanguage.Italian, ["italiano"] = BeatmapLanguage.Italian,
+            ["ru"] = BeatmapLanguage.Russian, ["rus"] = BeatmapLanguage.Russian,
+            ["pl"] = BeatmapLanguage.Polish, ["pol"] = BeatmapLanguage.Polish, ["polski"] = BeatmapLanguage.Polish,
+            ["sv"] = BeatmapLanguage.Swedish, ["se"] = BeatmapLanguage.Swedish, ["swe"] = BeatmapLanguage.Swedish, ["svenska"] = BeatmapLanguage.Swedish,
+            ["inst"] = BeatmapLanguage.Instrumental, ["instr"] = BeatmapLanguage.Instrumental,
+            ["none"] = BeatmapLanguage.Instrumental, ["nolyrics"] = BeatmapLanguage.Instrumental,
+            ["misc"] = BeatmapLanguage.Other, ["various"] = BeatmapLanguage.Other,
+        };
 
         private static Operator parseOperator(string value)
         {

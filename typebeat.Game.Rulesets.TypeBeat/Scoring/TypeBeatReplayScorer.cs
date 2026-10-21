@@ -53,7 +53,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// (<see cref="Objects.Drawables.DrawableTypeBeatHitObject"/> and <c>TypeBeatPlayfield</c>),
     /// and backlog 109's change lives entirely in that layer. So this drives the REAL
     /// <see cref="TypeBeatScoreProcessor"/> with the REAL <see cref="TypingEngine"/> and reproduces
-    /// the drawable layer's four seams exactly:</para>
+    /// the drawable layer's seams exactly. Every hand-written combo write among them is
+    /// <see cref="TypeBeatComboFeed"/>'s, attached here through the same call the playfield makes,
+    /// so only the RESULTS are applied by this file:</para>
     ///
     /// <list type="number">
     /// <item><c>CharJudged</c> resolves the cell with
@@ -68,17 +70,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// seal's one combo break by hand, before those results, and marks the Misses combo-neutral so
     /// they cannot take it again.</item>
     /// <item><c>Mistyped</c> counts the mistype and, under <see cref="TypoRule.Deferred"/>, mirrors
-    /// the combo break by hand (<c>onMistyped</c>).</item>
+    /// the combo break by hand (<see cref="TypeBeatComboFeed.OnMistyped"/>).</item>
     /// <item>Fletcher's rush cap breaks combo on a judgement that is still a hit
-    /// (<c>onCharJudged</c>), and under <see cref="TypoRule.ImmediateMiss"/> a REJECTED key breaks
-    /// it (<c>onWrongKeyRejected</c>, which is where the break lived before backlog 109).</item>
+    /// (<see cref="TypeBeatComboFeed.OnCharJudged"/>), and under <see cref="TypoRule.ImmediateMiss"/>
+    /// a REJECTED key breaks it (<see cref="TypeBeatComboFeed.OnWrongKeyRejected"/>, which is where
+    /// the break lived before backlog 109).</item>
     /// <item><c>ComboRestored</c> puts back the streak a CORRECTED typo's keypress broke, under
-    /// <see cref="ComboRestoreRule.OnFix"/> only (<c>onComboRestored</c>, backlog 140), and WHICH
+    /// <see cref="ComboRestoreRule.OnFix"/> only (<see cref="TypeBeatComboFeed.OnComboRestored"/>, backlog 140), and WHICH
     /// break's streak that is follows <see cref="ComboClaimRule"/> (backlog 176).</item>
     /// <item><c>WordAbandoned</c> carries a word skip's one combo break by hand, and
     /// <c>AbandonSealed</c> marks the cells it gave up combo-neutral so the Misses they finally take
     /// cannot take that break a second time, under <see cref="WordSkipRule.Reclaimable"/> only
-    /// (<c>onWordAbandoned</c> / <c>onAbandonSealed</c>, backlog 167). <c>AbandonReclaimed</c> is
+    /// (<see cref="TypeBeatComboFeed.OnWordAbandoned"/> / <see cref="TypeBeatComboFeed.OnAbandonSealed"/>,
+    /// backlog 167). <c>AbandonReclaimed</c> is
     /// deliberately not wired: it carries health alone, and health is not simulated.</item>
     /// <item>An OFF-TIME press needs no seam at all under the live rule (backlog 199,
     /// <see cref="OffTimeRule"/>): it raises no <c>Mistyped</c> and no <c>ComboBroken</c>, and the
@@ -223,7 +227,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // The combo-restore rule is IMPLEMENTED in the engine (TypeBeatResultMapping
             // .FixRestoresTheComboBreak is read there and nowhere else), so setting it here is the
             // whole of the era gate: with it off no snapshot is ever taken, ComboRestored never
-            // fires, and the handler below is dead. That is deliberately the same shape the mods
+            // fires, and the feed's restore below is dead. That is deliberately the same shape the mods
             // use, and it is why live play and this cannot restore differently.
             engine.ComboRestore = comboRule;
 
@@ -246,21 +250,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
             // Same shape a third time (backlog 167): the reclaim is implemented inside
             // skipCurrentWord, so selecting it here is the whole of that era gate. With it off no
-            // cell ever enters the phantom state, so the three handlers below are dead and the skip
+            // cell ever enters the phantom state, so the feed's skip hooks are dead and the skip
             // misses its cells at the keypress exactly as a pre-167 client did.
             engine.WordSkip = skipRule;
 
             // Same shape a fourth time (backlog 199): what an off-time press costs the RUN is
             // implemented in the engine's one keypress arm, so selecting it here is half of that era
-            // gate. The other half is the osu RESULT, which onCharJudged passes the same rule to,
+            // gate. The other half is the osu RESULT, which applyCellResult passes the same rule to,
             // and the two have to be the same value or the engine's combo and the score processor's
             // would part company. Passing one variable to both is what makes that structural.
             engine.OffTime = offTimeRule;
 
             // Same shape a fifth time (backlog 210), and the tidiest of them: the correction cap is
-            // implemented in the engine's judging arms alone (TypeBeatResultMapping.AwardedTier),
+            // implemented in the engine's judging arms alone (EraRules.AwardedTier),
             // so selecting it here is the WHOLE of that era gate. Unlike the off-time axis it needs
-            // no companion at onCharJudged, because the cap moves the TIER the engine announces and
+            // no companion at applyCellResult, because the cap moves the TIER the engine announces and
             // CellResult is the identity on the three quality tiers: a capped cell arrives here as
             // an Ok and resolves as an Ok without this file knowing the rule exists.
             engine.CorrectionCredit = creditRule;
@@ -281,93 +285,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // Mods BEFORE the beatmap: ApplyBeatmap stores MaximumTotalScore, which is computed
             // through the score multiplier (ScoreProcessor.ApplyBeatmap's own note).
             scoreProcessor.Mods.Value = mods;
+            bool japaneseCharacterTiming = replay.Frames.OfType<TypeBeatReplayFrame>().FirstOrDefault(f => f.IsConfigExtended)?.JapaneseCharacterTiming == true;
+            bool japaneseInputScoring = replay.Frames.OfType<TypeBeatReplayFrame>().FirstOrDefault(f => f.IsConfigExtended)?.JapaneseInputScoring == true;
+            foreach (var cell in lineObjects.SelectMany(l => l.NestedHitObjects.OfType<TypeBeatCharObject>()))
+                cell.ConfigureJapaneseScoring(japaneseCharacterTiming, japaneseInputScoring);
             scoreProcessor.ApplyBeatmap(playable);
 
             var cells = new CellRegistry(lineObjects);
 
-            void onCharJudged(CharJudgement judgement)
+            // DrawableTypeBeatHitObject.ApplyCharJudgement: the same mapping the drawable calls, and
+            // the FIRST result on a cell wins.
+            void applyCellResult(CharJudgement judgement)
             {
                 if (TypeBeatResultMapping.CellResult(judgement.Type, rule, offTimeRule) is HitResult result)
-                    cells.Resolve(scoreProcessor, judgement.LineIndex, judgement.CellIndex, result);
-
-                // The pre-347 rush cap's hand-mirrored break (TypeBeatPlayfield.onCharJudged). Under
-                // RushCapCostsAccuracy an over-cap press is an ordinary Meh that credits combo on
-                // both accounts, so it never arrives here with ComboAfter == 0 and this is inert.
-                if (engine.FletcherEnabled && judgement.ComboAfter == 0)
-                    scoreProcessor.Combo.Value = 0;
+                    cells.Resolve(scoreProcessor, judgement.LineIndex, judgement.CellIndex, result, judgement.Phase,
+                        judgement.Inputs?.Select(i => TypeBeatResultMapping.CellResult(i.Type, rule, offTimeRule) ?? HitResult.Miss).ToArray(), judgement.Upgraded, judgement.Delta);
             }
 
-            // TypeBeatPlayfield.onLineSealed: the engine is the only thing that can tell a cell
-            // nobody typed from one left holding a wrong character, so the decision is made here and
-            // the registry only applies it.
-            //
-            // Under BackDatedSealBreak (backlog 259) the seal's one break no longer rides on those
-            // Miss results at all: it is mirrored by hand here, BEFORE them, as the run the engine is
-            // left holding, and the registry marks every seal miss combo-neutral so no result can
-            // take it a second time. Exactly the shape backlog 167 gave the word skip, and written
-            // here rather than inside the registry so the order (break, then results) is visible at
-            // the seam it belongs to.
-            void onLineSealed(LineSealResult sealResult)
-            {
-                if (engine.BackDatedSealBreak && sealResult.ComboBroken)
-                    scoreProcessor.Combo.Value = Math.Min(scoreProcessor.Combo.Value, sealResult.SurvivingCombo);
+            // TypeBeatPlayfield.applySealResults: every still-unresolved cell takes the result
+            // TypeBeatComboFeed.SealedCellResult decides (and marks), then the line its inert one.
+            // The feed has already written the seal's back-dated break when this runs.
+            void applySealResults(LineSealResult sealResult) => cells.Seal(scoreProcessor, sealResult.LineIndex, engine, rule);
 
-                cells.Seal(scoreProcessor, sealResult.LineIndex, engine, rule);
-            }
+            // The drawable layer's seams, through the very call TypeBeatPlayfield makes: every
+            // result-less combo write, the mistype count and the combo-neutral marks are
+            // TypeBeatComboFeed's, so the two cannot write combo differently. What is left here is
+            // the one thing the drawables own, applying the cell and line RESULTS. Health is the
+            // other half of several of these seams and is not simulated.
+            int consumed;
 
-            void onMistyped()
-            {
-                if (TypeBeatResultMapping.MistypeCarriesTheComboBreak(rule))
-                    scoreProcessor.Combo.Value = 0;
-
-                scoreProcessor.RecordMistype();
-            }
-
-            // TypeBeatPlayfield.onComboRestored: a corrected typo, or a reclaimed word skip, resumes
-            // the streak its break cost, mirrored by hand because no result carries it (backlog 140,
-            // widened by 167).
-            void onComboRestored(int streak) => scoreProcessor.RestoreCombo(streak);
-
-            // TypeBeatPlayfield.onWordAbandoned: the skip's one combo break, by hand, because under
-            // the live rule the cells it gave up resolve nothing at the skip (backlog 167). Health is
-            // the other half of that seam and is not simulated here.
-            void onWordAbandoned(AbandonedCells abandoned) => scoreProcessor.Combo.Value = 0;
-
-            // TypeBeatPlayfield.onAbandonSealed: the cells the player never came back for are about
-            // to take their Misses, and each one's break was taken at the skip, so the result must
-            // leave combo where it found it.
-            void onAbandonSealed(AbandonedCells abandoned)
-            {
-                foreach (int cellIndex in abandoned.CellIndices)
-                    scoreProcessor.MarkComboNeutral(abandoned.LineIndex, cellIndex);
-            }
-
-            // Pre-109 the break for a REJECTED key lived here, and a typed-through wrong char broke
-            // combo through the Miss its cell took. The mash-guard half of this seam is health only,
-            // which is not simulated.
-            void onWrongKeyRejected(char c)
-            {
-                if (!TypeBeatResultMapping.MistypeCarriesTheComboBreak(rule))
-                    scoreProcessor.Combo.Value = 0;
-            }
-
-            engine.CharJudged += onCharJudged;
-            engine.LineSealed += onLineSealed;
-            engine.Mistyped += onMistyped;
-            engine.WrongKeyRejected += onWrongKeyRejected;
-            engine.ComboRestored += onComboRestored;
-            engine.WordAbandoned += onWordAbandoned;
-            engine.AbandonSealed += onAbandonSealed;
-
-            int consumed = feed(engine, replay);
-
-            engine.CharJudged -= onCharJudged;
-            engine.LineSealed -= onLineSealed;
-            engine.Mistyped -= onMistyped;
-            engine.WrongKeyRejected -= onWrongKeyRejected;
-            engine.ComboRestored -= onComboRestored;
-            engine.WordAbandoned -= onWordAbandoned;
-            engine.AbandonSealed -= onAbandonSealed;
+            using (TypeBeatComboFeed.Attach(engine, () => scoreProcessor, rule, applyCellResult, applySealResults))
+                consumed = feed(engine, replay);
 
             var populated = new ScoreInfo { Ruleset = ruleset.RulesetInfo };
             scoreProcessor.PopulateScore(populated);
@@ -390,15 +338,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         }
 
         /// <summary>
-        /// The engine <c>DrawableTypeBeatRuleset.createEngine</c> would build for this beatmap,
-        /// plus the engine flags the mods set through <c>ApplyToDrawableRuleset</c>.
+        /// The engine <c>DrawableTypeBeatRuleset.createEngine</c> would build for this beatmap, with
+        /// every mod's engine settings applied through the same
+        /// <see cref="IApplicableToTypingEngine.ApplyToEngine"/> the live factory calls.
         /// <c>AllowWrongInput</c>, <c>SpaceSkipsWord</c>, <c>SyllableTiming</c>,
         /// <c>WrongInputOnWordGaps</c>, <c>StrictSpaces</c>, <c>CharTimedStretch</c>,
         /// <c>FlexibleLineSnap</c>, <c>BoundedRush</c>, <c>FirstCharTiming</c>,
         /// <c>BackDatedSealBreak</c>, <c>LosslessSkipReclaim</c>, <c>FoldsDisplacedClaim</c>,
-        /// <c>UnhalvedHardRockWindows</c> and <c>FirstLineLeadIn</c> are
-        /// deliberately NOT set from the mods or from any config: the replay's CONFIG frame carries
-        /// what the run was judged under and overwrites all fourteen, which is the only thing that judges
+        /// <c>UnhalvedHardRockWindows</c>, <c>ManualNewlines</c>, <c>NewlineOnTypedLetter</c> and
+        /// <c>FirstLineLeadIn</c>, and every era on the extended frame's second word, are
+        /// deliberately NOT decided by the mods or by any config: the replay's CONFIG frames carry
+        /// what the run was judged under and overwrite every one of them, including the few a mod
+        /// writes first, Gatekeeper's, Hard Rock's and Fletcher's (see
+        /// <see cref="ReplayEngineFeed.Apply"/> and the bit table it walks,
+        /// <see cref="ReplayEraBits"/>), which is the only thing that judges
         /// a pre-Gatekeeper strict run right. The one flag the frame cannot carry is which MODS the
         /// score holds, so <c>HardRockFromMod</c> (like <c>FlexibleCaretFromMod</c>) IS set here, and
         /// the engine pairs it with the frame's era bit.
@@ -443,9 +396,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // re-derives on syllable spans, which is what it was played on.
             //
             // A HARD ROCK replay is the one live run that carries the bit CLEAR (backlog 180: HR
-            // reverts the judgement rule, so a press is graded on its own character target). It
-            // still needs no arm here, and deliberately: the frame already says so, and adding a
-            // mod check would give the same run two answers that could disagree.
+            // reverts the judgement rule, so a press is graded on its own character target). The
+            // mod's own ApplyToEngine (below) writes the bit clear as well, which is the engine
+            // default anyway, and the frame overwrites it, so the same run cannot get two answers
+            // that disagree.
             //
             // WrongInputOnWordGaps (backlog 181) is not selected here either, for exactly the same
             // reasons: it travels in the CONFIG frame (bit 3), the engine default is the classic
@@ -508,122 +462,59 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // selects it, and this builder chooses neither arm. AuthoredSyllablesOnly (bit 2,
             // backlog 363) is the third, on the same terms: the lines carry both groupings and the
             // replay's own header picks one.
-
-            // Every window-scaling mod MULTIPLIES its factor in, never assigns it (see
-            // TypingEngine.WindowScale), so the arms below compose in any order. A replay carries
-            // KEYSTROKES and is re-judged from scratch, so missing any one of them would re-grade a
-            // stored run on a ladder it was never played on.
             //
-            // EASY IS NOT ERA-DEPENDENT, and deliberately has no switch. It shipped in this release
-            // (backlog 149), so no stored row predates it: there is no era in which its arm should
-            // be off, and adding a switch would be a dead one that a later reader would have to
-            // prove dead all over again. Both halves of the arm travel together and always have:
-            // the doubled window scale AND the word-level shelter it draws the span rule around
-            // (TypingEngine.WordShelter), so a re-derivation measures each press against the same
-            // span the live run did.
-            if (mods.Any(m => m is TypeBeatModEasy))
-            {
-                engine.WindowScale *= TypeBeatModEasy.WINDOW_SCALE;
-                engine.WordShelter = true;
-            }
+            // This list stops there. The bits since (AlignSubdivisionTargets, EarlyFinish, the four
+            // Japanese eras and KeyTimeJudgement on the second word, and ManualNewlines and
+            // NewlineOnTypedLetter on the first) are on the same terms, and the complete set is the
+            // bit table, ReplayEraBits, which ReplayEngineFeed.Apply walks.
+            // KeyTimeJudgement selects nothing at all here: it says which instant the frames were
+            // stamped at, and a frame is fed at its own time on either arm.
 
-            // HARD ROCK IS THE EXCEPTION, and since backlog 264 it is not a window arm here at all.
-            // The halving backlog 150 shipped was retired live (the mod is now the judgement revert
-            // alone, at normal windows), but the rows already on the leaderboards were played under
-            // it, so the ladder a re-derivation gets depends on WHEN the run was recorded. That era
-            // cannot be read off the mod list, so it travels in the replay itself, on CONFIG frame
-            // bit 13, and ReplayEngineFeed.Apply sets TypingEngine.UnhalvedHardRockWindows from it
-            // before a keystroke is judged. All this arm can say is the half the frame cannot: that
-            // HR was on the score. The engine multiplies the two together.
+            // EVERY MOD'S ENGINE SETTINGS COME FROM THE MOD ITSELF (IApplicableToTypingEngine), the
+            // same code DrawableTypeBeatRuleset.createEngine runs for a live play, so a judgement mod
+            // cannot reach one factory and miss the other. A replay carries KEYSTROKES and is
+            // re-judged from scratch, so a missing mod would re-grade every stored run of it on rules
+            // it was never played on. What the mods write here:
             //
-            // Assignment and not a multiply, deliberately: the CONFIG frame is re-fed on every
-            // backwards seek, so a WindowScale *= reachable from the feed would compound (see
-            // TypingEngine.UnhalvedHardRockWindows). The engine's default is the HALVED era, which
-            // is what every stored HR row means and what a replay with no CONFIG frame at all must
-            // re-derive under.
-            engine.HardRockFromMod = mods.Any(m => m is TypeBeatModHardRock);
-
-            // PUPPETEER (backlog 256) is a third fixed-scale arm on the same terms as the two above,
-            // and NOT part of the ModRateAdjust loop below: its rate is a function of how the player
-            // types, but the scale it applies is one constant set before the first keypress, which is
-            // exactly what this seam can express. Under strict following the song meets the caret by
-            // construction, so timing carries no signal and every press on the right character is a
-            // Great; miss this arm and a stored Puppeteer replay re-derives with the model's own
-            // steady-state lag re-read as the player being early. It ships for the first time in this
-            // release, so no stored row can carry the acronym and there is no era in which the arm
-            // should be off.
+            // - Window scales, MULTIPLIED in so they compose in any order (see
+            //   TypingEngine.WindowScale): Easy (with its word shelter), Puppeteer (with its rush-cap
+            //   exemption, a mod flag and not an era) and the four rate mods. Easy and Puppeteer are
+            //   not era-dependent: no stored row predates either, so there is no era in which their
+            //   arm should be off.
+            // - Mod facts the CONFIG frame cannot carry, because a score's mods travel on the score:
+            //   HardRockFromMod (paired with the frame's bit 13 by the engine, an assignment and not a
+            //   multiply, since the CONFIG frame is re-fed on every backwards seek) and
+            //   FlexibleCaretFromMod for the retired FT mod (its frames carry bit 5 clear, and Apply
+            //   ORs this into the caret while still taking the snap from the bit).
+            // - Mod-only flags no CONFIG bit carries: Mashing and Dyslexia.
+            // - Flags the CONFIG frame DOES carry (Gatekeeper's wrong-input model, Hard Rock's point
+            //   targets, Fletcher's pinned caret).
             //
-            // Since backlog 261 the same arm also exempts the RUSH CAP, on the same terms and for a
-            // reason of the same shape: under strict following the playhead is the TAPE, which is
-            // walled at the preset's ceiling, so a player faster than the wall opens an unbounded
-            // character lead and the cap breaks a combo on presses it is still judging Great. It is a
-            // MOD flag and not an era (see TypingEngine.RushCapExempt), so it belongs here in the mod
-            // list rather than in a CONFIG bit, and it has to be here as well as at the live seam or
-            // a rescore would report a lower max combo than the run the player finished.
+            // THE ORDER IS THE RULE: the mods write first, here, and a CONFIG frame, when the replay
+            // has one, is fed afterwards and overwrites every era it carries, so for a recorded run
+            // the frames and not the mod list decide those flags. A replay with NO CONFIG frame (a
+            // bare stream, or autoplay's lone extended header) is therefore re-derived with the
+            // mods' values on them rather than the engine defaults: under Gatekeeper that is
+            // AllowWrongInput false where the default is true (Hard Rock's and Fletcher's writes
+            // equal the defaults). No recorded run lacks the frame, because the recorder writes it
+            // before the first keystroke, so this decides only synthetic and autoplay streams;
+            // EngineModWiringTest pins it.
             //
-            // PuppeteerReplayTransform's scratch engine is built by THIS method, so its co-simulation
-            // picks both arms up with no line of its own: the engine it reads arms off is the engine
-            // that judges the derived frames, which is exactly why it calls this rather than copying
-            // it.
-            if (mods.Any(m => m is TypeBeatModPuppeteer))
-            {
-                engine.WindowScale *= TypeBeatModPuppeteer.WINDOW_SCALE;
-                engine.RushCapExempt = true;
-            }
-
-            // The rate mods scale the windows by the CLOCK RATE so the real-time tolerance is
-            // constant (backlog 150). Matched on ModRateAdjust, the base the ruleset's four rate
-            // mods share and the same set that carries the live ApplyToDrawableRuleset seam
-            // (pinned by TypeBeatRateModTest); the rate is read off the mod's own user-adjustable
-            // SpeedChange, never a hardcoded 1.50 / 0.75. Wind Up / Wind Down are deliberately not
-            // here: a ramp's rate is a function of time, which one scale set before the first
-            // keypress cannot express, and both are unranked at every configuration.
+            // The rate mods are the one arm with an era switch: DT / NC / HT / DC have been ranked
+            // for the whole life of the score table, so every stored rate row was judged on windows
+            // fixed in beatmap milliseconds. Under RateWindowRule.Unscaled they are skipped, which is
+            // exactly what a pre-150 client did. The rate is the mod's own user-adjustable
+            // SpeedChange, and Wind Up / Wind Down are deliberately not among them: a ramp's rate is
+            // a function of time, which one scale set before the first keypress cannot express.
             //
-            // Unlike the two above, this one DOES need an era switch: DT / NC / HT / DC have been ranked
-            // mods for the whole life of the score table, so every stored rate row was judged on
-            // windows fixed in beatmap milliseconds. Under RateWindowRule.Unscaled the loop is
-            // skipped entirely, which is exactly what a pre-150 client did.
-            if (TypeBeatResultMapping.RateScalesTheWindows(rateRule))
-            {
-                foreach (var mod in mods)
-                {
-                    if (mod is ModRateAdjust rateAdjust)
-                        engine.WindowScale *= rateAdjust.SpeedChange.Value;
-                }
-            }
-
-            // BoundedRush (backlog 218, CONFIG frame bit 7) is the fifth, and it is a CARET era
-            // rather than a judgement one: the default is the unbounded roll every stored replay was
-            // played with (finish a line and you are on the next one however far off its cue it is),
-            // and the bit is set for every live stack, inert wherever the caret is pinned.
-
-            // FletcherEnabled and FlexibleLineSnap are NOT selected from TypeBeatModFletcher, and
-            // that is the whole shape of backlog 208's flip: the mod named Fletcher now PINS the
-            // caret, which is this engine's default, so it needs no arm at all. The unpinned caret
-            // travels in the CONFIG frame (bit 5), which ReplayEngineFeed.Apply reads, exactly like
-            // the four era bits above.
+            // PuppeteerReplayTransform's scratch engine is built by THIS method, so its
+            // co-simulation picks every arm up with no line of its own.
             //
-            // The one arm that IS needed is the retired "FT" mod, because it is the only thing a
-            // stored score can carry that means "unpinned caret, and NO line-start snap": the bit
-            // did not exist when those runs were recorded, so their frames say clear, and clear on
-            // its own means pinned. Apply ORs this in for the caret and still takes the snap
-            // straight from the bit, so an FT run re-derives the way it was played.
-            if (mods.Any(m => m is TypeBeatModLegacyFletcher))
-            {
-                engine.FletcherEnabled = true;
-                engine.FlexibleCaretFromMod = true;
-            }
-
-            if (mods.Any(m => m is TypeBeatModMashing))
-                engine.MashingEnabled = true;
-
-            // DYSLEXIA (backlog 231), on the same terms as Mashing above and for the same reason: it
-            // is a MOD and not an era, so no CONFIG bit carries it and this list is the only thing
-            // that can say a run was played with the letters of a word arriving in any order. Miss
-            // this arm and a stored Dyslexia replay re-derives with every out-of-order press re-read
-            // as a typo, which is a different account of the same fingers.
-            if (mods.Any(m => m is TypeBeatModDyslexia))
-                engine.AnyOrderWithinWord = true;
+            // BoundedRush (backlog 218, CONFIG frame bit 7) is another of the frame-selected eras
+            // above (left out of their count when it was written), and it is a CARET era rather
+            // than a judgement one: the default is the unbounded roll every stored replay was played
+            // with, and the bit is set for every live stack, inert wherever the caret is pinned.
+            TypingEngineMods.Apply(engine, mods, TypeBeatResultMapping.RateScalesTheWindows(rateRule));
 
             return engine;
         }
@@ -688,18 +579,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                     var line = new LineCells(lineObject);
 
                     foreach (var nested in lineObject.NestedHitObjects.OfType<TypeBeatCharObject>())
-                        line.Cells[nested.CellIndex] = new Cell(nested);
+                        line.Cells[(nested.CellIndex, nested.Phase)] = new Cell(nested);
 
                     lines[lineObject.LineIndex] = line;
                 }
             }
 
-            public void Resolve(ScoreProcessor scoreProcessor, int lineIndex, int cellIndex, HitResult result)
+            public void Resolve(ScoreProcessor scoreProcessor, int lineIndex, int cellIndex, HitResult result, int phase = 0, IReadOnlyList<HitResult>? inputs = null, bool upgraded = false, double? delta = null)
             {
-                if (!lines.TryGetValue(lineIndex, out var line) || !line.Cells.TryGetValue(cellIndex, out var cell))
+                if (!lines.TryGetValue(lineIndex, out var line) || !line.Cells.TryGetValue((cellIndex, phase), out var cell))
                     return;
 
-                cell.Apply(scoreProcessor, result);
+                cell.Apply(scoreProcessor, result, inputs, upgraded, delta);
             }
 
             public void Seal(ScoreProcessor scoreProcessor, int lineIndex, TypingEngine engine, TypoRule rule)
@@ -707,23 +598,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                 if (!lines.TryGetValue(lineIndex, out var line))
                     return;
 
-                foreach ((int cellIndex, var cell) in line.Cells)
+                foreach ((var key, var cell) in line.Cells)
                 {
                     if (cell.Judged)
                         continue;
 
-                    var result = TypeBeatResultMapping.UnresolvedCellResult(engine.CellLeftWrong(lineIndex, cellIndex), rule);
-
-                    // A MISS joins the unfixed typo on the combo-neutral ledger under backlog 259's
-                    // rule, for the same reason the typo is on it: its break has already been taken
-                    // by hand, at the seal's own seam, back-dated to the cells it belongs to.
-                    bool neutral = result == TypeBeatResultMapping.UNFIXED_TYPO
-                                   || (engine.BackDatedSealBreak && result == TypeBeatResultMapping.SEAL_MISS);
-
-                    if (neutral && scoreProcessor is TypeBeatScoreProcessor typeBeatProcessor)
-                        typeBeatProcessor.MarkComboNeutral(lineIndex, cellIndex);
-
-                    cell.Apply(scoreProcessor, result);
+                    cell.Apply(scoreProcessor, cell.Enabled ? TypeBeatComboFeed.SealedCellResult(scoreProcessor, engine, lineIndex, key.Cell, rule) : HitResult.IgnoreHit);
                 }
 
                 line.Apply(scoreProcessor, TypeBeatResultMapping.LINE_RESULT);
@@ -738,7 +618,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             /// combo it finds. Ascending cell order is what
             /// <c>DrawableTypeBeatHitObject.ApplySealResults</c> walks, and the two have to agree.
             /// </summary>
-            public readonly SortedDictionary<int, Cell> Cells = new SortedDictionary<int, Cell>();
+            public readonly SortedDictionary<(int Cell, int Phase), Cell> Cells = new SortedDictionary<(int Cell, int Phase), Cell>();
 
             private readonly Slot slot = new Slot(lineObject);
 
@@ -747,12 +627,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
         private sealed class Cell(TypeBeatCharObject charObject)
         {
+            public bool Enabled => charObject.ScoringEnabled;
             private readonly Slot slot = new Slot(charObject);
 
             /// <summary><c>DrawableHitObject.Judged</c>: this cell has already taken its one result.</summary>
             public bool Judged => slot.Judged;
 
-            public void Apply(ScoreProcessor scoreProcessor, HitResult result) => slot.Apply(scoreProcessor, result);
+            public void Apply(ScoreProcessor scoreProcessor, HitResult result, IReadOnlyList<HitResult>? inputs = null, bool upgraded = false, double? delta = null) => slot.Apply(scoreProcessor, result, inputs, upgraded, delta);
         }
 
         /// <summary>
@@ -762,19 +643,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// </summary>
         private sealed class Slot(HitObject hitObject)
         {
-            private readonly JudgementResult result = new JudgementResult(hitObject, hitObject.Judgement);
+            private readonly TypeBeatJapaneseJudgementResult result = new TypeBeatJapaneseJudgementResult(hitObject, hitObject.Judgement);
 
             private bool judged;
 
             public bool Judged => judged;
 
-            public void Apply(ScoreProcessor scoreProcessor, HitResult hitResult)
+            public void Apply(ScoreProcessor scoreProcessor, HitResult hitResult, IReadOnlyList<HitResult>? inputs = null, bool upgraded = false, double? delta = null)
             {
                 if (judged)
+                {
+                    if (upgraded && scoreProcessor is TypeBeatScoreProcessor processor)
+                        processor.UpdateCellResult(result, hitResult, delta, inputs);
                     return;
+                }
 
                 judged = true;
                 result.Type = hitResult;
+                result.InputResults = inputs;
+                result.JudgedTimeOffset = delta;
                 scoreProcessor.ApplyResult(result);
             }
         }
