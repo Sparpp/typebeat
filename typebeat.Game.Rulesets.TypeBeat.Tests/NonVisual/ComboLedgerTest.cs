@@ -17,7 +17,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     {
         private static readonly ComboLedger.ClaimRules live = new ComboLedger.ClaimRules(
             ComboRestoreRule.OnFix, ComboClaimRule.StreakedBreakWins, SkipSpaceCreditRule.NotAStreakOfItsOwn,
-            LosslessSkipReclaim: true, FoldsDisplacedClaim: true);
+            LosslessSkipReclaim: true, FoldsDisplacedClaim: true, StacksDisplacedClaims: true);
 
         private static ComboLedger runOf(int length, int line = 0)
         {
@@ -194,6 +194,81 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 Assert.That(ledger.Redeem(0, 4), Is.Zero);
                 Assert.That(ledger.Redeem(0, 7), Is.EqualTo(2), "only the owning break's own streak comes back");
+            });
+        }
+
+        [Test]
+        public void ADisplacedClaimIsStackedUnderTheBitAndFoldedWithoutIt()
+        {
+            var folded = runOf(4);
+            var pre422 = live with { StacksDisplacedClaims = false };
+
+            folded.SnapshotRedeemableBreak(0, 4, 4, folded.Break(), pre422);
+            folded.Credit(0, 5);
+            folded.Credit(0, 6);
+            folded.SnapshotRedeemableBreak(0, 7, 2, folded.Break(), pre422);
+
+            var stacked = runOf(4);
+
+            stacked.SnapshotRedeemableBreak(0, 4, 4, stacked.Break(), live);
+            stacked.Credit(0, 5);
+            stacked.Credit(0, 6);
+            stacked.SnapshotRedeemableBreak(0, 7, 2, stacked.Break(), live);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(folded.Redeem(0, 7), Is.EqualTo(6), "backlog 262: the newer cell redeems both, the older one uncorrected");
+                Assert.That(stacked.Redeem(0, 7), Is.EqualTo(2), "backlog 422: only the run its own break broke");
+                Assert.That(stacked.HasClaim, Is.True, "the older claim is back on top, waiting for its own cell");
+                Assert.That(stacked.Redeem(0, 4), Is.EqualTo(4), "and it pays when that cell is corrected");
+                Assert.That(stacked.Combo, Is.EqualTo(6));
+                Assert.That(stacked.RunLength, Is.EqualTo(stacked.Combo), "one position per increment through both refunds");
+            });
+        }
+
+        [Test]
+        public void CorrectingADisplacedCellJoinsItsRunToTheNextNewerClaim()
+        {
+            var ledger = runOf(3);
+
+            ledger.SnapshotRedeemableBreak(0, 3, 3, ledger.Break(), live); // A: 3
+            ledger.Credit(0, 4);
+            ledger.Credit(0, 5);
+            ledger.SnapshotRedeemableBreak(0, 6, 2, ledger.Break(), live); // B: 2
+            ledger.Credit(0, 7);
+            ledger.SnapshotRedeemableBreak(0, 8, 1, ledger.Break(), live); // C: 1
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(ledger.Redeem(0, 3), Is.Zero, "B is still broken, so A's run joins B's rather than the current run");
+                Assert.That(ledger.Redeem(0, 8), Is.EqualTo(1), "C pays only its own run");
+                Assert.That(ledger.Redeem(0, 6), Is.EqualTo(5), "B pays its own 2 and the 3 A joined to it");
+                Assert.That(ledger.Combo, Is.EqualTo(6));
+                Assert.That(ledger.RunLength, Is.EqualTo(6));
+                Assert.That(ledger.HasClaim, Is.False);
+            });
+        }
+
+        [Test]
+        public void DroppingADisplacedClaimDropsEveryOlderOneAndKeepsTheNewer()
+        {
+            var ledger = runOf(3, line: 0);
+
+            ledger.SnapshotRedeemableBreak(0, 3, 3, ledger.Break(), live); // A on line 0
+            ledger.Credit(1, 0);
+            ledger.SnapshotRedeemableBreak(1, 1, 1, ledger.Break(), live); // B on line 1
+            ledger.Credit(2, 0);
+            ledger.Credit(2, 1);
+            ledger.SnapshotRedeemableBreak(2, 2, 2, ledger.Break(), live); // C on line 2
+
+            ledger.DropClaimOn(1);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(ledger.HasClaim, Is.True, "C is newer than the sealed line's claim");
+                Assert.That(ledger.Redeem(1, 1), Is.Zero, "B went with its line");
+                Assert.That(ledger.Redeem(2, 2), Is.EqualTo(2), "C pays its own run");
+                Assert.That(ledger.HasClaim, Is.False, "and A, older than B, went with it: its run could only ever have joined through B");
             });
         }
 

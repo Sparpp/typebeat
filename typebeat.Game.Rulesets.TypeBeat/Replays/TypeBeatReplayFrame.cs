@@ -239,6 +239,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// Japanese Polyglot presses contain raw romaji, including accepted partial prefixes and
     /// backspaces. The engine converts completed readings to the unchanged original-script cells.
     /// With this bit absent, frames are committed characters as before this input processor.</para>
+    ///
+    /// <para><b>Second word, bit 14 (value 16384): <see cref="StacksDisplacedClaims"/>.</b> A break
+    /// that displaces an older break's claim keeps it below its own instead of folding it in, so a
+    /// correction refunds only the run its own break broke and a claim whose line sealed is dropped
+    /// (backlog 422, see <c>TypingEngine.StacksDisplacedClaims</c>). Absent on existing replays,
+    /// which re-derive with the first word's bit 12 fold.</para>
     /// </summary>
     public class TypeBeatReplayFrame : ReplayFrame, IConvertibleReplayFrame
     {
@@ -600,6 +606,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// <summary>Extended bit 13: BestRetypeJudgement input/scoring era.</summary>
         public bool BestRetypeJudgement;
 
+        /// <summary>
+        /// Extended bit 14 (value 16384): displaced combo claims were stacked rather than folded, so a
+        /// correction refunded only its own break's run (see
+        /// <see cref="Gameplay.TypingEngine.StacksDisplacedClaims"/>). Absent on existing replays.
+        /// </summary>
+        public bool StacksDisplacedClaims;
+
 
 
         /// <summary>
@@ -694,7 +707,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// Parameters are append-only and named, as <see cref="CreateConfigFrame"/>'s are; each one
         /// defaults to clear, which is what a replay with no extended frame decodes to.
         /// </summary>
-        public static TypeBeatReplayFrame CreateExtendedConfigFrame(double time, bool rushCapCostsAccuracy = false, bool inputEra2 = false, bool authoredSyllablesOnly = false, bool alignSubdivisionTargets = false, bool earlyFinish = false, bool japaneseRomajiInput = false, bool japaneseWordTiming = false, bool japaneseInputEra2 = false, bool japaneseInputEra3 = false, bool keyTimeJudgement = false, bool japaneseCharacterTiming = false, bool japaneseInputScoring = false, bool japaneseKanaInput = false, bool bestRetypeJudgement = false) => new TypeBeatReplayFrame(time, CONFIG_EXTENDED)
+        public static TypeBeatReplayFrame CreateExtendedConfigFrame(double time, bool rushCapCostsAccuracy = false, bool inputEra2 = false, bool authoredSyllablesOnly = false, bool alignSubdivisionTargets = false, bool earlyFinish = false, bool japaneseRomajiInput = false, bool japaneseWordTiming = false, bool japaneseInputEra2 = false, bool japaneseInputEra3 = false, bool keyTimeJudgement = false, bool japaneseCharacterTiming = false, bool japaneseInputScoring = false, bool japaneseKanaInput = false, bool bestRetypeJudgement = false, bool stacksDisplacedClaims = false) => new TypeBeatReplayFrame(time, CONFIG_EXTENDED)
         {
             EarlyFinish = earlyFinish,
             RushCapCostsAccuracy = rushCapCostsAccuracy,
@@ -710,6 +723,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             JapaneseInputScoring = japaneseInputScoring,
             JapaneseKanaInput = japaneseKanaInput,
             BestRetypeJudgement = bestRetypeJudgement,
+            StacksDisplacedClaims = stacksDisplacedClaims,
 
         };
 

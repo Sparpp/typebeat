@@ -250,6 +250,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
 
             bit(EraWord.ConfigExtended, 1 << 13, nameof(TypeBeatReplayFrame.BestRetypeJudgement), f => f.BestRetypeJudgement, (f, v) => f.BestRetypeJudgement = v,
                 e => e.BestRetypeJudgement, (e, v) => e.BestRetypeJudgement = v),
+
+            // Second word, bit 14: a break displacing an older break's claim stacked it rather than
+            // folding it in, so each correction refunded only its own break's run (backlog 422).
+            bit(EraWord.ConfigExtended, 1 << 14, nameof(TypeBeatReplayFrame.StacksDisplacedClaims), f => f.StacksDisplacedClaims, (f, v) => f.StacksDisplacedClaims = v,
+                e => e.StacksDisplacedClaims, (e, v) => e.StacksDisplacedClaims = v),
         };
 
         private static readonly ReplayEraBit[] config_bits = ALL.Where(b => b.Word == EraWord.Config).ToArray();

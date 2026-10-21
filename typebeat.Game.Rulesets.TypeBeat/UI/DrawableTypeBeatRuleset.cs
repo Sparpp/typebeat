@@ -368,6 +368,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // total_score those runs were submitted with.
                 FoldsDisplacedClaim = true,
 
+                // AN UNCORRECTED ACCIDENT IS NOT REFUNDED BY CORRECTING A LATER ONE (backlog 422),
+                // unconditional for every mod stack: the fold above credited the displaced claim
+                // whether or not its cell was ever fixed, so a typo left wrong on a sealed line came
+                // back with the next line's correction. Displaced claims are now stacked and each
+                // waits for its own cell; both corrected still cost nothing. An ERA flag on bit 14
+                // of the second CONFIG word, because every replay recorded before it holds folds.
+                StacksDisplacedClaims = true,
+
                 // THE LIVE CARET SINCE BACKLOG 208, for every stack except the pinning mod's. The
                 // three freedoms that shipped as the "FT" mod (open the next line the moment you
                 // finish one, keep a line the song has left, character distance instead of a timing
