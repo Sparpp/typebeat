@@ -8,9 +8,11 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using osu.Framework.Localisation;
 using typebeat.Game.Beatmaps;
+using typebeat.Game.Replays;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
+using typebeat.Game.Rulesets.TypeBeat.Replays;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Mods
 {
@@ -39,10 +41,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// shortest accepted romaji input for Japanese. Other scripts retain romanized SR and have no pp. Supported pace statistics count required inputs.</para>
     ///
     /// <para>A MOD, not an ERA: a replay is identified as a Polyglot play by the mod in its score, and
-    /// no CONFIG frame bit is spent on the mod itself. Extended bit 4 separately records the
+    /// no CONFIG frame bit is spent on the mod itself. Extended bit 5 separately records the
     /// Japanese romaji input era so older committed-text Polyglot replays stay unchanged.</para>
+    ///
+    /// <para>THE JAPANESE SPACE ERA (backlog 415). Since extended bit 8 an original-script space
+    /// between Japanese words is joined away; a replay recorded without the bit was played on cells
+    /// that kept it. That changes the CELL LIST, which the nested scoring objects are built from with
+    /// the playable beatmap, so it cannot be applied from the replay header like the other eras: the
+    /// replay is read before the beatmap is built (<see cref="ApplyToStoredReplay"/>, called by the
+    /// player), and <see cref="LegacyJapaneseSpaces"/> is stamped on the line objects with
+    /// <see cref="TypeBeatHitObject.Polyglot"/>. No new bit: bit 8 and the join shipped together.</para>
     /// </summary>
-    public class TypeBeatModPolyglot : Mod, IApplicableAfterBeatmapConversion
+    public class TypeBeatModPolyglot : Mod, IApplicableAfterBeatmapConversion, IApplicableToStoredReplay
     {
         public override string Name => "Polyglot";
 
@@ -120,6 +130,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
             return LyricOriginals.RomanisationLanguage(beatmap.BeatmapInfo.Metadata.Language, originals);
         }
 
+        /// <summary>
+        /// Whether the beatmap is built for a replay recorded before the Japanese space join (see the
+        /// class summary). Not a setting and never serialised: false for every live play, set only by
+        /// <see cref="ApplyToStoredReplay"/> (or a headless caller) on the mod instance the playable
+        /// beatmap is built with. A <see cref="Mod.DeepClone"/> does not carry it.
+        /// </summary>
+        public bool LegacyJapaneseSpaces { get; set; }
+
+        public void ApplyToStoredReplay(Replay replay) => LegacyJapaneseSpaces = LegacyJapaneseSpacesFor(replay);
+
+        /// <summary>
+        /// Whether <paramref name="replay"/> was recorded before the Japanese space join: its first
+        /// extended CONFIG frame does not carry extended bit 8, or it has none.
+        /// </summary>
+        public static bool LegacyJapaneseSpacesFor(Replay replay)
+            => replay.Frames.OfType<TypeBeatReplayFrame>().FirstOrDefault(f => f.IsConfigExtended)?.JapaneseInputEra3 != true;
+
         public void ApplyToBeatmap(IBeatmap beatmap)
         {
             string? language = LanguageFor(beatmap);
@@ -128,6 +155,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
             {
                 line.Polyglot = true;
                 line.PolyglotLanguage = language;
+                line.LegacyJapaneseSpaces = LegacyJapaneseSpaces;
             }
         }
     }

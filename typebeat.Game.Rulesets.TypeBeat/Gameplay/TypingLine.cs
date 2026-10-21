@@ -775,19 +775,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// syllable cuts be carried back onto the original.</param>
         /// <param name="alignSubdivisionTargets">The target era (see <see cref="FromLyricLine"/>).</param>
         /// <param name="japaneseWordTiming">Ignore romanised subdivisions within Japanese words.</param>
-        public static TypingLine ForMods(LyricLine line, bool literate, bool polyglot, string? language, bool alignSubdivisionTargets = false, bool japaneseWordTiming = true, bool japaneseCharacterTiming = false)
+        /// <param name="legacyJapaneseSpaces">The Japanese SPACE era of a replay recorded without
+        /// extended bit 8 (see <see cref="PolyglotLine.Derive"/>). Unlike the timing eras it changes
+        /// the CELL LIST, so it is fixed here, at construction, and every era swap keeps it.</param>
+        public static TypingLine ForMods(LyricLine line, bool literate, bool polyglot, string? language, bool alignSubdivisionTargets = false, bool japaneseWordTiming = true, bool japaneseCharacterTiming = false,
+                                         bool legacyJapaneseSpaces = false)
         {
             if (!polyglot)
                 return FromLyricLine(line, literate, alignSubdivisionTargets);
 
-            var derived = PolyglotLine.Derive(line, language, japaneseWordTiming, japaneseCharacterTiming);
+            var derived = PolyglotLine.Derive(line, language, japaneseWordTiming, japaneseCharacterTiming, legacyJapaneseSpaces);
             var result = withTargetEra(build(derived.Line, literate, CellRules.Polyglot, derived.NaturalSplits, derived.RawCluster), alignSubdivisionTargets);
             result.japanese = JapaneseReading.IsJapanese(language);
             result.japaneseAuthoredLine = line;
             result.japaneseWordTiming = japaneseWordTiming;
             result.japaneseCharacterTiming = japaneseCharacterTiming;
             if (result.japanese)
-                result.japaneseTimingFactory = (wordTiming, characterTiming) => ForMods(line, literate, true, language, japaneseWordTiming: wordTiming, japaneseCharacterTiming: characterTiming);
+                result.japaneseTimingFactory = (wordTiming, characterTiming) => ForMods(line, literate, true, language, japaneseWordTiming: wordTiming, japaneseCharacterTiming: characterTiming,
+                    legacyJapaneseSpaces: legacyJapaneseSpaces);
             result.configureJapaneseEndpoints();
             return result;
         }

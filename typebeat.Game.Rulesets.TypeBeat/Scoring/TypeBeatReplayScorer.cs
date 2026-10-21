@@ -215,6 +215,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             for (int i = 0; i < lineObjects.Count; i++)
                 lineObjects[i].LineIndex = i;
 
+            alignJapaneseSpaceEra(playable, lineObjects, mods, replay);
+
             // THE FRAME AXIS comes first, before an engine exists and before a frame is fed
             // (backlog 256). A Puppeteer run stores WALL stamps, not lyric times, and its track
             // times are re-derived by re-running the tape model; keyed on the CONFIG frame's own
@@ -338,6 +340,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         }
 
         /// <summary>
+        /// THE JAPANESE SPACE ERA (backlog 415), a CELL LIST era: a Japanese Polyglot replay recorded
+        /// without extended bit 8 was played on cells that kept the authored original-script spaces
+        /// between words, and its line objects have to be built that way (see
+        /// <see cref="TypeBeatModPolyglot.LegacyJapaneseSpaces"/>). The player builds the watched
+        /// beatmap with the replay in hand; a headless caller hands this a playable built without
+        /// it, so a line object stamped for the other era is restamped here and its nested objects
+        /// rebuilt (<see cref="HitObject.ApplyDefaults"/>, which is what built them), before the
+        /// engine, the Puppeteer transform and the score processor read them. Every playable built
+        /// for the replay's own era, which is every live-era replay, is left untouched.
+        /// </summary>
+        private static void alignJapaneseSpaceEra(IBeatmap playable, IReadOnlyList<TypeBeatHitObject> lineObjects, IReadOnlyList<Mod> mods, Replay replay)
+        {
+            if (!mods.Any(m => m is TypeBeatModPolyglot))
+                return;
+
+            bool legacy = TypeBeatModPolyglot.LegacyJapaneseSpacesFor(replay);
+
+            foreach (var line in lineObjects)
+            {
+                if (line.LegacyJapaneseSpaces == legacy || !JapaneseReading.IsJapanese(line.PolyglotLanguage))
+                    continue;
+
+                line.LegacyJapaneseSpaces = legacy;
+                line.ApplyDefaults(playable.ControlPointInfo, playable.Difficulty);
+            }
+        }
+
+        /// <summary>
         /// The engine <c>DrawableTypeBeatRuleset.createEngine</c> would build for this beatmap, with
         /// every mod's engine settings applied through the same
         /// <see cref="IApplicableToTypingEngine.ApplyToEngine"/> the live factory calls.
@@ -385,7 +415,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // POLYGLOT (backlog 331) is identified by the mod in the score, like Literate: no era bit.
             bool polyglot = mods.Any(m => m is TypeBeatModPolyglot);
 
-            var engine = new TypingEngine(lyricBeatmap, literate, polyglot, polyglot ? TypeBeatModPolyglot.LanguageFor(playable) : null);
+            // The Japanese SPACE era (backlog 415) is read off the stamp the nested objects were built
+            // from, exactly as the live factory reads it (see alignJapaneseSpaceEra in Score).
+            bool legacyJapaneseSpaces = polyglot && lineObjects.Any(h => h.LegacyJapaneseSpaces);
+
+            var engine = new TypingEngine(lyricBeatmap, literate, polyglot, polyglot ? TypeBeatModPolyglot.LanguageFor(playable) : null, legacyJapaneseSpaces);
 
             // SyllableTiming is NOT selected here, and deliberately not: it is the one era axis
             // that travels in the replay itself (CONFIG frame, bit 2), so ReplayEngineFeed.Apply

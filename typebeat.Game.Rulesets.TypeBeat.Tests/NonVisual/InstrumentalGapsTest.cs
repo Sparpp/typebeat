@@ -212,5 +212,43 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(0, InstrumentalGaps.Compute(new List<TypingLine>()).Count, "no lines");
             Assert.AreEqual(0, InstrumentalGaps.Compute(lines(60000, raw("ab", 1000, 2000, ("ab", 1000, 2000)))).Count, "single line");
         }
+
+        /// <summary>
+        /// Backlog 423: drain is the lyric span minus every qualifying PERCEIVED stretch, not minus
+        /// the skip window. Lines sing 1000-2000, 20000-21000 (an 18 s instrumental before it),
+        /// 25000-26000 (a 4 s breath, gameplay) and 40000-41000 (a 14 s instrumental). The last
+        /// line ends at its sung end plus the decoder's tail, capped by the 60 s song end.
+        /// </summary>
+        [Test]
+        public void DrainLengthSubtractsEveryQualifyingPerceivedStretch()
+        {
+            var l = lines(60000,
+                raw("ab", 1000, 2000, ("ab", 1000, 2000)),
+                raw("cd", 20000, 21000, ("cd", 20000, 21000)),
+                raw("ef", 25000, 26000, ("ef", 25000, 26000)),
+                raw("gh", 40000, 41000, ("gh", 40000, 41000)));
+
+            double span = l[^1].EndTime - l[0].StartTime;
+
+            Assert.AreEqual(18000 + 14000, InstrumentalGaps.InstrumentalMs(l), "the two long stretches, whole; the 4 s breath is gameplay");
+            Assert.AreEqual(span - 32000, InstrumentalGaps.DrainLengthMs(l));
+
+            // Strictly more than the skip windows remove: each window gives up a settle after the
+            // last word and the run-up and cue lead before the next one.
+            double skippable = InstrumentalGaps.Compute(l).Sum(g => g.SkipTarget - g.GapStartTime);
+            Assert.Less(skippable, InstrumentalGaps.InstrumentalMs(l));
+        }
+
+        [Test]
+        public void DrainLengthEqualsTheSpanWithoutAQualifyingStretch()
+        {
+            var l = lines(60000,
+                raw("ab", 1000, 2000, ("ab", 1000, 2000)),
+                raw("cd", 11990, 13000, ("cd", 11990, 13000)));
+
+            Assert.AreEqual(0, InstrumentalGaps.InstrumentalMs(l), "9.99 s does not qualify");
+            Assert.AreEqual(l[^1].EndTime - l[0].StartTime, InstrumentalGaps.DrainLengthMs(l));
+            Assert.AreEqual(0, InstrumentalGaps.DrainLengthMs(new List<TypingLine>()), "no lines, no drain");
+        }
     }
 }

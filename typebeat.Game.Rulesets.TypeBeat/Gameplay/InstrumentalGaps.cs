@@ -135,5 +135,58 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             return gaps;
         }
+
+        /// <summary>
+        /// Milliseconds of the map that are NOT gameplay: for every consecutive pair of lines whose
+        /// perceived instrumental (previous <see cref="TypingLine.SingEndTime"/> to next
+        /// <see cref="TypingLine.FirstVocalTime"/>) qualifies under <see cref="MIN_GAP_MS"/>, the
+        /// whole perceived stretch (backlog 423).
+        ///
+        /// <para>The PERCEIVED stretch, not the skip window <see cref="Compute"/> returns: the skip
+        /// window is a mechanical subset of it (a settle after the last word, the run-up and cue lead
+        /// before the next) and drops a qualifying stretch whose window is unusably short, neither of
+        /// which says anything about whether the player is typing. It also reads only the two times
+        /// both copies of this rule compute exactly, so the server's twin
+        /// (typebeat-web <c>Packages/Lyrics/InstrumentalGaps.cs</c>) agrees by construction, where its
+        /// skip window rests on an approximated last target.</para>
+        /// </summary>
+        public static double InstrumentalMs(IReadOnlyList<TypingLine> lines)
+        {
+            double total = 0;
+
+            if (lines == null || lines.Count < 2)
+                return total;
+
+            for (int i = 0; i < lines.Count - 1; i++)
+            {
+                double perceived = lines[i + 1].FirstVocalTime - lines[i].SingEndTime;
+
+                if (perceived >= MIN_GAP_MS)
+                    total += perceived;
+            }
+
+            return total;
+        }
+
+        /// <summary>
+        /// The map's DRAIN length in milliseconds, the gameplay time only: the first line's
+        /// <see cref="TypingLine.StartTime"/> to the last line's <see cref="TypingLine.EndTime"/>,
+        /// minus <see cref="InstrumentalMs"/>, never below zero. What song select and the set overlay
+        /// show as drain, so it is normally shorter than the map length.
+        ///
+        /// <para>The server stores the same figure as <c>beatmaps.hit_length_s</c> and serves it as
+        /// <c>hit_length</c>. Its play-time anti-cheat gate does NOT read it: the gate stays on the
+        /// full span minus the skip allowance, because subtracting the instrumentals here and the
+        /// skip window there would count the same stretch twice.</para>
+        /// </summary>
+        public static double DrainLengthMs(IReadOnlyList<TypingLine> lines)
+        {
+            if (lines == null || lines.Count == 0)
+                return 0;
+
+            double span = lines[^1].EndTime - lines[0].StartTime;
+
+            return Math.Max(0, span - InstrumentalMs(lines));
+        }
     }
 }

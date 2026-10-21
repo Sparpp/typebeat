@@ -14,7 +14,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     /// <summary>
     /// THE POLYGLOT DERIVATION (backlog 331): the line a Polyglot play is cut into cells from. Each
     /// word is played in its ORIGINAL (<see cref="TimedUnit.Original"/>) instead of its romanised
-    /// text. Japanese words are joined even when the original lyric has spaces; their timed gap
+    /// text. Japanese words are joined even when the original lyric has spaces (a replay recorded
+    /// before that keeps its authored spaces, see <see cref="Derive"/>); their timed gap
     /// becomes a pause, or their shared edge becomes a subdivision. The per-cell targets are
     /// re-spread by the ordinary flattening (<see cref="TypingLine"/>), which is handed the
     /// derived line and knows nothing else about the mod.
@@ -94,8 +95,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             public required int[] Cluster;
         }
 
-        /// <summary>Derives the Polyglot line of <paramref name="line"/> (see the class summary).</summary>
-        public static Result Derive(LyricLine line, string? language, bool japaneseWordTiming = true, bool japaneseCharacterTiming = false)
+        /// <summary>
+        /// Derives the Polyglot line of <paramref name="line"/> (see the class summary).
+        /// <paramref name="legacyJapaneseSpaces"/> is the space era of a replay recorded without
+        /// extended bit 8: an original-script space between Japanese words stays a typed space cell,
+        /// as does a seam where either word's own original records whitespace.
+        /// </summary>
+        public static Result Derive(LyricLine line, string? language, bool japaneseWordTiming = true, bool japaneseCharacterTiming = false, bool legacyJapaneseSpaces = false)
         {
             if (japaneseCharacterTiming && isJapanese(language))
             {
@@ -120,7 +126,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 return new Result(line, null, null);
 
             if (isJapanese(language))
-                pieces = joinJapaneseWords(line, splitJapaneseOriginalSpaces(line, pieces));
+                pieces = joinJapaneseWords(line, splitJapaneseOriginalSpaces(line, pieces), legacyJapaneseSpaces);
 
             var rawCluster = new List<int>();
             int nextBlock = 0;
@@ -345,14 +351,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>
         /// The romanised words of Japanese do not imply typed spaces in the original script.
         /// Adjacent Japanese pieces always join, including authored original-script spaces.
-        /// Mixed Latin words keep their breaks.
+        /// Mixed Latin words keep their breaks. Under <paramref name="legacySpaces"/> the older rule
+        /// applies: whitespace between the matching original pieces keeps a space cell, and without
+        /// a matching line original a seam keeps one where either word's own original records
+        /// whitespace or either edge is not Japanese.
         /// </summary>
-        private static List<Piece> joinJapaneseWords(LyricLine line, List<Piece> pieces)
+        private static List<Piece> joinJapaneseWords(LyricLine line, List<Piece> pieces, bool legacySpaces)
         {
             bool[]? authoredSpaces = originalSpaces(line.Original, pieces);
-            bool[] spaces = Enumerable.Range(0, pieces.Count - 1)
-                .Select(i => !(hasJapaneseEdge(pieces[i].Text, trailing: true) && hasJapaneseEdge(pieces[i + 1].Text, trailing: false))
-                             && (authoredSpaces?[i] ?? true)).ToArray();
+            bool[] spaces = legacySpaces
+                ? authoredSpaces ?? Enumerable.Range(0, pieces.Count - 1)
+                    .Select(i => hasOriginalSpace(pieces[i].Unit.Original, trailing: true)
+                                 || hasOriginalSpace(pieces[i + 1].Unit.Original, trailing: false)
+                                 || !hasJapaneseEdge(pieces[i].Text, trailing: true)
+                                 || !hasJapaneseEdge(pieces[i + 1].Text, trailing: false)).ToArray()
+                : Enumerable.Range(0, pieces.Count - 1)
+                    .Select(i => !(hasJapaneseEdge(pieces[i].Text, trailing: true) && hasJapaneseEdge(pieces[i + 1].Text, trailing: false))
+                                 && (authoredSpaces?[i] ?? true)).ToArray();
 
             var joined = new List<Piece>();
             int from = 0;

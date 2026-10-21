@@ -212,9 +212,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// <para><b>Second word, bit 8 (value 256): <see cref="JapaneseInputEra3"/>.</b> Japanese
     /// Polyglot Space to Skip abandons the rest of the authored word rather than one character,
     /// and the romaji input plan reads a single-word line original per timed unit and records the
-    /// word windows that skip uses. Older replays retain the single-character skip and the plan
-    /// they were played on. (The cell list itself is not covered: see
-    /// <c>PolyglotLine.joinJapaneseWords</c>.)</para>
+    /// word windows that skip uses, and an authored original-script space between Japanese words is
+    /// joined away rather than typed. Older replays retain the single-character skip, the plan and
+    /// the space cells they were played on. The space join changes the CELL LIST, so that half of
+    /// the bit is not applied by <c>ReplayEngineFeed.Apply</c>: the player reads it before the
+    /// playable beatmap is built (<c>TypeBeatModPolyglot.ApplyToStoredReplay</c>), and
+    /// <c>TypeBeatReplayScorer</c> rebuilds a playable built for the other era.</para>
     ///
     /// <para><b>Second word, bit 9 (value 512): <see cref="KeyTimeJudgement"/>.</b> A Latin or
     /// Japanese-romaji press's frame carries the time its KEY went down, also when the OS committed its text
