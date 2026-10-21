@@ -249,6 +249,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// sync readouts (which the monotonic clock and the sync timeline feed), and the full cell
         /// grid, which is what the lyric stack renders and what a freeze leaves stale.
         /// </summary>
+        internal static string EngineSnapshot(TypingEngine engine) => snapshot(engine);
+
         private static string snapshot(TypingEngine engine)
         {
             var results = engine.BuildResults();

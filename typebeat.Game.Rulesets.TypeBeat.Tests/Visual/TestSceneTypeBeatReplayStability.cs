@@ -277,6 +277,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("the whole run played", () => playbackEngine.IsFinished && playbackEngine.Mistypes == 1);
             AddAssert("one mistype was counted", () => mistypeStat(), () => Is.EqualTo(1));
 
+            long firstTotalScore = 0;
+            double firstAccuracy = 0;
+            Dictionary<HitResult, int> firstStatistics = null!;
+
+            AddStep("capture the first completion's account", () =>
+            {
+                firstTotalScore = currentPlayer.GameplayState.ScoreProcessor.TotalScore.Value;
+                firstAccuracy = currentPlayer.GameplayState.ScoreProcessor.Accuracy.Value;
+                firstStatistics = new Dictionary<HitResult, int>(currentPlayer.GameplayState.ScoreProcessor.Statistics);
+            });
+
             // 1500 sits after line 0 is fully typed ('a'@500 through 'b'@1000) and before line 1's
             // only keystroke ('c'@2500), so a correct rebuild has to keep line 0 and drop line 1.
             // The asserts below describe the engine AT the seek target, and line 0 seals at 2000, only
@@ -286,6 +297,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // clock on 1500; the frame-stable clock still walks back to it while paused because a
             // replay is attached, so the rebuild is the same one a seek during playback takes.
             AddStep("pause playback", () => gameplayClockContainer.Stop());
+
+            // Backlog 424: the frame-stable clock walks the seek back one 16.7 ms sub-step at a time,
+            // and the feed rebuilds ONCE, when the walk stops, rather than on every sub-step.
+            int rebuilds = 0;
+            AddStep("count rebuilds", () => playbackEngine.Rewound += () => rebuilds++);
+
             AddStep("seek back over line 1", () => currentPlayer.Seek(1500));
 
             AddUntilStep("the rewind reached the seek target", () =>
@@ -294,6 +311,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 && playbackEngine.Lines[1].Cells.All(c => c.State == CellState.Untyped));
 
             AddAssert("the target is 1500", () => frameStableClock.CurrentTime, () => Is.EqualTo(1500).Within(1));
+
+            AddAssert("the walk back rebuilt the engine once", () => rebuilds, () => Is.EqualTo(1));
 
             AddAssert("the run is live again, not finished", () => !playbackEngine.IsFinished && playbackEngine.NextUnsealedLineIndex == 0);
 
@@ -308,6 +327,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("wait for completion again", () => currentPlayer.GameplayState.HasCompleted);
 
             AddAssert("the rewatched mistype was not counted twice", () => mistypeStat(), () => Is.EqualTo(1));
+
+            AddAssert("the rewatched run's account is the first one's", () =>
+                currentPlayer.GameplayState.ScoreProcessor.TotalScore.Value == firstTotalScore
+                && currentPlayer.GameplayState.ScoreProcessor.Accuracy.Value == firstAccuracy
+                && currentPlayer.GameplayState.ScoreProcessor.Statistics.OrderBy(p => p.Key).SequenceEqual(firstStatistics.OrderBy(p => p.Key)));
 
             AddAssert("the run finished again", () => playbackEngine.IsFinished);
             AddAssert("the untyped cell missed again", () => playbackEngine.Lines[1].Cells[1].State, () => Is.EqualTo(CellState.Missed));
