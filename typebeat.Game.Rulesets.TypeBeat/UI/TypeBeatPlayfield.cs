@@ -579,8 +579,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// sequence, never on playback frame rate or the local lyric-offset setting. The lyric clock
         /// only schedules WHEN due frames are applied and drives the visuals.</para>
         ///
-        /// <para>A BACKWARDS SEEK is handled by rebuilding rather than by unwinding: see the comment
-        /// on <see cref="lastFedTime"/> and <see cref="ReplayEngineFeed.RebuildTo"/>.</para>
+        /// <para>A BACKWARDS SEEK is handled by rebuilding rather than by unwinding, once per seek: see
+        /// <see cref="ReplayFeedCursor"/> and <see cref="ReplayEngineFeed.RebuildTo"/>.</para>
         /// </summary>
         private partial class EngineTicker : Drawable
         {
@@ -598,20 +598,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             /// every second-word era is covered.
             /// </summary>
             private bool[]? liveExtendedEras;
-            private int nextFrameIndex;
 
             /// <summary>
-            /// The lyric time the last fed frame was clocked at, i.e. the high-water mark
-            /// <see cref="nextFrameIndex"/> was advanced under. Anything earlier arriving next frame
-            /// is a BACKWARDS SEEK. Negative infinity until the first tick, so the first frame of a
-            /// play is never mistaken for one.
+            /// The feed's position in <see cref="activeReplay"/>, and the backwards seek it may be
+            /// part-way through (see <see cref="ReplayFeedCursor"/>).
             /// </summary>
-            private double lastFedTime = double.NegativeInfinity;
+            private readonly ReplayFeedCursor feed = new ReplayFeedCursor();
 
             // Cached by Player (via GameplayClockContainer / FrameStabilityContainer); absent in bare
             // drawable-ruleset test scenes, where there is no rate mod to report anyway.
             [Resolved]
             private IGameplayClock? gameplayClock { get; set; }
+
+            // The same container, for whether this tick is one step of a seek it is still walking.
+            [Resolved]
+            private IFrameStableClock? frameStableClock { get; set; }
 
             [Resolved]
             private EditorTestPlayback? editorPlayback { get; set; }
@@ -643,10 +644,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // The replay can be swapped mid-play (editor autoplay toggle); restart feeding.
                     if (!ReferenceEquals(replay, activeReplay))
                     {
+                        // A seek the outgoing replay was still walking back through is owed to it.
+                        if (activeReplay != null)
+                            feed.Settle(engine, activeReplay.Frames);
+
                         liveExtendedEras ??= ReplayEraBits.Capture(engine, EraWord.ConfigExtended);
                         activeReplay = replay;
-                        nextFrameIndex = 0;
-                        lastFedTime = double.NegativeInfinity;
+                        feed.Restart();
 
                         // The live factory built this engine with the second-word eras on. A replay
                         // with no extended header (or none at all) predates them, so clear them before
@@ -693,27 +697,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // old one already consumed and every cell, the caret and the active line frozen
                     // at their pre-seek values while the song plays on. Rebuilding is the only way
                     // back, and it is exact rather than an unwind (see ReplayEngineFeed.RebuildTo).
+                    // The frame-stable clock walks back one sub-step per tick, so the feed defers
+                    // the rebuild until the walk stops and does it once (ReplayFeedCursor); until
+                    // then the engine is neither fed nor ticked.
                     //
                     // Reachable only with a replay attached, which is the whole of the "replay and
                     // autoplay only" scope: live play cannot seek, so TypeBeatKeyHandler is not in
                     // this at all.
-                    if (Time.Current < lastFedTime)
-                        nextFrameIndex = ReplayEngineFeed.RebuildTo(engine, frames, Time.Current, clockRate);
-
-                    lastFedTime = Time.Current;
-
-                    while (nextFrameIndex < frames.Count && frames[nextFrameIndex].Time <= Time.Current)
-                    {
-                        if (frames[nextFrameIndex] is TypeBeatReplayFrame frame)
-                            ReplayEngineFeed.Apply(engine, frame, clockRate);
-
-                        nextFrameIndex++;
-                    }
+                    if (!feed.Advance(engine, frames, Time.Current, clockRate, clockSettled: frameStableClock?.CatchUpPending != true))
+                        return;
                 }
                 else if (activeReplay != null)
                 {
-                    // DETACHED (the editor's autoplay toggle handing the play back): the live eras
-                    // return, and the next attach starts from a clean feed.
+                    // DETACHED (the editor's autoplay toggle handing the play back): a seek still
+                    // owed lands first, the live eras return, and the next attach starts from a
+                    // clean feed.
+                    feed.Settle(engine, activeReplay.Frames);
                     activeReplay = null;
 
                     if (liveExtendedEras is { } live)

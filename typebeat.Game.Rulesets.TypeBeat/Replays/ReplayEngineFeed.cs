@@ -201,8 +201,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// <see cref="TypingEngine.Update"/> clamps its delta at zero and seals lines in one
         /// direction only, so a rewound clock would otherwise leave every cell, the caret and the
         /// active line pinned at their pre-seek values while the song played on. Replaying the whole
-        /// prefix is EXACT rather than an approximation of a rewind, and cheap: a five-minute seek
-        /// target is about 18000 ticks of an engine whose idle tick does nothing.</para>
+        /// prefix is EXACT rather than an approximation of a rewind, and cheap ONCE: a five-minute
+        /// seek target is about 18000 ticks of an engine whose idle tick does nothing (backlog 424
+        /// measured 3 to 5 ms for a three-minute map). It is not cheap once per frame-stable
+        /// sub-step of a rewind, which is why the watching path calls it once per seek
+        /// (<see cref="ReplayFeedCursor"/>).</para>
         /// </summary>
         public static int RebuildTo(TypingEngine engine, IReadOnlyList<ReplayFrame> frames, double time, double clockRate = 1)
         {

@@ -309,6 +309,9 @@ namespace typebeat.Game.Rulesets.UI
         IBindable<bool> IFrameStableClock.IsCatchingUp => isCatchingUp;
         IBindable<bool> IFrameStableClock.WaitingOnFrames => waitingOnFrames;
 
+        // Set by updateClock immediately before each child update, which is the only time it is read.
+        bool IFrameStableClock.CatchUpPending => state == PlaybackState.RequiresCatchUp;
+
         #endregion
 
         private enum PlaybackState
