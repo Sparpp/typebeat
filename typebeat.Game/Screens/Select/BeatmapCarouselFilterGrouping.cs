@@ -343,6 +343,7 @@ namespace typebeat.Game.Screens.Select
                 case BeatmapOnlineStatus.Pending:
                     return new RankedStatusGroupDefinition(3, status).Yield();
 
+                case BeatmapOnlineStatus.Unranked:
                 case BeatmapOnlineStatus.Graveyard:
                     return new RankedStatusGroupDefinition(4, status).Yield();
 
