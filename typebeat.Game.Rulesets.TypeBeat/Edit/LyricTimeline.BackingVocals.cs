@@ -286,6 +286,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             private Grab grab;
             private double grabStart, grabEnd, grabTime;
             private bool dragging;
+
+            // A group drag (the body of a block in a multi-selection): every selected word moves by the
+            // same distance, captured at drag start as the word blocks' own group drag is.
+            private int[] groupIndices = Array.Empty<int>();
+            private double[] groupStarts = Array.Empty<double>();
+            private double[] groupEnds = Array.Empty<double>();
             private string? lastFontFamily;
 
             public TypeBeatHitObject HitObject { get; }
@@ -347,7 +353,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 label.MaxWidth = Math.Max(1, width - 6);
                 label.Alpha = width < 14 ? 0 : 1;
 
-                bool selected = active && state.BackingTrackSelected && state.SelectedBackingIndex.Value == Index;
+                bool selected = active && state.BackingTrackSelected && state.SelectedBackingIndices.Contains(Index);
 
                 BorderColour = selected || dragging || IsHovered ? TypeBeatStyle.Caret : TypeBeatStyle.TypedChar.Opacity(active ? 0.7f : 0.45f);
                 body.Colour = selected ? TypeBeatStyle.Caret : TypeBeatStyle.TypedChar;
@@ -382,7 +388,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             protected override bool OnClick(ClickEvent e)
             {
-                strip.selectBackingWord(HitObject, Index);
+                // The word blocks' own selection gestures: Ctrl toggles a block in or out, Shift
+                // selects the run from the primary one, a plain click selects just this one. A block
+                // on another line selects that line first, and this word with it.
+                if (state.ActiveLine.Value == HitObject && state.BackingTrackSelected && (e.ControlPressed || e.SuperPressed))
+                    state.ToggleBackingWord(Index);
+                else if (state.ActiveLine.Value == HitObject && state.BackingTrackSelected && e.ShiftPressed && state.SelectedBackingIndex.Value >= 0)
+                    state.SelectBackingRange(state.SelectedBackingIndex.Value, Index);
+                else
+                    strip.selectBackingWord(HitObject, Index);
+
                 return true;
             }
 
@@ -401,7 +416,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 grabEnd = current.EndTime;
                 grabTime = strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMouseDownPosition).X);
 
-                strip.selectBackingWord(HitObject, Index);
+                // The body of a block in a multi-selection drags the whole selection; anything else
+                // collapses the selection to this block, as a word block does.
+                var words = HitObject.Line.BackingVocals;
+                var selected = state.SelectedBackingInOrder(words.Count);
+                bool group = grab == Grab.Move && state.ActiveLine.Value == HitObject && state.BackingTrackSelected
+                             && selected.Length > 1 && selected.Contains(Index);
+
+                if (group)
+                {
+                    groupIndices = selected;
+                    groupStarts = selected.Select(i => words[i].StartTime).ToArray();
+                    groupEnds = selected.Select(i => words[i].EndTime).ToArray();
+                }
+                else
+                {
+                    groupIndices = Array.Empty<int>();
+                    strip.selectBackingWord(HitObject, Index);
+                }
 
                 dragging = true;
                 state.BeginInteraction();
@@ -428,7 +460,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                         break;
 
                     default:
-                        TypeBeatEditorOperations.MoveBackingVocal(editorBeatmap, HitObject, Index, strip.SnapToGrid(grabStart + cursorTime - grabTime));
+                        if (groupIndices.Length > 0)
+                        {
+                            // The group's first word snaps, and the rest follow it by the same distance.
+                            double delta = strip.SnapToGrid(groupStarts[0] + cursorTime - grabTime) - groupStarts[0];
+                            TypeBeatEditorOperations.MoveBackingVocals(editorBeatmap, HitObject, groupIndices, groupStarts, groupEnds, delta);
+                        }
+                        else
+                            TypeBeatEditorOperations.MoveBackingVocal(editorBeatmap, HitObject, Index, strip.SnapToGrid(grabStart + cursorTime - grabTime));
+
                         break;
                 }
             }

@@ -98,6 +98,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         private LyricTimingClipboard.LineTimingsPayload? clipboardLines;
         private LyricTimingClipboard.UnitTimingsPayload? clipboardUnits;
+        private LyricTimingClipboard.BackingTimingsPayload? clipboardBacking;
 
         [Resolved]
         private EditorRulesetAction rulesetAction { get; set; } = null!;
@@ -194,7 +195,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             clipboard.Content.BindValueChanged(content =>
             {
                 (clipboardLines, clipboardUnits) = LyricTimingClipboard.TryParse(content.NewValue);
-                CanPaste.Value = clipboardLines != null || clipboardUnits != null;
+                clipboardBacking = LyricTimingClipboard.TryParseBacking(content.NewValue);
+                CanPaste.Value = clipboardLines != null || clipboardUnits != null || clipboardBacking != null;
                 CanPasteTimings.Value = CanPaste.Value;
             }, true);
 
@@ -233,6 +235,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 if (active == null)
                     return false;
+
+                // On the backing track it selects the line's backing words instead (backlog 446).
+                if (state.BackingTrackSelected)
+                {
+                    state.SelectAllBackingWords(active.Line.BackingVocals.Count);
+                    return active.Line.BackingVocals.Count > 0;
+                }
 
                 state.SelectAllUnits(active.Line.Units.Count);
                 return active.Line.Units.Count > 0;
@@ -417,6 +426,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 var ordered = TypeBeatEditorOperations.OrderedLines(EditorBeatmap).Where(state.MultiSelectedLines.Contains).ToList();
                 copyLines(ordered);
             }
+            else if (active != null && state.BackingTrackSelected && state.SelectedBackingInOrder(active.Line.BackingVocals.Count).Length > 0)
+            {
+                // Selected BACKING words (backlog 446): copied whole, to paste into another line.
+                var payload = TypeBeatEditorOperations.CopyBackingVocals(active, state.SelectedBackingInOrder(active.Line.BackingVocals.Count));
+
+                if (payload != null)
+                    clipboard.Content.Value = LyricTimingClipboard.Serialize(payload);
+            }
             else if (active != null && state.SelectedUnitIndices.Count > 0)
             {
                 var payload = TypeBeatEditorOperations.CopyUnitTimings(active, state.SelectedUnitIndices);
@@ -453,6 +470,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// </summary>
         public override void Paste()
         {
+            if (clipboardBacking != null)
+            {
+                pasteBackingRun(clipboardBacking);
+                return;
+            }
+
             if (clipboardLines is not LyricTimingClipboard.LineTimingsPayload lines || !lines.CarriesText)
             {
                 PasteTimings();
@@ -515,7 +538,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// </summary>
         public override void PasteTimings()
         {
-            if (clipboardUnits is LyricTimingClipboard.UnitTimingsPayload unitRun)
+            if (clipboardBacking != null)
+                pasteBackingRun(clipboardBacking);
+            else if (clipboardUnits is LyricTimingClipboard.UnitTimingsPayload unitRun)
                 pasteUnitRun(unitRun);
             else if (clipboardLines is LyricTimingClipboard.LineTimingsPayload lines)
             {
@@ -570,6 +595,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     refuse("A line-timed map keeps no word timing: select a word to paste onto");
                     break;
             }
+        }
+
+        /// <summary>
+        /// The BACKING word paste (backlog 446), which both paste gestures reach with copied backing
+        /// words: into the active line beside the backing words it has, at the playhead when that is in
+        /// the line, else where they sat in the line they were copied from
+        /// (<see cref="TypeBeatEditorOperations.PasteBackingVocals"/>). The pasted words end up selected
+        /// on the backing track; a run that does not fit changes nothing and says so.
+        /// </summary>
+        private void pasteBackingRun(LyricTimingClipboard.BackingTimingsPayload run)
+        {
+            if (tapOverlay.Active || state.ActiveLine.Value is not TypeBeatHitObject line)
+                return;
+
+            if (TypeBeatEditorOperations.PasteBackingVocals(EditorBeatmap, line, editorClock.CurrentTime, run) is not int[] pasted)
+            {
+                refuse("No room in this line for the copied backing vocals");
+                return;
+            }
+
+            state.SelectBackingTrack();
+
+            foreach (int i in pasted)
+                state.ToggleBackingWord(i);
         }
 
         private void refuse(string message)
@@ -897,9 +946,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             var active = state.ActiveLine.Value;
 
-            // A selected BACKING word (backlog 445) goes the way "remove word" takes it on that track.
-            if (state.MultiSelectedLines.Count < 2 && active != null && state.BackingTrackSelected && state.SelectedBackingIndex.Value >= 0)
-                return detailPanel.RemoveSelectedBackingVocal(active);
+            // Selected BACKING words (backlog 445) go the way "remove word" takes them on that track.
+            if (state.MultiSelectedLines.Count < 2 && active != null && state.BackingTrackSelected
+                && state.SelectedBackingInOrder(active.Line.BackingVocals.Count).Length > 0)
+                return detailPanel.RemoveSelectedBackingVocals(active);
 
             if (state.MultiSelectedLines.Count < 2 && active != null)
             {

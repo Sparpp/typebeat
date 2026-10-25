@@ -471,7 +471,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             if (state.BackingTrackSelected)
             {
-                RemoveSelectedBackingVocal(line);
+                RemoveSelectedBackingVocals(line);
                 return;
             }
 
@@ -490,23 +490,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         }
 
         /// <summary>
-        /// Removes the selected backing word of <paramref name="line"/>, else its last one, keeping the
-        /// selection on whatever took its place. Shared with the Delete key on the backing track.
+        /// Removes the selected backing words of <paramref name="line"/>, else its last one, as one undo
+        /// step, keeping the selection on whatever took the first one's place. Shared with the Delete
+        /// key on the backing track.
         /// </summary>
-        public bool RemoveSelectedBackingVocal(TypeBeatHitObject line)
+        public bool RemoveSelectedBackingVocals(TypeBeatHitObject line)
         {
             int count = line.Line.BackingVocals.Count;
 
             if (count == 0 || state.TapSession != null)
                 return false;
 
-            int selected = state.SelectedBackingIndex.Value;
-            int target = selected >= 0 && selected < count ? selected : count - 1;
+            int[] targets = state.SelectedBackingInOrder(count);
 
-            TypeBeatEditorOperations.RemoveBackingVocal(editorBeatmap, line, target);
+            if (targets.Length == 0)
+                targets = new[] { count - 1 };
+
+            TypeBeatEditorOperations.RemoveBackingVocals(editorBeatmap, line, targets);
 
             if (line.Line.BackingVocals.Count > 0)
-                state.SelectBackingWord(System.Math.Min(target, line.Line.BackingVocals.Count - 1));
+                state.SelectBackingWord(System.Math.Min(targets[0], line.Line.BackingVocals.Count - 1));
             else
                 state.SelectBackingTrack();
 

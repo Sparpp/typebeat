@@ -304,5 +304,91 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(TypeBeatEditorOperations.BackingSuffix(lineAt(editorBeatmap, 1).Line), Is.EqualTo(" (ooh yeah)"));
             Assert.That(TypeBeatEditorOperations.BackingSuffix(lineAt(editorBeatmap, 0).Line), Is.Empty);
         }
+
+        [Test]
+        public void SeveralBackingWordsGoAsOneStep()
+        {
+            var editorBeatmap = createBeatmapWithBacking();
+            var hitObject = lineAt(editorBeatmap, 1);
+            TypeBeatEditorOperations.AddBackingVocal(editorBeatmap, hitObject, 5800, "hey");
+
+            TypeBeatEditorOperations.RemoveBackingVocals(editorBeatmap, hitObject, new[] { 0, 2, 9 });
+
+            Assert.That(hitObject.Line.BackingVocals.Select(w => w.Text), Is.EqualTo(new[] { "yeah" }));
+            assertReloadStable(editorBeatmap);
+        }
+
+        [Test]
+        public void AGroupMovesRigidlyAndStopsAtTheWordsOutsideIt()
+        {
+            var editorBeatmap = createBeatmapWithBacking();
+            var hitObject = lineAt(editorBeatmap, 1);
+
+            // ooh 3000.., yeah .., and a third word at 5600 outside the group.
+            TypeBeatEditorOperations.AddBackingVocal(editorBeatmap, hitObject, 5600, "hey");
+            var before = hitObject.Line.BackingVocals.ToArray();
+            int[] group = { 0, 1 };
+            double[] starts = group.Select(i => before[i].StartTime).ToArray();
+            double[] ends = group.Select(i => before[i].EndTime).ToArray();
+
+            TypeBeatEditorOperations.MoveBackingVocals(editorBeatmap, hitObject, group, starts, ends, 200);
+            Assert.That(hitObject.Line.BackingVocals.Take(2).Select(w => (w.StartTime, w.EndTime)),
+                Is.EqualTo(group.Select(i => (before[i].StartTime + 200, Math.Min(6000, before[i].EndTime + 200)))));
+
+            // Far later: held where the group's last word meets "hey" or, keeping its length, the line's
+            // end, whichever comes first; far earlier: held at the line's start.
+            TypeBeatEditorOperations.MoveBackingVocals(editorBeatmap, hitObject, group, starts, ends, 9000);
+            Assert.That(hitObject.Line.BackingVocals[1].StartTime, Is.EqualTo(Math.Min(5600, 6000 - (ends[1] - starts[1]))).Within(1e-6));
+            Assert.That(hitObject.Line.BackingVocals[1].StartTime, Is.LessThanOrEqualTo(5600));
+            Assert.That(hitObject.Line.BackingVocals[1].StartTime - hitObject.Line.BackingVocals[0].StartTime, Is.EqualTo(starts[1] - starts[0]), "rigid");
+
+            TypeBeatEditorOperations.MoveBackingVocals(editorBeatmap, hitObject, group, starts, ends, -9000);
+            Assert.That(hitObject.Line.BackingVocals[0].StartTime, Is.EqualTo(3000));
+            Assert.That(hitObject.Line.BackingVocals[2], Is.EqualTo(before[2]), "the word outside the group never moves");
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        [Test]
+        public void CopiedBackingWordsPasteIntoAnotherLine()
+        {
+            var editorBeatmap = createBeatmapWithBacking();
+            var source = lineAt(editorBeatmap, 1);
+            TypeBeatEditorOperations.SetBackingVocalAnchor(editorBeatmap, source, 1, 0.9);
+            var copied = source.Line.BackingVocals;
+
+            var payload = TypeBeatEditorOperations.CopyBackingVocals(source, new[] { 1, 0 })!;
+            Assert.That(payload.LineOffset, Is.EqualTo(copied[0].StartTime - 3000));
+
+            // Through the clipboard's own text, as the editor carries it; the line parse does not take it.
+            string text = LyricTimingClipboard.Serialize(payload);
+            payload = LyricTimingClipboard.TryParseBacking(text)!;
+            Assert.That(LyricTimingClipboard.TryParse(text), Is.EqualTo(((LyricTimingClipboard.LineTimingsPayload?)null, (LyricTimingClipboard.UnitTimingsPayload?)null)));
+
+            // Line 0 is [1000..3000]: with the playhead outside it the run sits where it sat in its own line.
+            var target = lineAt(editorBeatmap, 0);
+            int[] pasted = TypeBeatEditorOperations.PasteBackingVocals(editorBeatmap, target, 99999, payload)!;
+
+            Assert.That(pasted, Is.EqualTo(new[] { 0, 1 }));
+            Assert.That(target.Line.BackingVocals.Select(w => (w.Text, w.StartTime, w.Anchor)), Is.EqualTo(new[]
+            {
+                ("ooh", 1000 + copied[0].StartTime - 3000, (double?)null), ("yeah", 1000 + copied[1].StartTime - 3000, (double?)0.9),
+            }));
+            Assert.That(target.Line.BackingVocals.All(w => w.EndTime <= 3000), "fitted into the line");
+            Assert.That(target.Line.RawText, Is.EqualTo("alpha beta"));
+
+            // At the playhead, beside the words already there.
+            pasted = TypeBeatEditorOperations.PasteBackingVocals(editorBeatmap, target, 1500, payload)!;
+            Assert.That(target.Line.BackingVocals, Has.Count.EqualTo(4));
+            Assert.That(pasted.Select(i => target.Line.BackingVocals[i].Text), Is.EqualTo(new[] { "ooh", "yeah" }));
+            Assert.That(target.Line.BackingVocals[pasted[0]].StartTime, Is.EqualTo(1500));
+
+            // A run whose words would start past the line pastes nothing.
+            int before = target.Line.BackingVocals.Count;
+            Assert.That(TypeBeatEditorOperations.PasteBackingVocals(editorBeatmap, target, 2990, payload), Is.Null);
+            Assert.That(target.Line.BackingVocals, Has.Count.EqualTo(before));
+
+            assertReloadStable(editorBeatmap);
+        }
     }
 }

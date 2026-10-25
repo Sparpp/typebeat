@@ -48,6 +48,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     {
         private const string line_type = "typebeat-line-timings";
         private const string unit_type = "typebeat-unit-timings";
+        private const string backing_type = "typebeat-backing-timings";
 
         /// <summary>
         /// The <see cref="LineTimingsPayload.Version"/> from which a line payload carries its words'
@@ -244,6 +245,45 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             [JsonProperty("units")]
             public List<UnitSpan> Units = new List<UnitSpan>();
+        }
+
+        /// <summary>
+        /// Copied BACKING words (backlog 446): each one whole, timed from the first one's start, and that
+        /// start's offset into the line it was copied from (where a paste puts the run when the playhead
+        /// is not inside its target line).
+        /// </summary>
+        public class BackingTimingsPayload
+        {
+            [JsonProperty("type")]
+            public string Type = backing_type;
+
+            [JsonProperty("line_offset")]
+            public double LineOffset;
+
+            [JsonProperty("words")]
+            public List<BackingSpan> Words = new List<BackingSpan>();
+        }
+
+        public static string Serialize(BackingTimingsPayload payload) => JsonConvert.SerializeObject(payload);
+
+        /// <summary>Copied backing words from clipboard content, or null for anything else. Never throws.</summary>
+        public static BackingTimingsPayload? TryParseBacking(string? content)
+        {
+            if (string.IsNullOrEmpty(content) || content[0] != '{')
+                return null;
+
+            try
+            {
+                if (JsonConvert.DeserializeAnonymousType(content, new { type = string.Empty })?.type != backing_type)
+                    return null;
+
+                var payload = JsonConvert.DeserializeObject<BackingTimingsPayload>(content);
+                return payload?.Words?.Count > 0 ? payload : null;
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
         }
 
         public static string Serialize(LineTimingsPayload payload) => JsonConvert.SerializeObject(payload);

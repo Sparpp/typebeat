@@ -318,5 +318,109 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             float x = strip().ToScreenSpace(new Vector2(strip().PositionOf(time), 0)).X;
             return new Vector2(x, quad.TopLeft.Y + quad.Height * LyricTimeline.BACKING_LANE_HEIGHT * 0.75f);
         }
+
+        [Test]
+        public void TestBackingWordsMultiSelectLikeWords()
+        {
+            showLineOne();
+
+            AddStep("click the first backing block", () =>
+            {
+                InputManager.MoveMouseTo(strip().BackingBlockOf(lineAt(0), 0));
+                InputManager.Click(MouseButton.Left);
+            });
+            AddUntilStep("it is selected", () => state().SelectedBackingIndices.SetEquals(new[] { 0 }));
+
+            AddStep("ctrl-click the second", () =>
+            {
+                InputManager.MoveMouseTo(strip().BackingBlockOf(lineAt(0), 1));
+                InputManager.PressKey(Key.ControlLeft);
+                InputManager.Click(MouseButton.Left);
+                InputManager.ReleaseKey(Key.ControlLeft);
+            });
+            AddUntilStep("both are selected", () => state().SelectedBackingIndices.SetEquals(new[] { 0, 1 }));
+
+            AddStep("ctrl-click the first again", () =>
+            {
+                InputManager.MoveMouseTo(strip().BackingBlockOf(lineAt(0), 0));
+                InputManager.PressKey(Key.ControlLeft);
+                InputManager.Click(MouseButton.Left);
+                InputManager.ReleaseKey(Key.ControlLeft);
+            });
+            AddUntilStep("it toggles out", () => state().SelectedBackingIndices.SetEquals(new[] { 1 }));
+
+            AddStep("shift-click the first", () =>
+            {
+                InputManager.PressKey(Key.ShiftLeft);
+                InputManager.Click(MouseButton.Left);
+                InputManager.ReleaseKey(Key.ShiftLeft);
+            });
+            AddUntilStep("the run is selected", () => state().SelectedBackingIndices.SetEquals(new[] { 0, 1 }));
+
+            double[] starts = null!;
+            AddStep("remember where they are", () => starts = lineAt(0).Line.BackingVocals.Select(w => w.StartTime).ToArray());
+            AddStep("settle on the second block", () => InputManager.MoveMouseTo(strip().BackingBlockOf(lineAt(0), 1)));
+            AddStep("press", () => InputManager.PressButton(MouseButton.Left));
+            AddStep("start the drag", () => InputManager.MoveMouseTo(strip().BackingBlockOf(lineAt(0), 1).ScreenSpaceDrawQuad.Centre - new Vector2(40, 0)));
+            AddStep("drag the group earlier", () =>
+            {
+                var block = strip().BackingBlockOf(lineAt(0), 1).ScreenSpaceDrawQuad;
+                float dx = strip().ToScreenSpace(new Vector2(strip().PositionOf(2500), 0)).X - strip().ToScreenSpace(new Vector2(strip().PositionOf(3000), 0)).X;
+                InputManager.MoveMouseTo(new Vector2(block.Centre.X + dx + 40, block.Centre.Y));
+            });
+            AddStep("release", () => InputManager.ReleaseButton(MouseButton.Left));
+
+            AddAssert("both moved by the same distance", () =>
+            {
+                var words = lineAt(0).Line.BackingVocals;
+                double moved = words[0].StartTime - starts[0];
+                return moved < -100 && Math.Abs(words[1].StartTime - starts[1] - moved) < 0.01;
+            });
+            AddAssert("and stay selected", () => state().SelectedBackingIndices.SetEquals(new[] { 0, 1 }));
+
+            AddStep("press Delete", () => InputManager.Key(Key.Delete));
+            AddUntilStep("both go", () => lineAt(0).Line.BackingVocals.Count == 0);
+            AddAssert("the typed words stay", () => lineAt(0).Line.Units.Count == 5);
+        }
+
+        [Test]
+        public void TestCopiedBackingWordsPasteOntoAnotherLine()
+        {
+            showLineOne();
+
+            AddStep("select both backing words", () =>
+            {
+                InputManager.MoveMouseTo(laneSpaceAt(1500));
+                InputManager.Click(MouseButton.Left);
+            });
+            AddUntilStep("backing track picked", () => state().BackingTrackSelected);
+            AddStep("select all", () =>
+            {
+                InputManager.PressKey(Key.ControlLeft);
+                InputManager.Key(Key.A);
+                InputManager.ReleaseKey(Key.ControlLeft);
+            });
+            AddUntilStep("both selected", () => state().SelectedBackingIndices.SetEquals(new[] { 0, 1 }));
+
+            AddStep("copy", () => Editor.ChildrenOfType<LyricComposeScreen>().Single().Copy());
+
+            AddStep("go to line 2 with the playhead in it", () =>
+            {
+                state().SelectedLine.Value = lineAt(1);
+                EditorClock.Seek(5500);
+            });
+            AddUntilStep("line 2 active", () => state().ActiveLine.Value == lineAt(1));
+            AddStep("paste", () => Editor.ChildrenOfType<LyricComposeScreen>().Single().Paste());
+
+            AddUntilStep("line 2 has them, from the playhead, spaced as they were", () =>
+            {
+                var words = lineAt(1).Line.BackingVocals;
+                return words.Select(w => w.Text).SequenceEqual(new[] { "down", "down" })
+                       && Math.Abs(words[0].StartTime - 5500) < 1 && Math.Abs(words[1].StartTime - words[0].StartTime - 800) < 1;
+            });
+            AddAssert("selected on the backing track", () => state().BackingTrackSelected && state().SelectedBackingIndices.SetEquals(new[] { 0, 1 }));
+            AddAssert("line 1 kept its own", () => lineAt(0).Line.BackingVocals.Count == 2);
+            AddAssert("no typed word was added", () => lineAt(1).Line.Units.Count == 1);
+        }
     }
 }

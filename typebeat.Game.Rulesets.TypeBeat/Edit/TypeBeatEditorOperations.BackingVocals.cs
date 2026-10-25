@@ -173,6 +173,159 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             editorBeatmap.EndChange();
         }
 
+        /// <summary>Removes the backing words at <paramref name="indices"/>, as one undo step.</summary>
+        public static void RemoveBackingVocals(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, IEnumerable<int> indices)
+        {
+            var line = hitObject.Line;
+            var gone = indices.Where(i => i >= 0 && i < line.BackingVocals.Count).ToHashSet();
+
+            if (gone.Count == 0)
+                return;
+
+            editorBeatmap.BeginChange();
+            setLine(editorBeatmap, hitObject, withBacking(line, line.BackingVocals.Where((_, i) => !gone.Contains(i)).ToArray()));
+            editorBeatmap.EndChange();
+        }
+
+        /// <summary>
+        /// Moves the backing words at <paramref name="indices"/> RIGIDLY by <paramref name="delta"/> from
+        /// where a group drag found them (<paramref name="originalStarts"/>, <paramref name="originalEnds"/>):
+        /// every one by the same distance, the distance held back so none leaves the line or passes the
+        /// start of a backing word outside the group (so the order, and the default anchors, hold).
+        /// </summary>
+        public static void MoveBackingVocals(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, IReadOnlyList<int> indices,
+                                             IReadOnlyList<double> originalStarts, IReadOnlyList<double> originalEnds, double delta)
+        {
+            var line = hitObject.Line;
+            var words = line.BackingVocals.ToArray();
+            var group = new HashSet<int>(indices);
+
+            if (indices.Count == 0 || indices.Any(i => i < 0 || i >= words.Length))
+                return;
+
+            double low = double.NegativeInfinity, high = double.PositiveInfinity;
+
+            for (int k = 0; k < indices.Count; k++)
+            {
+                int i = indices[k];
+                double length = Math.Max(BackingVocals.MIN_SPAN_MS, originalEnds[k] - originalStarts[k]);
+
+                double floor = line.StartTime;
+                double ceiling = line.EndTime - Math.Min(length, line.EndTime - line.StartTime);
+
+                for (int j = i - 1; j >= 0; j--)
+                {
+                    if (group.Contains(j))
+                        continue;
+
+                    floor = Math.Max(floor, words[j].StartTime);
+                    break;
+                }
+
+                for (int j = i + 1; j < words.Length; j++)
+                {
+                    if (group.Contains(j))
+                        continue;
+
+                    ceiling = Math.Min(ceiling, words[j].StartTime);
+                    break;
+                }
+
+                low = Math.Max(low, floor - originalStarts[k]);
+                high = Math.Min(high, ceiling - originalStarts[k]);
+            }
+
+            double applied = Math.Clamp(delta, Math.Min(low, 0), Math.Max(high, 0));
+
+            for (int k = 0; k < indices.Count; k++)
+            {
+                double start = originalStarts[k] + applied;
+                words[indices[k]] = words[indices[k]] with { StartTime = start, EndTime = Math.Min(line.EndTime, start + Math.Max(0, originalEnds[k] - originalStarts[k])) };
+            }
+
+            if (words.SequenceEqual(line.BackingVocals))
+                return;
+
+            editorBeatmap.BeginChange();
+            setLine(editorBeatmap, hitObject, withBacking(line, words));
+            editorBeatmap.EndChange();
+        }
+
+        /// <summary>
+        /// Copies the backing words at <paramref name="indices"/>: each word whole (text, span, placed
+        /// anchor) timed from the FIRST one's start, and that start's own offset into its line, so a
+        /// paste can put the run down at the same place in another line. Null for no word.
+        /// </summary>
+        public static LyricTimingClipboard.BackingTimingsPayload? CopyBackingVocals(TypeBeatHitObject hitObject, IEnumerable<int> indices)
+        {
+            var line = hitObject.Line;
+            var picked = indices.Where(i => i >= 0 && i < line.BackingVocals.Count).Distinct().OrderBy(i => i).Select(i => line.BackingVocals[i]).ToList();
+
+            if (picked.Count == 0)
+                return null;
+
+            double first = picked[0].StartTime;
+
+            return new LyricTimingClipboard.BackingTimingsPayload
+            {
+                LineOffset = first - line.StartTime,
+                Words = picked.Select(w => new LyricTimingClipboard.BackingSpan
+                {
+                    Text = w.Text,
+                    Start = w.StartTime - first,
+                    End = w.EndTime - first,
+                    Anchor = w.Anchor,
+                }).ToList(),
+            };
+        }
+
+        /// <summary>
+        /// Pastes copied backing words into <paramref name="hitObject"/>'s line, beside the ones it has:
+        /// the run starts at <paramref name="playhead"/> when that is inside the line, else at the
+        /// offset into the line it was copied from, and keeps its spacing, lengths and placed anchors.
+        /// A word that would START past the line's end does not fit, and then nothing is pasted (null);
+        /// otherwise the pasted words' indices among the line's backing words, ascending.
+        /// </summary>
+        public static int[]? PasteBackingVocals(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, double playhead, LyricTimingClipboard.BackingTimingsPayload payload)
+        {
+            var line = hitObject.Line;
+            var copied = payload.Words.Select(w => (Word: w, Text: BackingVocals.CleanText(w.Text))).Where(w => w.Text.Length > 0).ToList();
+
+            if (copied.Count == 0)
+                return Array.Empty<int>();
+
+            double origin = playhead >= line.StartTime && playhead < line.EndTime ? playhead : line.StartTime + payload.LineOffset;
+
+            var pasted = copied.Select(c => new BackingVocal(c.Text, origin + c.Word.Start, origin + Math.Max(c.Word.Start, c.Word.End),
+                c.Word.Anchor is double anchor ? BackingVocals.RoundAnchor(anchor) : null)).ToArray();
+
+            if (pasted.Any(w => w.StartTime < line.StartTime || w.StartTime >= line.EndTime))
+                return null;
+
+            // The pasted words go AFTER any already there at the same moment (Fit is stable), so each
+            // is found again as the last word with its own text and start.
+            var fitted = BackingVocals.Fit(line.BackingVocals.Concat(pasted).ToArray(), line.StartTime, line.EndTime);
+            var at = new List<int>();
+
+            foreach (var word in pasted)
+            {
+                for (int i = fitted.Count - 1; i >= 0; i--)
+                {
+                    if (fitted[i].Text == word.Text && fitted[i].StartTime == word.StartTime && !at.Contains(i))
+                    {
+                        at.Add(i);
+                        break;
+                    }
+                }
+            }
+
+            editorBeatmap.BeginChange();
+            setLine(editorBeatmap, hitObject, withBacking(line, fitted));
+            editorBeatmap.EndChange();
+
+            return at.OrderBy(i => i).ToArray();
+        }
+
         /// <summary>The backing vocals of a line as the text the editor's backing field shows: the words joined by single spaces.</summary>
         public static string BackingVocalText(LyricLine line) => string.Join(' ', line.BackingVocals.Select(w => w.Text));
 
