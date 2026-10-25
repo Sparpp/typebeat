@@ -29,7 +29,6 @@ using typebeat.Game.Screens;
 using typebeat.Game.Screens.Menu;
 using typebeat.Game.Screens.Play;
 using osuTK.Graphics;
-using IntroSequence = typebeat.Game.Configuration.IntroSequence;
 
 namespace typebeat.Game.Tests.Visual
 {
@@ -175,7 +174,6 @@ namespace typebeat.Game.Tests.Visual
             {
                 base.LoadComplete();
 
-                LocalConfig.SetValue(OsuSetting.IntroSequence, IntroSequence.Circles);
                 LocalConfig.SetValue(OsuSetting.ShowFirstRunSetup, false);
 
                 API.Login("Rhythm Champion", "type!beat");

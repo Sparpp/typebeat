@@ -34,11 +34,7 @@ namespace typebeat.Game.Overlays.Settings.Sections.UserInterface
                 },
                 // The MenuMusic ("music theme") row is deliberately not surfaced, the config
                 // key still gates the beatdrop intro soundtrack (default on).
-                new SettingsItemV2(new FormEnumDropdown<IntroSequence>
-                {
-                    Caption = UserInterfaceStrings.IntroSequence,
-                    Current = config.GetBindable<IntroSequence>(OsuSetting.IntroSequence),
-                }),
+                // The Intro sequence row was removed (2026-10-25): the intro is always Triangles.
                 // The background source row carried a supporter-only note, which has been removed.
                 new SettingsItemV2(new FormEnumDropdown<BackgroundSource>
                 {

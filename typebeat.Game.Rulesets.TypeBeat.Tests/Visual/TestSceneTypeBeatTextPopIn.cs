@@ -37,14 +37,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         [TearDownSteps]
         public void RestoreSettings() => AddStep("restore pop-in defaults", () =>
         {
-            config.SetValue(TypeBeatRulesetSetting.CharacterIndicatorTiming, false);
             config.SetValue(TypeBeatRulesetSetting.PaceBarReveal, PaceBarRevealMode.Build);
             config.SetValue(TypeBeatRulesetSetting.JudgementColouredBars, false);
             config.SetValue(TypeBeatRulesetSetting.ShowPaceColours, true);
             config.SetValue(TypeBeatRulesetSetting.ApproachBars, false);
             config.SetValue(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.FadeIn);
             config.SetValue(TypeBeatRulesetSetting.PaceColourGradient, 0f);
-            config.SetValue(TypeBeatRulesetSetting.SyllableFadeInEnd, 0f);
             config.SetValue(TypeBeatRulesetSetting.SyllableFadeInDuration, TypeBeatRulesetConfigManager.DEFAULT_SYLLABLE_FADE_IN_DURATION_MS);
             config.SetValue(TypeBeatRulesetSetting.SyllableBrightness, 60f);
             config.SetValue(TypeBeatRulesetSetting.TextPopIn, true);
@@ -57,14 +55,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         {
             AddStep("create lyrics with pop-in", () =>
             {
-                config.SetValue(TypeBeatRulesetSetting.CharacterIndicatorTiming, false);
                 config.SetValue(TypeBeatRulesetSetting.PaceBarReveal, PaceBarRevealMode.Build);
                 config.SetValue(TypeBeatRulesetSetting.JudgementColouredBars, false);
                 config.SetValue(TypeBeatRulesetSetting.ShowPaceColours, true);
                 config.SetValue(TypeBeatRulesetSetting.ApproachBars, false);
                 config.SetValue(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.None);
                 config.SetValue(TypeBeatRulesetSetting.PaceColourGradient, 100f);
-                config.SetValue(TypeBeatRulesetSetting.SyllableFadeInEnd, 0f);
                 config.SetValue(TypeBeatRulesetSetting.SyllableFadeInDuration, 100f);
                 config.SetValue(TypeBeatRulesetSetting.TextPopInAmount, TypeBeatRulesetConfigManager.DEFAULT_TEXT_POP_IN_AMOUNT);
                 config.SetValue(TypeBeatRulesetSetting.TextPopIn, true);
@@ -117,10 +113,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("slightly smaller", () => Math.Abs(display.CellVisualScale(0) - 0.95f) < 0.00001);
             AddAssert("not highlighted yet", () => colourIs(0, TypeBeatStyle.UntypedChar));
             AddStep("record stable layout", () => { width = display.FullOnScreenWidth; position = display.CellScreenPosition(0); });
-            at("halfway through approach", () => 1000 - engine.Windows.GreatEarly - 70);
+            at("halfway through approach", () => 1000 - 70);
             AddUntilStep("subtle eased growth", () => display.CellVisualScale(0) > 0.99f && display.CellVisualScale(0) < 1f);
-            at("Great window opens", () => 1000 - engine.Windows.GreatEarly);
-            AddUntilStep("full size exactly at opening", () => display.CellVisualScale(0) == 1f && colourIs(0, TypeBeatStyle.SungCharForBrightness(50)));
+            at("Great window centre", () => 1000);
+            AddUntilStep("full size exactly at the centre", () => display.CellVisualScale(0) == 1f && colourIs(0, TypeBeatStyle.SungCharForBrightness(50)));
             AddAssert("normal syllable lights together", () => Enumerable.Range(0, 3).All(i => colourIs(i, TypeBeatStyle.SungCharForBrightness(50)) && display.CellVisualScale(i) == 1));
             AddAssert("layout stays fixed", () => Math.Abs(display.FullOnScreenWidth - width) < 0.01 && Vector2.Distance(display.CellScreenPosition(0), position) < 0.01);
             at("seek backwards", () => 1000 - engine.Windows.GreatEarly - 200);
@@ -128,8 +124,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("increase amount during play", () => config.SetValue(TypeBeatRulesetSetting.TextPopInAmount, 12f));
             AddUntilStep("larger amount applies immediately", () => display.CellVisualScale(0) == 0.88f);
             AddAssert("amount keeps layout fixed", () => Math.Abs(display.FullOnScreenWidth - width) < 0.01 && Vector2.Distance(display.CellScreenPosition(0), position) < 0.01);
-            at("adjusted Great window opens", () => 1000 - engine.Windows.GreatEarly);
-            AddUntilStep("adjusted amount still finishes at opening", () => display.CellVisualScale(0) == 1f && colourIs(0, TypeBeatStyle.SungCharForBrightness(50)));
+            at("adjusted Great window centre", () => 1000);
+            AddUntilStep("adjusted amount still finishes at the centre", () => display.CellVisualScale(0) == 1f && colourIs(0, TypeBeatStyle.SungCharForBrightness(50)));
             at("seek before adjusted approach", () => 1000 - engine.Windows.GreatEarly - 200);
             AddUntilStep("adjusted amount survives seeking", () => display.CellVisualScale(0) == 0.88f && colourIs(0, TypeBeatStyle.UntypedChar));
             AddStep("set amount to zero", () => config.SetValue(TypeBeatRulesetSetting.TextPopInAmount, 0f));
@@ -170,12 +166,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // The suffix is judged on the open syllable span, not on the held vowel before it, so it
             // lights with the syllable under the span rule and keeps its own targets under HR.
             if (!hardRock)
-                AddAssert("ne lights with the syllable it is judged on", () => colourIs(19, TypeBeatStyle.SungCharForBrightness(50)) && colourIs(20, TypeBeatStyle.SungCharForBrightness(50))
-                    && display.CellVisualScale(19) == 1 && display.CellVisualScale(20) == 1);
+            {
+                AddAssert("ne lights with the syllable it is judged on", () => colourIs(19, TypeBeatStyle.SungCharForBrightness(50)) && colourIs(20, TypeBeatStyle.SungCharForBrightness(50)));
+                at("done syllable centre", () => 186008.333333);
+                AddUntilStep("ne finishes popping in at the syllable's centre", () => display.CellVisualScale(19) == 1 && display.CellVisualScale(20) == 1);
+            }
             else
                 AddAssert("ne waits for its own targets under HR", () => colourIs(19, TypeBeatStyle.UntypedChar) && colourIs(20, TypeBeatStyle.UntypedChar)
                     && display.CellVisualScale(19) == LyricLineDisplay.TEXT_POP_IN_MIN_SCALE && display.CellVisualScale(20) == LyricLineDisplay.TEXT_POP_IN_MIN_SCALE);
-            at("first held o Great window opens", () => 186008.333333 + 4625.0 / 13 - engine.Windows.GreatEarly);
+            at("first held o target", () => 186008.333333 + 4625.0 / 13);
             AddUntilStep("held o lights and finishes pop-in at its corrected window", () => colourIs(9, TypeBeatStyle.SungCharForBrightness(50)) && display.CellVisualScale(9) == 1);
             AddAssert("next held o remains grey", () => colourIs(10, TypeBeatStyle.UntypedChar));
             at("last held o window opens", () => display.Line.Cells[18].TargetTime - engine.Windows.GreatEarly);
@@ -208,30 +207,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         {
             load(text, hardRock);
             AddStep("enable syllable fade-in", () => config.SetValue(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.FadeIn));
-            at("100ms approach opens", () => display.Line.Cells[index].TargetTime - engine.Windows.GreatEarly - 100);
+            at("100ms approach opens", () => display.Line.Cells[index].TargetTime - 100);
             AddUntilStep("approach starts at untyped grey", () => colourIs(index, TypeBeatStyle.UntypedChar));
-            at("halfway through 100ms approach", () => display.Line.Cells[index].TargetTime - engine.Windows.GreatEarly - 50);
+            at("halfway through 100ms approach", () => display.Line.Cells[index].TargetTime - 50);
             AddUntilStep("exponential midpoint brightness", () => colourIs(index, TypeBeatStyle.SungCharForBrightness(50 * 31f / 1023f)));
             if (text == "cat")
                 AddAssert("syllable fades together", () => Enumerable.Range(0, 3).All(i => colourIs(i, TypeBeatStyle.SungCharForBrightness(50 * 31f / 1023f))));
             else
                 AddAssert("next character remains grey", () => colourIs(index + 1, TypeBeatStyle.UntypedChar));
             AddStep("disable fade during approach", () => config.SetValue(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.None));
-            AddUntilStep("disabled keeps original Great-only highlight", () => colourIs(index, TypeBeatStyle.UntypedChar));
+            // Halfway through the fade is already inside the Great window (it opens 150 ms before the centre), so the plain Great-only highlight is fully on.
+            AddUntilStep("disabled shows the Great-only highlight", () => colourIs(index, TypeBeatStyle.SungCharForBrightness(50)));
             AddStep("enable fade again", () => config.SetValue(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.FadeIn));
             AddUntilStep("current approach immediately restored", () => colourIs(index, TypeBeatStyle.SungCharForBrightness(50 * 31f / 1023f)));
             AddStep("increase sung brightness", () => config.SetValue(TypeBeatRulesetSetting.SyllableBrightness, 80f));
             AddUntilStep("brightness slider preserves current fade fraction", () => colourIs(index, TypeBeatStyle.SungCharForBrightness(80 * 31f / 1023f)));
-            at("Great window opens", () => display.Line.Cells[index].TargetTime - engine.Windows.GreatEarly);
+            at("Great window centre", () => display.Line.Cells[index].TargetTime);
             AddUntilStep("full sung brightness and pop-in finish together", () => colourIs(index, TypeBeatStyle.SungCharForBrightness(80)) && display.CellVisualScale(index) == 1);
-            at("seek before approach", () => display.Line.Cells[index].TargetTime - engine.Windows.GreatEarly - 100 - 1);
+            at("seek before approach", () => display.Line.Cells[index].TargetTime - 100 - 1);
             AddUntilStep("seek restores untyped grey", () => colourIs(index, TypeBeatStyle.UntypedChar));
             at("100ms midpoint with scaled Great window", () =>
             {
                 engine.WindowScale = 2;
-                return display.Line.Cells[index].TargetTime - engine.Windows.GreatEarly - 50;
+                return display.Line.Cells[index].TargetTime - 50;
             });
-            AddUntilStep("fade uses scaled judgement windows", () => colourIs(index, TypeBeatStyle.SungCharForBrightness(80 * 31f / 1023f)));
+            // The centre of the Great window is the target, so widening the window does not move it.
+            AddUntilStep("fade still completes at the centre with scaled windows", () => colourIs(index, TypeBeatStyle.SungCharForBrightness(80 * 31f / 1023f)));
         }
 
         [Test]
@@ -245,15 +246,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             });
             // "d" opens the syllable (judged on its start) and "ne" is judged on the whole span, so
             // all three fade in on the syllable's start while the held o's wait for their own targets.
-            at("before the syllable approach", () => 186008.333333 - engine.Windows.GreatEarly - 100 - 1);
+            at("before the syllable approach", () => 186008.333333 - 100 - 1);
             AddUntilStep("suffix remains grey", () => colourIs(19, TypeBeatStyle.UntypedChar) && colourIs(20, TypeBeatStyle.UntypedChar));
-            at("midway through the syllable approach", () => 186008.333333 - engine.Windows.GreatEarly - 50);
+            at("midway through the syllable approach", () => 186008.333333 - 50);
             AddUntilStep("suffix and the syllable's first letter fade together", () => new[] { 8, 19, 20 }.All(i => colourIs(i, TypeBeatStyle.SungCharForBrightness(50 * 31f / 1023f))));
             AddAssert("held o's wait for their own targets", () => colourIs(9, TypeBeatStyle.UntypedChar) && colourIs(18, TypeBeatStyle.UntypedChar));
             AddAssert("fade works independently of size animation", () => display.CellVisualScale(19) == 1 && display.CellVisualScale(20) == 1);
-            at("the syllable's Great window opens", () => 186008.333333 - engine.Windows.GreatEarly);
+            at("the syllable's Great window centre", () => 186008.333333);
             AddUntilStep("suffix reaches full sung brightness", () => new[] { 8, 19, 20 }.All(i => colourIs(i, TypeBeatStyle.SungCharForBrightness(50))));
-            at("back to first character Great window", () => display.Line.Cells[0].TargetTime - engine.Windows.GreatEarly);
+            at("back to first character's target", () => display.Line.Cells[0].TargetTime);
             AddUntilStep("first character lights", () => colourIs(0, TypeBeatStyle.SungCharForBrightness(50)));
             AddStep("type first character", () => engine.ProcessKey('i', songClock.CurrentTime));
             AddUntilStep("character is judged", () => display.Line.Cells[0].State == CellState.Correct);
@@ -267,19 +268,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("judgement colour survives fade toggle", () => display.CellColour(0).Equals(judgedColour));
         }
 
-        [TestCase(0f)]
-        [TestCase(50f)]
-        [TestCase(100f)]
-        public void FadeCompletionAndDurationApplyLive(float endPercent)
+        [Test]
+        public void FadeCompletionAndDurationApplyLive()
         {
             load("cat");
             AddStep("configure 250ms approach", () =>
             {
                 config.SetValue(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.FadeIn);
-                config.SetValue(TypeBeatRulesetSetting.SyllableFadeInEnd, endPercent);
                 config.SetValue(TypeBeatRulesetSetting.SyllableFadeInDuration, 250f);
             });
-            double completion() => 1000 - engine.Windows.GreatEarly * (1 - endPercent / 100.0);
+            // The fade always completes at the centre of the Great window, the target.
+            double completion() => 1000;
             at("approach starts", () => completion() - 250);
             AddUntilStep("starts at grey", () => colourIs(0, TypeBeatStyle.UntypedChar));
             at("approach midpoint", () => completion() - 125);
@@ -314,7 +313,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 config.SetValue(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.FadeIn);
                 config.SetValue(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.BottomToTopFill);
                 config.SetValue(TypeBeatRulesetSetting.SyllableFadeInDuration, 200f);
-                config.SetValue(TypeBeatRulesetSetting.SyllableFadeInEnd, 100f);
             });
             at("fill midpoint", () => display.Line.Cells[index].TargetTime - 100);
             AddUntilStep("glyph is half filled", () => Math.Abs(display.CellColourFillFraction(index) - 0.5f) < 0.0001);
@@ -379,10 +377,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             load(text, hardRock, splitStretch);
             int index = splitStretch ? 3 : 0;
             AddAssert("live timing mode selected", () => engine.HardRockFromMod == hardRock && (!splitStretch || display.Line.IsCharTimedStretch(index)));
-            at("character window opens", () => display.Line.Cells[index].TargetTime - engine.Windows.GreatEarly);
+            at("character target", () => display.Line.Cells[index].TargetTime);
             AddUntilStep("current character full size and lit", () => display.CellVisualScale(index) == 1 && colourIs(index, TypeBeatStyle.SungCharForBrightness(50)));
             AddAssert("next character still approaching", () => display.CellVisualScale(index + 1) == LyricLineDisplay.TEXT_POP_IN_MIN_SCALE && colourIs(index + 1, TypeBeatStyle.UntypedChar));
-            at("next character window", () => display.Line.Cells[index + 1].TargetTime - engine.Windows.GreatEarly);
+            at("next character target", () => display.Line.Cells[index + 1].TargetTime);
             AddUntilStep("next character lights separately", () => display.CellVisualScale(index + 1) == 1 && colourIs(index + 1, TypeBeatStyle.SungCharForBrightness(50)));
             at("past previous character's Great window", () => Math.Max(display.Line.Cells[index + 1].TargetTime,
                 display.Line.Cells[index].TargetTime + engine.Windows.GreatLate + LyricLineDisplay.INDICATOR_RELEASE_DURATION_MS));

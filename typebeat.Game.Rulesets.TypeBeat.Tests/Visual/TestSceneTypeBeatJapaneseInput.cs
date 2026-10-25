@@ -393,7 +393,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             press("uki");
             AddAssert("the pending erase is recorded", () => frames.Count(f => f.IsBackspace) == 1);
             AddAssert("ruby is small and above the kanji", () =>
-                ruby("つき").Font.Size < display.ChildrenOfType<OsuSpriteText>().Single(t => t.Text.ToString() == "月").Font.Size
+                ruby("つき").Font.Size < display.ChildrenOfType<OsuSpriteText>().First(t => t.Text.ToString() == "月").Font.Size
                 && ruby("つき").ScreenSpaceDrawQuad.BottomLeft.Y < display.CellScreenPosition(0).Y - display.LineHeight * 0.25f);
             AddAssert("the erase replays exactly", reDerivedMatchesLive);
         }

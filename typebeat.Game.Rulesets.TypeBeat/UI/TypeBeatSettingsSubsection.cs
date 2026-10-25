@@ -162,7 +162,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 new SettingsItemV2(new FormCheckBox
                 {
                     Caption = "Approach bars",
-                    HintText = "Show pace-coloured bars that rise over the Indicator Lead-In and arrive at the centre of the Great window, independently of Indicator Alignment. Display only.",
+                    HintText = "Show pace-coloured bars that rise over the Indicator Lead-In and arrive at the centre of the Great window. Display only.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ApproachBars),
                 }),
                 new SettingsItemV2(new FormEnumDropdown<JudgementIndicatorMode>
@@ -171,24 +171,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     HintText = "Choose how upcoming syllables or letters show judgement timing. Display only.",
                     Current = judgementIndicator,
                 }),
-                new SettingsItemV2(new FormCheckBox
-                {
-                    Caption = "Character timing for indicators",
-                    HintText = "Fade or fill each character over the Indicator Lead-In, completing when Autoplay would type it with the current mods. Text pop-in follows the same timing. Overrides Indicator Alignment. Display only.",
-                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.CharacterIndicatorTiming),
-                }),
-                new SettingsItemV2(new FormSliderBar<float>
-                {
-                    Caption = "Indicator Alignment",
-                    HintText = "Sets when the fade or fill and text pop-in complete, from the start to the centre of the Great window. Disabled when character timing is enabled. Approach bars always arrive at the centre. Display only.",
-                    Current = config.GetBindable<float>(TypeBeatRulesetSetting.SyllableFadeInEnd),
-                    KeyboardStep = 1f,
-                    LabelFormat = v => v == 0 ? "Great window start" : v == 100 ? "Great window centre" : $"{v:0}% towards centre",
-                }),
                 new SettingsItemV2(new FormSliderBar<float>
                 {
                     Caption = "Indicator Lead-In",
-                    HintText = "How many milliseconds the indicator takes to fade, fill, or approach its alignment point. Zero makes it appear instantly. Display only.",
+                    HintText = "How many milliseconds the indicator takes to fade, fill, or approach the centre of the Great window. Zero makes it appear instantly. Display only.",
                     Current = config.GetBindable<float>(TypeBeatRulesetSetting.SyllableFadeInDuration),
                     KeyboardStep = 1f,
                     LabelFormat = v => $"{v:0} ms",

@@ -133,18 +133,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// Space-to-skip-a-word ships ON (backlog 198, reversing backlog 110's opt-in): it is how
-        /// every other typing game treats the spacebar, and the settings checkbox remains for turning
-        /// it off. Only the SHIPPED config default is on; the engine property itself stays off by
-        /// default (pinned in SpaceSkipWordTest), because a stored replay with no CONFIG frame must
-        /// keep decoding as the classic stack.
+        /// Space-to-skip-a-word shipped ON from backlog 198 until 2026-10-25, when the shipped default
+        /// went back to OFF for new installs (an existing player keeps the value they have; no settings
+        /// migration). The engine property itself has always defaulted off (pinned in
+        /// SpaceSkipWordTest), because a stored replay with no CONFIG frame must keep decoding as the
+        /// classic stack, so this changes nothing about replays.
         /// </summary>
         [Test]
-        public void SpaceSkipsWordDefaultsToOn()
+        public void SpaceSkipsWordDefaultsToOff()
         {
             using (var rulesetConfig = new TypeBeatRulesetConfigManager(null, new TypeBeatRuleset().RulesetInfo))
             {
-                Assert.That(rulesetConfig.GetBindable<bool>(TypeBeatRulesetSetting.SpaceSkipsWord).Default, Is.True);
+                Assert.That(rulesetConfig.GetBindable<bool>(TypeBeatRulesetSetting.SpaceSkipsWord).Default, Is.False);
             }
         }
 

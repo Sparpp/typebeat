@@ -2,8 +2,10 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using NUnit.Framework;
+using osu.Framework.Bindables;
 using osu.Framework.Development;
 using osu.Framework.Platform;
 using typebeat.Game.Configuration;
@@ -71,7 +73,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void RulesetSettingsResetIncludingOneDisabledByAnotherSetting()
+        public void RulesetSettingsReset()
         {
             withStore((settings, ruleset) =>
             {
@@ -79,14 +81,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
                 using (var config = new TypeBeatRulesetConfigManager(settings, ruleset.RulesetInfo))
                 {
-                    config.SetValue(TypeBeatRulesetSetting.SyllableFadeInEnd, 30f);
                     config.SetValue(TypeBeatRulesetSetting.SyllableBrightness, 23f);
-                    // Character timing disables the alignment slider, so a single pass could not reset it.
-                    config.SetValue(TypeBeatRulesetSetting.CharacterIndicatorTiming, true);
-                    Assert.That(config.GetBindable<float>(TypeBeatRulesetSetting.SyllableFadeInEnd).Disabled, Is.True);
+                    config.SetValue(TypeBeatRulesetSetting.ShowPaceColours, true);
+                    config.SetValue(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.FadeIn);
                     config.Save();
 
-                    config.ResetToDefaults();
+                    Assert.That(config.ResetToDefaults(), Is.GreaterThan(0));
 
                     assertDefaults(config, defaults);
                 }
@@ -96,11 +96,45 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             });
         }
 
+        private enum TwoSettings
+        {
+            Dependent,
+            Gate,
+        }
+
+        /// <summary>
+        /// A setting disabled by another one refuses a new value, so the reset makes a second pass once
+        /// the disabling setting is back on its default. Listed dependent-first, so a single pass would
+        /// leave it on its stale value.
+        /// </summary>
+        [Test]
+        public void ASettingDisabledByAnotherIsResetOnTheSecondPass()
+        {
+            var gate = new Bindable<bool>(false) { Value = true };
+            var dependent = new BindableFloat(0) { Value = 42 };
+            gate.BindValueChanged(e => dependent.Disabled = e.NewValue, true);
+            Assert.That(dependent.Disabled, Is.True);
+
+            var store = new[]
+            {
+                new KeyValuePair<TwoSettings, IBindable>(TwoSettings.Dependent, dependent),
+                new KeyValuePair<TwoSettings, IBindable>(TwoSettings.Gate, gate),
+            };
+
+            Assert.That(ConfigDefaults.Reset(store, _ => false), Is.EqualTo(2));
+            Assert.Multiple(() =>
+            {
+                Assert.That(gate.Value, Is.False);
+                Assert.That(dependent.Disabled, Is.False);
+                Assert.That(dependent.Value, Is.Zero);
+            });
+        }
+
         private static void assertDefaults(TypeBeatRulesetConfigManager config, TypeBeatRulesetConfigManager defaults) => Assert.Multiple(() =>
         {
-            Assert.That(config.Get<bool>(TypeBeatRulesetSetting.CharacterIndicatorTiming), Is.EqualTo(defaults.Get<bool>(TypeBeatRulesetSetting.CharacterIndicatorTiming)));
-            Assert.That(config.Get<float>(TypeBeatRulesetSetting.SyllableFadeInEnd), Is.EqualTo(defaults.Get<float>(TypeBeatRulesetSetting.SyllableFadeInEnd)));
             Assert.That(config.Get<float>(TypeBeatRulesetSetting.SyllableBrightness), Is.EqualTo(defaults.Get<float>(TypeBeatRulesetSetting.SyllableBrightness)));
+            Assert.That(config.Get<bool>(TypeBeatRulesetSetting.ShowPaceColours), Is.EqualTo(defaults.Get<bool>(TypeBeatRulesetSetting.ShowPaceColours)));
+            Assert.That(config.Get<JudgementIndicatorMode>(TypeBeatRulesetSetting.JudgementIndicator), Is.EqualTo(defaults.Get<JudgementIndicatorMode>(TypeBeatRulesetSetting.JudgementIndicator)));
         });
 
         private static void withStore(Action<SettingsStore, TypeBeatRuleset> action)

@@ -61,7 +61,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     "Use typing font in Editor",
                     "Use space error dot",
                     "Approach bars",
-                    "Character timing for indicators",
                     "Text pop-in",
                     "Show syllable markers",
                     "Show word pace colours",
@@ -78,7 +77,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     TypeBeatRulesetSetting.UseTypingFontInEditor,
                     TypeBeatRulesetSetting.UseSpaceErrorDot,
                     TypeBeatRulesetSetting.ApproachBars,
-                    TypeBeatRulesetSetting.CharacterIndicatorTiming,
                     TypeBeatRulesetSetting.TextPopIn,
                     TypeBeatRulesetSetting.ShowSyllableMarkers,
                     TypeBeatRulesetSetting.ShowPaceColours,
@@ -97,9 +95,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     setting.Value = !setting.Value;
                 }
 
-                // And the defaults the game ships with, which the move must not have reset either.
-                // Character timing is opt-in; the other settled checkboxes ship enabled.
-                Assert.That(checkboxes.Select(c => c.Current.Value), Is.EqualTo(new[] { true, true, true, true, true, true, false, true, true, true }));
+                // And the defaults a NEW install ships with (2026-10-25): Space to skip, Approach bars
+                // and word pace colours are off; the rest are on.
+                Assert.That(checkboxes.Select(c => c.Current.Value), Is.EqualTo(new[] { false, true, true, true, true, false, true, true, false }));
             }
         }
 
@@ -145,8 +143,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     "Use space error dot",
                     "Approach bars",
                     "Judgement Indicator",
-                    "Character timing for indicators",
-                    "Indicator Alignment",
                     "Indicator Lead-In",
                     "Indicator Brightness",
                     "Text pop-in",
@@ -171,7 +167,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 {
                     "None", "Fade-In", "Bottom-to-top fill",
                 }));
-                Assert.That(indicator.Current.Value, Is.EqualTo(JudgementIndicatorMode.FadeIn));
+                Assert.That(indicator.Current.Value, Is.EqualTo(JudgementIndicatorMode.BottomToTopFill));
                 foreach (var indicatorMode in indicatorModes)
                 {
                     indicator.Current.Value = indicatorMode;
@@ -180,15 +176,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 config.SetValue(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.FadeIn);
                 Assert.That(indicator.Current.Value, Is.EqualTo(JudgementIndicatorMode.FadeIn));
 
-                var end = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormSliderBar<float>>().Single(c => c.Caption.ToString() == "Indicator Alignment");
-                Assert.That(end.Current.Value, Is.EqualTo(100f));
-                end.Current.Value = 50f;
-                Assert.That(config.Get<float>(TypeBeatRulesetSetting.SyllableFadeInEnd), Is.EqualTo(50f));
-                config.SetValue(TypeBeatRulesetSetting.SyllableFadeInEnd, 1000f);
-                Assert.That(end.Current.Value, Is.EqualTo(100f));
-                config.SetValue(TypeBeatRulesetSetting.SyllableFadeInEnd, -1f);
-                Assert.That(end.Current.Value, Is.Zero);
-                Assert.That(end.LabelFormat!(100).ToString(), Is.EqualTo("Great window centre"));
+                // Indicator Alignment was retired (2026-10-25): the indicators always complete at the
+                // centre of the Great window, so there is no slider for it.
+                Assert.That(controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormSliderBar<float>>().Any(c => c.Caption.ToString() == "Indicator Alignment"), Is.False);
 
                 var duration = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormSliderBar<float>>().Single(c => c.Caption.ToString() == "Indicator Lead-In");
                 Assert.That(duration.Current.Value, Is.EqualTo(800f));
@@ -240,8 +230,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
                 var gradient = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormSliderBar<float>>().Single(c => c.Caption.ToString() == "Pace colour gradient");
                 var bars = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>().Single(c => c.Caption.ToString() == "Approach bars");
-                Assert.That(bars.Current.Value, Is.True);
+                Assert.That(bars.Current.Value, Is.False);
                 Assert.That(gradient.Current.Value, Is.Zero);
+                Assert.That(gradient.Current.Disabled, Is.False);
+                bars.Current.Value = true;
                 Assert.That(gradient.Current.Disabled, Is.True);
                 bars.Current.Value = false;
                 Assert.That(gradient.Current.Disabled, Is.False);
@@ -284,7 +276,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(gradient.Value, Is.Zero);
             Assert.That(gradient.Disabled, Is.True);
 
-            Assert.That(config.Get<JudgementIndicatorMode>(TypeBeatRulesetSetting.JudgementIndicator), Is.EqualTo(JudgementIndicatorMode.FadeIn));
+            Assert.That(config.Get<JudgementIndicatorMode>(TypeBeatRulesetSetting.JudgementIndicator), Is.EqualTo(JudgementIndicatorMode.BottomToTopFill));
             bars.Value = false;
             Assert.That(gradient.Disabled, Is.False);
         }

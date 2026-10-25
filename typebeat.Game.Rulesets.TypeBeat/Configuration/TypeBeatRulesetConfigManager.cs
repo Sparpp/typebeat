@@ -3,7 +3,6 @@
 
 using System;
 using System.ComponentModel;
-using System.Globalization;
 using System.Linq;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
@@ -76,9 +75,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// <summary>
         /// Whether pressing space in the middle of a word abandons the rest of it (every character
         /// of it you had not resolved yet counts as a miss) and moves you on to the next word, rather
-        /// than being rejected as a wrong key. ON by default since backlog 198: it is how every other
-        /// typing game treats the spacebar, so the game ships with it and the settings checkbox exists
-        /// to turn it OFF. Only this SHIPPED default changed; the engine property it drives
+        /// than being rejected as a wrong key. ON by default from backlog 198 until 2026-10-25, when the
+        /// shipped default went back to OFF for new installs (an existing player keeps the value they
+        /// have; no settings migration). Only this SHIPPED default ever changes; the engine property it drives
         /// (<see cref="Gameplay.TypingEngine.SpaceSkipsWord"/>) still defaults to off, because a stored
         /// replay with no CONFIG frame must keep decoding as the classic stack. See the engine doc for
         /// what the skip costs and why it needs no multiplier.
@@ -254,8 +253,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// <summary>Replace the syllable brightness fade with a bottom-to-top glyph fill. Display only.</summary>
         SyllableColourFill,
 
-        /// <summary>Fade/fill completion from the early Great edge (0%) to its centre (100%, the default). Display only.</summary>
-        SyllableFadeInEnd,
+        // NOTE (2026-10-25): SyllableFadeInEnd ("Indicator Alignment") was retired. The fade and fill now
+        // always complete at the centre of the Great window (LyricLineDisplay.indicatorCompletion). A
+        // stored row is orphaned and harmless: rows are looked up by member name and nothing asks for
+        // that name any more. Do not reuse the name.
 
         /// <summary>Duration of the syllable brightness fade or fill in milliseconds. Display only.</summary>
         SyllableFadeInDuration,
@@ -311,8 +312,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// </summary>
         IsolateVocalsOnImport,
 
-        /// <summary>Fade or fill each character at its Autoplay hit time. Display only.</summary>
-        CharacterIndicatorTiming,
+        // NOTE (2026-10-25): CharacterIndicatorTiming ("Character timing for indicators") was retired
+        // with Indicator Alignment; its stored rows are orphaned and harmless, as above.
 
         /// <summary>
         /// Tint each correctly typed character by WHICH WAY its keypress missed the beat: towards
@@ -349,13 +350,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
 
         /// <summary>The colour a LATE press is tinted towards, stored and read like <see cref="TimingTintEarlyColour"/>. Display only.</summary>
         TimingTintLateColour,
-
-        /// <summary>
-        /// Records the one-time move of <see cref="SyllableFadeInEnd"/> from the old default (0%, the
-        /// early Great edge) to the new one (100%, the Great window's centre). Only a value still at 0
-        /// moves; any other alignment the player chose is kept.
-        /// </summary>
-        IndicatorAlignmentCentreApplied,
     }
 
     /// <summary>
@@ -467,8 +461,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         // in the constructor body, after the base constructor has finished virtual initialization.
         private readonly Bindable<bool> approachBarsBindable;
         private readonly Bindable<float> paceColourGradientBindable;
-        private readonly Bindable<bool> characterIndicatorTimingBindable;
-        private readonly Bindable<float> indicatorAlignmentBindable;
 
         public const float DEFAULT_TIMING_TINT_MIN_STRENGTH = 33f;
         public const float DEFAULT_TIMING_TINT_MAX_STRENGTH = 100f;
@@ -526,7 +518,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         public const CaretStyle DEFAULT_SUNG_CARET_STYLE = CaretStyle.Line;
 
         public TypeBeatRulesetConfigManager(SettingsStore? settings, RulesetInfo ruleset, int? variant = null)
-            : base(migrateIndicatorAlignmentCentre(migratePaceBarReveal(migrateIndicatorDefaults(migratePaceColourMode(settings, ruleset, variant ?? 0), ruleset, variant ?? 0), ruleset, variant ?? 0), ruleset, variant ?? 0), ruleset, variant)
+            : base(migratePaceBarReveal(migrateIndicatorDefaults(migratePaceColourMode(settings, ruleset, variant ?? 0), ruleset, variant ?? 0), ruleset, variant ?? 0), ruleset, variant)
         {
             approachBarsBindable = GetBindable<bool>(TypeBeatRulesetSetting.ApproachBars);
             paceColourGradientBindable = GetBindable<float>(TypeBeatRulesetSetting.PaceColourGradient);
@@ -537,10 +529,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
 
                 paceColourGradientBindable.Disabled = change.NewValue;
             }, true);
-
-            characterIndicatorTimingBindable = GetBindable<bool>(TypeBeatRulesetSetting.CharacterIndicatorTiming);
-            indicatorAlignmentBindable = GetBindable<float>(TypeBeatRulesetSetting.SyllableFadeInEnd);
-            characterIndicatorTimingBindable.BindValueChanged(change => indicatorAlignmentBindable.Disabled = change.NewValue, true);
         }
 
         // Run before the base constructor loads and parses any stored setting. A default alone
@@ -579,7 +567,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         }
 
         // Apply the complete preset atomically before the base class parses settings, including
-        // retired indicator names. The separate marker preserves all later player choices.
+        // retired indicator names. The separate marker preserves all later player choices. A fresh
+        // install has no marker, so this is also what a NEW player starts with: keep it equal to the
+        // SetDefault values below. Changing a value here does not reach an existing player.
         private static SettingsStore? migrateIndicatorDefaults(SettingsStore? settings, RulesetInfo ruleset, int variant)
         {
             if (settings == null)
@@ -596,15 +586,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
                 var defaults = new (TypeBeatRulesetSetting Setting, string Value)[]
                 {
                     (TypeBeatRulesetSetting.UseSpaceErrorDot, bool.TrueString),
-                    (TypeBeatRulesetSetting.ApproachBars, bool.TrueString),
+                    (TypeBeatRulesetSetting.ApproachBars, bool.FalseString),
                     (TypeBeatRulesetSetting.SyllableBrightness, "60"),
-                    (TypeBeatRulesetSetting.JudgementIndicator, nameof(JudgementIndicatorMode.FadeIn)),
-                    (TypeBeatRulesetSetting.SyllableFadeInEnd, "100"),
+                    (TypeBeatRulesetSetting.JudgementIndicator, nameof(JudgementIndicatorMode.BottomToTopFill)),
                     (TypeBeatRulesetSetting.SyllableFadeInDuration, "800"),
                     (TypeBeatRulesetSetting.TextPopIn, bool.TrueString),
                     (TypeBeatRulesetSetting.TextPopInAmount, "5"),
                     (TypeBeatRulesetSetting.ShowSyllableMarkers, bool.TrueString),
-                    (TypeBeatRulesetSetting.ShowPaceColours, bool.TrueString),
+                    (TypeBeatRulesetSetting.ShowPaceColours, bool.FalseString),
                     (TypeBeatRulesetSetting.PaceColourMode, nameof(PaceColourMode.MapRelative)),
                     (TypeBeatRulesetSetting.PaceColourMaxChange, "100"),
                     (TypeBeatRulesetSetting.PaceColourOpacityCurve, "0"),
@@ -621,39 +610,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
                     else
                         row.Value = value;
                 }
-            });
-            return settings;
-        }
-
-        // The indicator alignment default moved from the early Great edge (0%) to the window's centre
-        // (100%): a fill that completes at the opening of the Great window reads as "type now" while
-        // the comfortable moment is 150 ms later, so players anticipating it landed Ok. A default
-        // alone cannot reach an existing row, and the indicator preset above stamped 0 into every
-        // existing profile, so a row still at 0 moves once. Any other value is a player's choice and
-        // stays; the marker keeps a later deliberate 0 from being moved again.
-        private static SettingsStore? migrateIndicatorAlignmentCentre(SettingsStore? settings, RulesetInfo ruleset, int variant)
-        {
-            if (settings == null)
-                return null;
-
-            string rulesetName = ruleset.ShortName;
-            string alignmentKey = nameof(TypeBeatRulesetSetting.SyllableFadeInEnd);
-            string markerKey = nameof(TypeBeatRulesetSetting.IndicatorAlignmentCentreApplied);
-            settings.Realm.Write(realm =>
-            {
-                var rows = realm.All<RealmRulesetSetting>().Where(s => s.RulesetName == rulesetName && s.Variant == variant);
-                var marker = rows.FirstOrDefault(s => s.Key == markerKey);
-                if (marker?.Value == bool.TrueString)
-                    return;
-
-                var alignment = rows.FirstOrDefault(s => s.Key == alignmentKey);
-                if (alignment != null && float.TryParse(alignment.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out float value) && value == 0)
-                    alignment.Value = "100";
-
-                if (marker == null)
-                    realm.Add(new RealmRulesetSetting { RulesetName = rulesetName, Variant = variant, Key = markerKey, Value = bool.TrueString });
-                else
-                    marker.Value = bool.TrueString;
             });
             return settings;
         }
@@ -695,7 +651,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.CaretStyle, DEFAULT_CARET_STYLE);
             SetDefault(TypeBeatRulesetSetting.CaretSmoothing, DEFAULT_CARET_SMOOTHING_MS, 0.0f, 50.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.SungCaretStyle, DEFAULT_SUNG_CARET_STYLE);
-            SetDefault(TypeBeatRulesetSetting.SpaceSkipsWord, true);
+            SetDefault(TypeBeatRulesetSetting.SpaceSkipsWord, false);
             SetDefault(TypeBeatRulesetSetting.ManualNewlines, true);
             SetDefault(TypeBeatRulesetSetting.LineSpacing, 96.0f, 40.0f, 200.0f, 1.0f);
 
@@ -706,7 +662,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.UseMapFonts, true);
             SetDefault(TypeBeatRulesetSetting.UseSpaceErrorDot, true);
             SetDefault(TypeBeatRulesetSetting.ShowSyllableMarkers, true);
-            SetDefault(TypeBeatRulesetSetting.ShowPaceColours, true);
+            SetDefault(TypeBeatRulesetSetting.ShowPaceColours, false);
             SetDefault(TypeBeatRulesetSetting.PaceColourMode, PaceColourMode.MapRelative);
             SetDefault(TypeBeatRulesetSetting.PaceColourMapRelativeDefaultApplied, true);
             SetDefault(TypeBeatRulesetSetting.PaceColourOpacityCurve, 0.0f, 0.0f, 100.0f, 1.0f);
@@ -720,20 +676,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.TimingTintLateColour, FormatTintColour(UI.TypeBeatStyle.LateTint));
             SetDefault(TypeBeatRulesetSetting.SyllableFadeIn, false);
             SetDefault(TypeBeatRulesetSetting.SyllableColourFill, false);
-            SetDefault(TypeBeatRulesetSetting.SyllableFadeInEnd, 100f, 0f, 100f, 1f);
             SetDefault(TypeBeatRulesetSetting.SyllableFadeInDuration, DEFAULT_SYLLABLE_FADE_IN_DURATION_MS, 0f, MAX_SYLLABLE_FADE_IN_DURATION_MS, 1f);
             SetDefault(TypeBeatRulesetSetting.TextPopIn, true);
             SetDefault(TypeBeatRulesetSetting.TextPopInAmount, DEFAULT_TEXT_POP_IN_AMOUNT, 0f, MAX_TEXT_POP_IN_AMOUNT, 1f);
-            SetDefault(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.FadeIn);
+            SetDefault(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.BottomToTopFill);
             SetDefault(TypeBeatRulesetSetting.PaceColourGradient, 0.0f, 0.0f, 100.0f, 1.0f);
-            SetDefault(TypeBeatRulesetSetting.ApproachBars, true);
+            SetDefault(TypeBeatRulesetSetting.ApproachBars, false);
             SetDefault(TypeBeatRulesetSetting.BuildPaceBarWithApproach, false);
             SetDefault(TypeBeatRulesetSetting.PaceBarReveal, PaceBarRevealMode.Off);
             SetDefault(TypeBeatRulesetSetting.JudgementColouredBars, false);
             SetDefault(TypeBeatRulesetSetting.LinePushWarningEdges, false);
-            SetDefault(TypeBeatRulesetSetting.CharacterIndicatorTiming, false);
             SetDefault(TypeBeatRulesetSetting.IndicatorDefaultsApplied, true);
-            SetDefault(TypeBeatRulesetSetting.IndicatorAlignmentCentreApplied, true);
             SetDefault(TypeBeatRulesetSetting.UseServerAligner, false);
             SetDefault(TypeBeatRulesetSetting.IsolateVocalsOnImport, true);
         }

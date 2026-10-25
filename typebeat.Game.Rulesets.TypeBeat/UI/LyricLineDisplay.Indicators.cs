@@ -42,7 +42,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private const double approach_bar_fade_in_duration_ms = 100;
         private bool syllableFadeInEnabled;
         private bool syllableColourFillEnabled;
-        private float syllableFadeInEnd;
         private float syllableFadeInDuration = TypeBeatRulesetConfigManager.DEFAULT_SYLLABLE_FADE_IN_DURATION_MS;
         private GlyphColourFill[] glyphColourFills = Array.Empty<GlyphColourFill>();
         private readonly bool[] popInApplied;
@@ -231,10 +230,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             }
         }
 
-        /// <summary>The Great window's early half, from its opening to the sung target.</summary>
-        public static double SyllableFadeInCompletion(double target, double greatEarly, float endPercent) =>
-            target - Math.Max(0, greatEarly) * (1 - Math.Clamp(endPercent, 0, 100) / 100.0);
-
         public static float SyllableFadeInProgress(double time, double completion, double duration) =>
             duration <= 0 ? time >= completion ? 1f : 0f : (float)Math.Clamp((time - completion + duration) / duration, 0, 1);
 
@@ -243,12 +238,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             syllableColourFillEnabled = enabled;
             if (syllableFadeInEnabled)
                 SetJudgementIndicator(enabled ? JudgementIndicatorMode.BottomToTopFill : JudgementIndicatorMode.FadeIn);
-        }
-
-        public void SetSyllableFadeInEnd(float percent)
-        {
-            syllableFadeInEnd = Math.Clamp(percent, 0, 100);
-            refreshApproach();
         }
 
         public void SetSyllableFadeInDuration(float milliseconds)

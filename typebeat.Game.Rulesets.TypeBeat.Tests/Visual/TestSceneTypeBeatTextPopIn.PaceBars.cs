@@ -110,7 +110,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 config.SetValue(TypeBeatRulesetSetting.PaceBarReveal, mode);
                 config.SetValue(TypeBeatRulesetSetting.ApproachBars, true);
                 config.SetValue(TypeBeatRulesetSetting.SyllableFadeInDuration, 400f);
-                config.SetValue(TypeBeatRulesetSetting.SyllableFadeInEnd, 0f);
                 var bands = new[] { new PaceBand(0, 4, Color4.Red), new PaceBand(4, 7, Color4.Green) };
                 display.SetPaceBands(bands, bands);
                 width = display.FullOnScreenWidth;

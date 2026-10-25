@@ -23,13 +23,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             (TypeBeatRulesetSetting.UseSpaceErrorDot, "False"),
             (TypeBeatRulesetSetting.ApproachBars, "False"),
             (TypeBeatRulesetSetting.SyllableBrightness, "23"),
-            (TypeBeatRulesetSetting.JudgementIndicator, "BottomToTopFill"),
-            (TypeBeatRulesetSetting.SyllableFadeInEnd, "70"),
+            (TypeBeatRulesetSetting.JudgementIndicator, "FadeIn"),
             (TypeBeatRulesetSetting.SyllableFadeInDuration, "275"),
             (TypeBeatRulesetSetting.TextPopIn, "False"),
             (TypeBeatRulesetSetting.TextPopInAmount, "12"),
             (TypeBeatRulesetSetting.ShowSyllableMarkers, "False"),
-            (TypeBeatRulesetSetting.ShowPaceColours, "False"),
+            (TypeBeatRulesetSetting.ShowPaceColours, "True"),
             (TypeBeatRulesetSetting.PaceColourMode, "AccelerationBased"),
             (TypeBeatRulesetSetting.PaceColourMaxChange, "75"),
             (TypeBeatRulesetSetting.PaceColourOpacityCurve, "65"),
@@ -42,15 +41,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Multiple(() =>
             {
                 Assert.That(config.Get<bool>(TypeBeatRulesetSetting.UseSpaceErrorDot), Is.True);
-                Assert.That(config.Get<bool>(TypeBeatRulesetSetting.ApproachBars), Is.True);
+                Assert.That(config.Get<bool>(TypeBeatRulesetSetting.ApproachBars), Is.False);
                 Assert.That(config.Get<float>(TypeBeatRulesetSetting.SyllableBrightness), Is.EqualTo(60f));
-                Assert.That(config.Get<JudgementIndicatorMode>(TypeBeatRulesetSetting.JudgementIndicator), Is.EqualTo(JudgementIndicatorMode.FadeIn));
-                Assert.That(config.Get<float>(TypeBeatRulesetSetting.SyllableFadeInEnd), Is.EqualTo(100f));
+                Assert.That(config.Get<JudgementIndicatorMode>(TypeBeatRulesetSetting.JudgementIndicator), Is.EqualTo(JudgementIndicatorMode.BottomToTopFill));
                 Assert.That(config.Get<float>(TypeBeatRulesetSetting.SyllableFadeInDuration), Is.EqualTo(800f));
                 Assert.That(config.Get<bool>(TypeBeatRulesetSetting.TextPopIn), Is.True);
                 Assert.That(config.Get<float>(TypeBeatRulesetSetting.TextPopInAmount), Is.EqualTo(5f));
                 Assert.That(config.Get<bool>(TypeBeatRulesetSetting.ShowSyllableMarkers), Is.True);
-                Assert.That(config.Get<bool>(TypeBeatRulesetSetting.ShowPaceColours), Is.True);
+                Assert.That(config.Get<bool>(TypeBeatRulesetSetting.ShowPaceColours), Is.False);
                 Assert.That(config.Get<PaceColourMode>(TypeBeatRulesetSetting.PaceColourMode), Is.EqualTo(PaceColourMode.MapRelative));
                 Assert.That(config.Get<float>(TypeBeatRulesetSetting.PaceColourMaxChange), Is.EqualTo(100f));
                 Assert.That(config.Get<float>(TypeBeatRulesetSetting.PaceColourOpacityCurve), Is.Zero);
@@ -128,7 +126,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     else
                         Assert.That(stored, Is.EqualTo(value), setting.ToString());
                 }
-                Assert.That(reloaded.Get<JudgementIndicatorMode>(TypeBeatRulesetSetting.JudgementIndicator), Is.EqualTo(JudgementIndicatorMode.BottomToTopFill));
+                Assert.That(reloaded.Get<JudgementIndicatorMode>(TypeBeatRulesetSetting.JudgementIndicator), Is.EqualTo(JudgementIndicatorMode.FadeIn));
                 Assert.That(reloaded.Get<bool>(TypeBeatRulesetSetting.ApproachBars), Is.False);
                 Assert.That(reloaded.Get<float>(TypeBeatRulesetSetting.PaceColourGradient), Is.EqualTo(42f));
             });
@@ -150,38 +148,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(config.Get<JudgementIndicatorMode>(TypeBeatRulesetSetting.JudgementIndicator), Is.EqualTo(JudgementIndicatorMode.BottomToTopFill));
                 Assert.That(config.GetBindable<float>(TypeBeatRulesetSetting.PaceColourGradient).Value, Is.Zero);
                 Assert.That(config.GetBindable<float>(TypeBeatRulesetSetting.PaceColourGradient).Disabled, Is.True);
-            });
-        }
-
-        [TestCase("0", 100f)]
-        [TestCase("30", 30f)]
-        [TestCase("100", 100f)]
-        [TestCase(null, 100f)]
-        public void IndicatorAlignmentMovesFromTheOldDefaultOnceAndKeepsOtherChoices(string? stored, float expected)
-        {
-            withStore((access, settings, ruleset) =>
-            {
-                // A profile that already took the indicator preset (which stamped 0) before the
-                // default moved to the Great window's centre.
-                access.Write(r =>
-                {
-                    r.Add(new RealmRulesetSetting { RulesetName = ruleset.ShortName, Variant = 7, Key = nameof(TypeBeatRulesetSetting.IndicatorDefaultsApplied), Value = "True" });
-                    if (stored != null)
-                        r.Add(new RealmRulesetSetting { RulesetName = ruleset.ShortName, Variant = 7, Key = nameof(TypeBeatRulesetSetting.SyllableFadeInEnd), Value = stored });
-                });
-
-                using (var config = new TypeBeatRulesetConfigManager(settings, ruleset.RulesetInfo, 7))
-                {
-                    Assert.That(config.Get<float>(TypeBeatRulesetSetting.SyllableFadeInEnd), Is.EqualTo(expected));
-                    Assert.That(config.Get<bool>(TypeBeatRulesetSetting.IndicatorAlignmentCentreApplied), Is.True);
-
-                    // Choosing the early edge AFTER the move is a real choice and must survive a restart.
-                    config.SetValue(TypeBeatRulesetSetting.SyllableFadeInEnd, 0f);
-                    config.Save();
-                }
-
-                using var reloaded = new TypeBeatRulesetConfigManager(settings, ruleset.RulesetInfo, 7);
-                Assert.That(reloaded.Get<float>(TypeBeatRulesetSetting.SyllableFadeInEnd), Is.Zero);
             });
         }
 

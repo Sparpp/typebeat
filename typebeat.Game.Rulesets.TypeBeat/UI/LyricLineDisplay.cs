@@ -1918,31 +1918,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
         private int pendingJapaneseCell = -1;
         private int pendingJapaneseKana;
-        private bool characterIndicatorTiming;
-        private double[] autoplayHitTimes = Array.Empty<double>();
-
+        /// <summary>
+        /// When a cell's fade or fill completes: the centre of its Great window, which is the moment the
+        /// press is best timed. Built in since 2026-10-25; it used to be a setting (Indicator Alignment)
+        /// whose shipped default completed at the window's OPENING, 150 ms early, which read as "type
+        /// now" and pushed players who anticipated it into Ok. The bottom-to-top fill uses each
+        /// character's own target; the other indicators use the syllable's opening.
+        /// </summary>
         private double indicatorCompletion(int index, bool fill = false)
         {
-            if (characterIndicatorTiming && index < autoplayHitTimes.Length && !double.IsNaN(autoplayHitTimes[index]))
-                return autoplayHitTimes[index];
-
             var (start, end) = sungSpan(index);
-            // Bottom-to-top fill uses each character's target; other indicators keep the syllable opening.
-            double fillStart = fill ? Math.Clamp(Line.Cells[index].TargetTime, start, end) : start;
-            return SyllableFadeInCompletion(fillStart, windowsFor(index).GreatEarly, syllableFadeInEnd);
-        }
-
-        public void SetCharacterIndicatorTiming(bool enabled)
-        {
-            characterIndicatorTiming = enabled;
-            refreshApproach();
-        }
-
-        internal void SetAutoplayHitTimes(double[] times)
-        {
-            autoplayHitTimes = times;
-            if (characterIndicatorTiming)
-                refreshApproach();
+            return fill ? Math.Clamp(Line.Cells[index].TargetTime, start, end) : start;
         }
 
         public void SetJapaneseInputProgress(int cellIndex, int completedKana)

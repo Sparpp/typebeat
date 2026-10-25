@@ -205,7 +205,6 @@ namespace typebeat.Game.Configuration
 
             SetDefault(OsuSetting.UIHoldActivationDelay, 200.0, 0.0, 500.0, 50.0);
 
-            SetDefault(OsuSetting.IntroSequence, IntroSequence.Triangles);
 
             // Default the global (menu) background to the beatmap's own background image and
             // storyboard/video rather than the skin background. (Only affects fresh installs.)
@@ -476,7 +475,9 @@ namespace typebeat.Game.Configuration
         ScalingSizeY,
         ScalingBackgroundDim,
         UIScale,
-        IntroSequence,
+        // NOTE (2026-10-25): IntroSequence was retired; the intro is always Triangles (Screens.Loader). A
+        // stored "IntroSequence = ..." line in game.ini needs no migration (the ini loader skips a key it
+        // cannot parse into this enum). Do not reuse the name.
         NotifyOnUsernameMentioned,
         NotifyOnPrivateMessage,
         NotifyOnFriendPresenceChange,

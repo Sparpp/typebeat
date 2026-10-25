@@ -56,6 +56,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("markers on, default playhead", () =>
             {
                 config.SetValue(TypeBeatRulesetSetting.ShowSyllableMarkers, true);
+                // The rail assertions count pace bands, which are only cut with word pace colours on
+                // (off by default for a new install since 2026-10-25).
+                config.SetValue(TypeBeatRulesetSetting.ShowPaceColours, true);
+                config.SetValue(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.FadeIn);
                 config.SetValue(TypeBeatRulesetSetting.SungCaretStyle, TypeBeatRulesetConfigManager.DEFAULT_SUNG_CARET_STYLE);
             });
 

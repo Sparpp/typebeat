@@ -26,7 +26,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             {
                 config.SetValue(TypeBeatRulesetSetting.JudgementIndicator, mode);
                 config.SetValue(TypeBeatRulesetSetting.SyllableFadeInDuration, 400f);
-                config.SetValue(TypeBeatRulesetSetting.SyllableFadeInEnd, 100f);
             });
             at("halfway through lead-in", () => 800);
             AddUntilStep("first glyph is half filled", () => Math.Abs(display.CellColourFillFraction(0) - 0.5f) < 0.0001);
@@ -80,7 +79,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             {
                 config.SetValue(TypeBeatRulesetSetting.JudgementIndicator, mode);
                 config.SetValue(TypeBeatRulesetSetting.SyllableFadeInDuration, per_character_lead_in);
-                config.SetValue(TypeBeatRulesetSetting.SyllableFadeInEnd, 100f);
             });
             AddAssert("timing mode and syllable layout", () => engine.HardRockFromMod == hardRock && engine.SyllableTiming == !hardRock
                 && Enumerable.Range(0, 3).All(i => display.Line.SyllableIndexOf(i) == 0 && !display.Line.IsCharTimedStretch(i))
@@ -179,13 +177,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("seek restores exact highlight", () => display.CellSungHighlightAmount(2) == 1 && colourIs(2, TypeBeatStyle.SungCharForBrightness(50)));
         }
 
-        [TestCase(false, 0f)]
-        [TestCase(false, 50f)]
-        [TestCase(false, 100f)]
-        [TestCase(true, 0f)]
-        [TestCase(true, 50f)]
-        [TestCase(true, 100f)]
-        public void ApproachBarsRiseHoldReleaseAndUsePaceColours(bool hardRock, float alignment)
+        [TestCase(false)]
+        [TestCase(true)]
+        public void ApproachBarsRiseHoldReleaseAndUsePaceColours(bool hardRock)
         {
             float lineWidth = 0;
             Vector2 glyphPosition = Vector2.Zero;
@@ -203,7 +197,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 config.SetValue(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.FadeIn);
                 config.SetValue(TypeBeatRulesetSetting.ApproachBars, true);
                 config.SetValue(TypeBeatRulesetSetting.SyllableFadeInDuration, 400f);
-                config.SetValue(TypeBeatRulesetSetting.SyllableFadeInEnd, alignment);
                 var bands = new[] { new PaceBand(0, 4, Color4.Red), new PaceBand(4, 7, Color4.Green) };
                 display.SetPaceBands(bands, bands);
                 display.SetPaceColourGradient(100);
@@ -222,10 +215,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             at("bar lead-in midpoint", () => 800);
             AddUntilStep("bar is below its rail", () => display.FloatingBarAlpha(0) > 0 && display.FloatingBarScreenQuad(0).TopLeft.Y > display.RailScreenQuad.TopLeft.Y);
             AddAssert("fade indicator remains active alongside bars", () => display.CellSungHighlightAmount(0) > 0);
-            at("text alignment", () => 1000 - engine.Windows.GreatEarly * (1 - alignment / 100));
-            AddUntilStep("text finishes while the bar follows its own target", () => colourIs(0, TypeBeatStyle.SungCharForBrightness(50)));
-            if (alignment < 100)
-                AddAssert("bar has not arrived at the text alignment", () => display.FloatingBarScreenQuad(0).TopLeft.Y > display.RailScreenQuad.TopLeft.Y);
+            at("text and bar complete together at the Great window centre", () => 1000);
+            AddUntilStep("text finishes at the centre", () => colourIs(0, TypeBeatStyle.SungCharForBrightness(50)));
             AddAssert("bar uses selected pace hue", () => display.FloatingBarColour(0).Equals((ColourInfo)Color4.Red));
             AddAssert("floating bars suppress gradients", () => display.PaceBlendWidth(0) == 0);
             if (hardRock)
@@ -291,17 +282,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         [Test]
-        public void FreestylePopUsesDoubledWindowAndConfiguredAlignment()
+        public void FreestylePopCompletesAtTheGreatWindowCentre()
         {
             load("&", hardRock: true);
-            AddStep("align early Great edge", () => config.SetValue(TypeBeatRulesetSetting.SyllableFadeInEnd, 0f));
-            at("before freestyle approach", () => 1000 - engine.Windows.GreatEarly * 2 - 140);
+            at("before freestyle approach", () => 1000 - 140);
             AddUntilStep("starts at small size", () => display.CellVisualScale(0) == LyricLineDisplay.TEXT_POP_IN_MIN_SCALE);
-            at("freestyle Great opens", () => 1000 - engine.Windows.GreatEarly * 2);
-            AddUntilStep("freestyle finishes at doubled Great edge", () => display.CellVisualScale(0) == 1);
-            AddStep("move alignment to target", () => config.SetValue(TypeBeatRulesetSetting.SyllableFadeInEnd, 100f));
-            AddUntilStep("new alignment delays pop-in immediately", () => display.CellVisualScale(0) == LyricLineDisplay.TEXT_POP_IN_MIN_SCALE);
-            at("target alignment", () => 1000);
+            at("target", () => 1000);
             AddUntilStep("full size at target", () => display.CellVisualScale(0) == 1);
             AddAssert("freestyle identity colour is preserved", () => colourIs(0, TypeBeatStyle.FreestyleChar));
         }

@@ -11,14 +11,11 @@ using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shaders;
 using osu.Framework.Platform;
-using osu.Framework.Utils;
 using typebeat.Game.Screens.Menu;
 using osu.Framework.Screens;
 using osu.Framework.Threading;
-using typebeat.Game.Configuration;
 using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Seasonal;
-using IntroSequence = typebeat.Game.Configuration.IntroSequence;
 
 namespace typebeat.Game.Screens
 {
@@ -32,7 +29,6 @@ namespace typebeat.Game.Screens
         private OsuScreen loadableScreen;
         private ShaderPrecompiler precompiler;
 
-        private IntroSequence introSequence;
         private LoadingSpinner spinner;
         private ScheduledDelegate spinnerShow;
 
@@ -45,20 +41,14 @@ namespace typebeat.Game.Screens
             if (SeasonalUIConfig.ENABLED && !DebugUtils.IsNUnitRunning)
                 return new IntroChristmas(createMainMenu);
 
-            if (introSequence == IntroSequence.Random)
-                introSequence = (IntroSequence)RNG.Next(0, (int)IntroSequence.Random);
+            // The intro is always Triangles (2026-10-25: the Intro sequence setting was removed). It is
+            // also the one sequence an editor beatdrop demo (IntroBeatdropDemo) needs, since only it
+            // times its track so the drop lands on the menu reveal. Headless tests keep Circles, for the
+            // load-timing reason above.
+            if (DebugUtils.IsNUnitRunning)
+                return new IntroCircles(createMainMenu);
 
-            switch (introSequence)
-            {
-                case IntroSequence.Circles:
-                    return new IntroCircles(createMainMenu);
-
-                case IntroSequence.Welcome:
-                    return new IntroWelcome(createMainMenu);
-
-                default:
-                    return new IntroTriangles(createMainMenu);
-            }
+            return new IntroTriangles(createMainMenu);
 
             MainMenu createMainMenu() => new MainMenu();
         }
@@ -104,19 +94,6 @@ namespace typebeat.Game.Screens
             }
             else
                 this.Push(loadableScreen);
-        }
-
-        [BackgroundDependencyLoader]
-        private void load(OsuConfigManager config, Storage storage)
-        {
-            introSequence = config.Get<IntroSequence>(OsuSetting.IntroSequence);
-
-            // A pending editor beatdrop demo (IntroBeatdropDemo) has to run the triangles sequence: it is
-            // the only one that times its track so the drop lands on the menu reveal
-            // (IntroScreen.StartBeatdropTrack), the others just start from the map's preview point and
-            // would demo nothing. Peeked rather than consumed: IntroScreen is what takes the handoff.
-            if (IntroBeatdropDemo.Peek(storage) != null)
-                introSequence = IntroSequence.Triangles;
         }
 
         /// <summary>
