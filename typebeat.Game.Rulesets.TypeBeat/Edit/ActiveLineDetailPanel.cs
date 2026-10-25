@@ -123,8 +123,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     {
                         // Sandwich: LINE-level actions on top, then the readouts, then the
                         // fine-timing word strip, and WORD-level actions on the bottom (so the
-                        // word buttons sit right under the word blocks they act on).
-                        new Dimension(GridSizeMode.Absolute, 30),
+                        // word buttons sit right under the word blocks they act on). The line row
+                        // is sized by its content: one 30px row, or two when it is too narrow for
+                        // the backing vocal field beside the buttons (an open line list insets it).
+                        new Dimension(GridSizeMode.AutoSize),
                         new Dimension(GridSizeMode.Absolute, 52),
                         // The two-row word editor for the original text (backlog 330): no room at all
                         // on a line without one.
@@ -150,9 +152,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                 actionButton("Quantize (Q)", QuantizeSelectedWords, line_button_width, "Snap selected words to the current timing grid"),
                                 actionButton("delete line", deleteLine, line_button_width),
                                 // The line's backing vocals (backlog 445): a line-level text, so it
-                                // shares the line row rather than taking a row of the strip's height.
+                                // shares the line row rather than taking a row of the strip's height,
+                                // wrapping under the buttons only when the row is too narrow for it.
                                 new BackingVocalField(),
-                            })),
+                            }, wrap: true), autoSizeY: true),
                         },
                         new Drawable[]
                         {
@@ -255,6 +258,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>Width of the four LINE action buttons (see the note where they are built).</summary>
         private const float line_button_width = 100;
 
+        /// <summary>The height of one line of an action row, its buttons' own.</summary>
+        private const float action_row_height = 30;
+
         private static RoundedButton actionButton(string text, System.Action action, float width = 108, string? tooltip = null, bool inertWhenDisabled = false)
         {
             RoundedButton button = inertWhenDisabled ? new InertWhenDisabledButton() : new RoundedButton();
@@ -287,21 +293,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         /// <summary>
         /// One categorised action row: a small caption ("line" / "word") then its buttons, flowing
-        /// from the left. Editing modes live in the shared timing toolbar.
+        /// from the left. Editing modes live in the shared timing toolbar. A WRAPPING row sizes itself
+        /// by its content and moves whatever does not fit onto a second line, so its children are
+        /// given a fixed height rather than the row's.
         /// </summary>
-        private static Drawable actionRow(string category, Drawable[] buttons)
+        private static Drawable actionRow(string category, Drawable[] buttons, bool wrap = false)
         {
             var row = new FillFlowContainer
             {
-                RelativeSizeAxes = Axes.Both,
-                Direction = FillDirection.Horizontal,
-                Spacing = new Vector2(6, 0),
+                RelativeSizeAxes = wrap ? Axes.X : Axes.Both,
+                AutoSizeAxes = wrap ? Axes.Y : Axes.None,
+                Direction = wrap ? FillDirection.Full : FillDirection.Horizontal,
+                Spacing = new Vector2(6, wrap ? 6 : 0),
             };
 
             row.Add(new Container
             {
                 Width = 36,
-                RelativeSizeAxes = Axes.Y,
+                RelativeSizeAxes = wrap ? Axes.None : Axes.Y,
+                Height = wrap ? action_row_height : 1,
                 Child = new OsuSpriteText
                 {
                     Anchor = Anchor.CentreLeft,

@@ -44,6 +44,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private readonly EditorLyricFontResolutionCache lyricFontResolution = new EditorLyricFontResolutionCache();
         private string? resolvedLyricFont;
 
+        private const float caption_width = 52;
+        private const float spacing = 6;
+
+        // The box takes what is left of the line row, between these: the row is shared with the line
+        // buttons and, while the line list is open, inset by its width.
+        private const float min_box_width = 100;
+        private const float max_box_width = 260;
+
         private readonly OsuTextBox box;
 
         // What the box was last filled from: the line, and the (immutable) LyricLine it held then, so
@@ -58,19 +66,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         public BackingVocalField()
         {
             AutoSizeAxes = Axes.X;
-            RelativeSizeAxes = Axes.Y;
+
+            // A fixed height, the line buttons' own: the line row wraps, so it sizes itself by its content.
+            Height = 30;
 
             InternalChild = new FillFlowContainer
             {
                 AutoSizeAxes = Axes.X,
                 RelativeSizeAxes = Axes.Y,
                 Direction = FillDirection.Horizontal,
-                Spacing = new Vector2(6, 0),
+                Spacing = new Vector2(spacing, 0),
                 Children = new Drawable[]
                 {
                     new Container
                     {
-                        Width = 52,
+                        Width = caption_width,
                         RelativeSizeAxes = Axes.Y,
                         Child = new OsuSpriteText
                         {
@@ -83,8 +93,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     },
                     box = new OsuTextBox
                     {
-                        Width = 260,
-                        RelativeSizeAxes = Axes.Y,
+                        Width = max_box_width,
+                        // Absolute: OsuTextBox sets a height of its own, which a relative axis would
+                        // multiply rather than replace.
+                        Height = 30,
                         FontSize = 14,
                         PlaceholderText = "backing vocals",
                         CommitOnFocusLost = true,
@@ -112,6 +124,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 resolvedLyricFont = nextLyricFont;
                 box.FontFamily = resolvedLyricFont;
             }
+
+            // Never past the panel's right edge: the box takes what is left of the row beside the
+            // buttons (a pixel short, so the flow never wraps on a rounding error), and when that is
+            // less than its minimum the row wraps the field onto a line of its own, where it starts
+            // at 0 and has the whole row.
+            if (Parent is Drawable row && row.DrawWidth > 0)
+                box.Width = Math.Clamp(row.DrawWidth - X - caption_width - spacing - 1, min_box_width, max_box_width);
 
             var line = state.ActiveLine.Value;
             bool live = line != null && editorBeatmap.HitObjects.Contains(line) && !state.HiddenByTapScope(line) && state.TapSession == null;

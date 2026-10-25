@@ -203,6 +203,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("select line 2", () => state().SelectedLine.Value = lineAt(1));
             AddUntilStep("the field shows its (empty) backing vocals", () => Editor.ChildrenOfType<BackingVocalField>().Single().Text == string.Empty);
 
+            // The line list is open by default and insets the line row by its width, so on a narrow
+            // window the field has to fit in what is left rather than run off the panel.
+            AddUntilStep("the field fits inside the panel beside an open line list", () =>
+                Editor.ChildrenOfType<BackingVocalField>().Single().ScreenSpaceDrawQuad.TopRight.X
+                <= Editor.ChildrenOfType<ActiveLineDetailPanel>().Single().ScreenSpaceDrawQuad.TopRight.X + 0.5f);
+            AddAssert("on a line of its own under the buttons", () => Editor.ChildrenOfType<BackingVocalField>().Single().X == 0);
+            AddAssert("the box is one button tall", () => Math.Abs(Editor.ChildrenOfType<BackingVocalField>().Single().TextBox.DrawHeight - 30) < 0.5f);
+
+            AddStep("collapse the line list", () => Editor.ChildrenOfType<LyricComposeScreen>().Single().LineListSidebar.Expanded.Value = false);
+            AddUntilStep("with the room back, it rejoins the buttons", () => Editor.ChildrenOfType<BackingVocalField>().Single().X > 0
+                                                                          && Editor.ChildrenOfType<BackingVocalField>().Single().ScreenSpaceDrawQuad.TopRight.X
+                                                                          <= Editor.ChildrenOfType<ActiveLineDetailPanel>().Single().ScreenSpaceDrawQuad.TopRight.X + 0.5f);
+
             AddStep("click the field", () =>
             {
                 InputManager.MoveMouseTo(Editor.ChildrenOfType<BackingVocalField>().Single().TextBox);
