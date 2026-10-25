@@ -97,12 +97,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 return Math.Abs(word.Height - strip.Height * 0.55f * LyricTimeline.MAIN_TRACK_HEIGHT) < 1;
             });
 
-            AddAssert("and centred in the bottom of the strip", () =>
+            AddAssert("and centred in the middle of the strip", () =>
             {
                 var strip = this.strip().ScreenSpaceDrawQuad;
                 var word = this.strip().WordBlockOf(lineAt(0), 1).ScreenSpaceDrawQuad;
-                float mainTop = strip.TopLeft.Y + strip.Height * (1 - LyricTimeline.MAIN_TRACK_HEIGHT);
-                return Math.Abs(word.Centre.Y - (mainTop + strip.Height * LyricTimeline.MAIN_TRACK_HEIGHT / 2)) < 1;
+                return Math.Abs(word.Centre.Y - strip.Centre.Y) < 1;
             });
 
             AddAssert("the backing blocks and anchors sit above them", () =>
@@ -210,6 +209,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("the backing track is picked", () => state().BackingTrackSelected && state().SelectedBackingIndex.Value == -1);
             AddUntilStep("and the main track is the dimmed one", () =>
                 strip().BackingLaneAlpha == 1 && strip().MainTrackAlpha == LyricTimeline.UNSELECTED_TRACK_ALPHA);
+            AddAssert("the lane is lit and the main track shaded, so even an empty lane shows it is picked", () => strip().BackingLaneLit);
             AddAssert("the typed-word actions grey out", () => !panelButton("subdivide (D)").Enabled.Value && !panelButton("insert pause (P)").Enabled.Value);
 
             AddStep("click a backing block", () =>
@@ -226,6 +226,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             });
             AddUntilStep("back on the main track", () => !state().BackingTrackSelected && state().SelectedUnitIndex.Value == 2 && state().SelectedBackingIndex.Value == -1);
             AddUntilStep("with the lane dimmed again", () => strip().BackingLaneAlpha == LyricTimeline.UNSELECTED_TRACK_ALPHA);
+            AddAssert("and shaded", () => !strip().BackingLaneLit);
         }
 
         [Test]
@@ -310,12 +311,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             InputManager.Click(MouseButton.Left);
         }
 
-        /// <summary>A screen-space point in the backing lane's empty space at <paramref name="time"/>: below the blocks, above the anchors.</summary>
+        /// <summary>A screen-space point in the backing lane's empty space at <paramref name="time"/>, below the blocks (pick a time away from the anchors).</summary>
         private Vector2 laneSpaceAt(double time)
         {
             var quad = strip().ScreenSpaceDrawQuad;
             float x = strip().ToScreenSpace(new Vector2(strip().PositionOf(time), 0)).X;
-            return new Vector2(x, quad.TopLeft.Y + quad.Height * 0.24f);
+            return new Vector2(x, quad.TopLeft.Y + quad.Height * LyricTimeline.BACKING_LANE_HEIGHT * 0.75f);
         }
     }
 }

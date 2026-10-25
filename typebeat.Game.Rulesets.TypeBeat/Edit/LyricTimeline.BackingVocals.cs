@@ -23,8 +23,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
     /// <summary>
     /// The BACKING VOCAL lane (backlog 445): a second track across the top of the strip, over the
-    /// main word blocks, which give up the top fifth of the strip to make room for it
-    /// (<see cref="MAIN_TRACK_HEIGHT"/>). It shares the lines' bands and boundaries, so both tracks
+    /// main word blocks, which are squeezed to four fifths of their height to make room for it and
+    /// stay centred on the strip (<see cref="MAIN_TRACK_HEIGHT"/>). It shares the lines' bands and boundaries, so both tracks
     /// always cut the song at the same line divisions.
     ///
     /// <para>A backing word is a block placed by WHEN it is sung: its body moves it and its edges
@@ -43,14 +43,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// </summary>
     public partial class LyricTimeline
     {
-        /// <summary>The share of the strip's height the MAIN track keeps, at the bottom. Its word blocks and their handles shrink with it.</summary>
+        /// <summary>The share of the strip's height the MAIN track keeps, centred on the strip. Its word blocks and their handles shrink with it.</summary>
         public const float MAIN_TRACK_HEIGHT = 0.8f;
 
         /// <summary>
         /// The backing lane's height as a share of the strip: the room above the main track's word
-        /// blocks, which sit at 55% of the main track, centred, so they start at 38% of the strip.
+        /// blocks, which sit at 55% of the main track, centred on the strip, so they start at 28% of it.
         /// </summary>
-        public const float BACKING_LANE_HEIGHT = 0.36f;
+        public const float BACKING_LANE_HEIGHT = 0.26f;
 
         // Inside the lane (its own 0..1): the blocks across the upper half, the anchors' centres low
         // down, and the dotted lines between them.
@@ -63,6 +63,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         /// <summary>How opaque the track the word actions are NOT addressing is drawn (see <see cref="LyricEditState.SelectedTrack"/>).</summary>
         public const float UNSELECTED_TRACK_ALPHA = 0.35f;
+
+        // The selected track's light and the other one's shade: a wash of the lyric colour over the
+        // first, of the background over the second.
+        private const float selected_track_light = 0.07f;
+        private const float unselected_track_shade = 0.4f;
+
+        private readonly Box backingTrackShade;
+        private readonly Box mainTrackShade;
 
         private readonly Container mainBlockTrack;
         private readonly Container mainHandleTrack;
@@ -77,11 +85,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private readonly List<BackingAnchor> backingAnchors = new List<BackingAnchor>();
         private readonly List<BackingConnector> backingConnectors = new List<BackingConnector>();
 
-        /// <summary>A container over the main track: the bottom <see cref="MAIN_TRACK_HEIGHT"/> of the strip.</summary>
+        /// <summary>A container over the main track: <see cref="MAIN_TRACK_HEIGHT"/> of the strip, centred on it, so the word blocks sit in the middle of the view.</summary>
         private static Container mainTrack(Drawable content) => new Container
         {
-            Anchor = Anchor.BottomLeft,
-            Origin = Anchor.BottomLeft,
+            Anchor = Anchor.CentreLeft,
+            Origin = Anchor.CentreLeft,
             RelativeSizeAxes = Axes.Both,
             Height = MAIN_TRACK_HEIGHT,
             Child = content,
@@ -93,6 +101,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             RelativeSizeAxes = Axes.Both,
             Height = BACKING_LANE_HEIGHT,
             Children = content,
+        };
+
+        /// <summary>A wash over one track's area (the lane above its bottom edge, or the main track below it), coloured by <see cref="updateTrackDim"/>.</summary>
+        private static Box trackShade(bool backing) => new Box
+        {
+            Anchor = backing ? Anchor.TopLeft : Anchor.BottomLeft,
+            Origin = backing ? Anchor.TopLeft : Anchor.BottomLeft,
+            RelativeSizeAxes = Axes.Both,
+            Height = backing ? BACKING_LANE_HEIGHT : 1 - BACKING_LANE_HEIGHT,
         };
 
         /// <summary>The lane's quiet bottom edge, so the two tracks read as two.</summary>
@@ -152,6 +169,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             mainBlockTrack.Alpha = mainHandleTrack.Alpha = main;
             backingBlockLane.Alpha = backingAnchorLane.Alpha = lane;
+
+            shade(backingTrackShade, selected: backing);
+            shade(mainTrackShade, selected: !backing);
+
+            static void shade(Box box, bool selected)
+            {
+                box.Colour = selected ? TypeBeatStyle.TypedChar : TypeBeatStyle.Background;
+                box.Alpha = selected ? selected_track_light : unselected_track_shade;
+            }
         }
 
         /// <summary>Picks the track a click on empty strip space landed in: the backing lane at the top, the main track below it.</summary>
@@ -174,6 +200,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         /// <summary>How opaque the strip draws the main track's word blocks right now (test support).</summary>
         internal float MainTrackAlpha => mainBlockTrack.Alpha;
+
+        /// <summary>Whether the strip lights the backing lane (rather than shading it) right now (test support).</summary>
+        internal bool BackingLaneLit => backingTrackShade.Alpha == selected_track_light && mainTrackShade.Alpha == unselected_track_shade;
 
         /// <summary>How opaque the strip draws the backing lane right now (test support).</summary>
         internal float BackingLaneAlpha => backingBlockLane.Alpha;

@@ -57,8 +57,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// SHIFT+Dragging a DOTTED line promotes that subdivision into one, the span it was dragged across
     /// becoming the rest (see <see cref="TypeBeatEditorOperations.ExtendSubdivisionIntoPause"/>).
     ///
-    /// <para>The word blocks are the MAIN track, in the bottom <see cref="MAIN_TRACK_HEIGHT"/> of the
-    /// strip; the top is the BACKING VOCAL lane (backlog 445, see LyricTimeline.BackingVocals.cs),
+    /// <para>The word blocks are the MAIN track, <see cref="MAIN_TRACK_HEIGHT"/> of the strip and
+    /// centred on it; the top is the BACKING VOCAL lane (backlog 445, see LyricTimeline.BackingVocals.cs),
     /// and the line boundaries run through both.</para>
     /// </summary>
     public partial class LyricTimeline : CompositeDrawable, IProvideCursor
@@ -158,6 +158,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                             Alpha = 0.6f,
                         },
                         bandLayer = new Container { RelativeSizeAxes = Axes.Both },
+                        // Over the bands, under everything drawn in them: the selected track is lit,
+                        // the other shaded (backlog 446), so an EMPTY track still shows it is the one.
+                        backingTrackShade = trackShade(backing: true),
+                        mainTrackShade = trackShade(backing: false),
                         // The word blocks and their handles live in the MAIN track (the bottom of the
                         // strip, backlog 445), so they shrink with it and leave the top to the backing
                         // vocal lane; the bands, the grid, the line boundaries and the playhead span both.
