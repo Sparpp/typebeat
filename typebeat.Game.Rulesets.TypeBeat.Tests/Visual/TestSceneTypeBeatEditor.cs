@@ -1628,6 +1628,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddUntilStep("strip sized", () => strip().IsLoaded && strip().DrawWidth > 0);
             AddUntilStep("word pulled in", () => lineAt(0).Line.Units[0].StartTime == 1400);
+            collapseLineList();
 
             AddStep("aim 4px short of the caret", () =>
             {

@@ -171,6 +171,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddAssert("fixture has one lyric token and one timed word", () => lineAt(0).Line.RawText == "hello"
                 && lineAt(0).Line.Units.Count == 1 && lineAt(0).Line.Units[0].Text == "hello");
+            collapseLineList();
 
             if (grid)
             {

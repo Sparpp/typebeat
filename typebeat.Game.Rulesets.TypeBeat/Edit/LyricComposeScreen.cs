@@ -697,12 +697,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                         RelativeSizeAxes = Axes.Both,
                         Children = new Drawable[]
                         {
-                            new Container
-                            {
-                                RelativeSizeAxes = Axes.Both,
-                                Padding = new MarginPadding { Left = LineListSidebar.TOGGLE_GUTTER },
-                                Child = detailPanel = new ActiveLineDetailPanel(),
-                            },
+                            // Edge to edge, the word view running under the collapsed sidebar's toggle as
+                            // far left as it runs right; only the panel's controls step around the toggle.
+                            detailPanel = new ActiveLineDetailPanel(),
                             lineListSidebar = new LineListSidebar(lineList = new LineListPanel()),
                         },
                     },
@@ -714,11 +711,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         {
             base.Update();
 
-            // Keep the detail panel's buttons and readouts clear of the line list sidebar (and its
-            // toggle) while the word blocks span the whole width under it. The panel already starts
-            // TOGGLE_GUTTER in, which is the toggle's room while the sidebar is collapsed.
+            // Keep the detail panel's buttons and readouts clear of the line list sidebar and its toggle
+            // (the covered width includes the toggle's gutter) while the word blocks span the whole
+            // width under them.
             if (lineListSidebar.IsLoaded)
-                detailPanel.ControlsInset = Math.Max(0, lineListSidebar.CoveredWidth - LineListSidebar.TOGGLE_GUTTER);
+                detailPanel.ControlsInset = Math.Max(0, lineListSidebar.CoveredWidth);
 
             // Auto-pause for line/word replay.
             if (state.ReplayStopTime is double stop && editorClock.IsRunning && editorClock.CurrentTime >= stop)
