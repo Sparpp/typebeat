@@ -261,6 +261,51 @@ namespace typebeat.Game.Configuration
             SetDefault(OsuSetting.PMFriendsOnly, false);
         }
 
+        /// <summary>
+        /// Puts every game setting back on its default (Maintenance, "Reset all settings to defaults")
+        /// and saves, except the ones in <see cref="KeepOnReset"/>. Key bindings, the framework's own
+        /// settings (display, renderer, audio device, volume) and ruleset settings live elsewhere and
+        /// are not touched here.
+        /// </summary>
+        public int ResetToDefaults()
+        {
+            int reset = ConfigDefaults.Reset(ConfigStore, KeepOnReset);
+            Save();
+            return reset;
+        }
+
+        /// <summary>
+        /// Settings a reset leaves alone: they are not preferences the player tunes but identity or
+        /// bookkeeping, and resetting them would sign the player out, re-run first-run setup, replay the
+        /// changelog, move them to another update channel or re-do work the game has already done.
+        /// </summary>
+        public static bool KeepOnReset(OsuSetting lookup)
+        {
+            switch (lookup)
+            {
+                // Login.
+                case OsuSetting.Token:
+                case OsuSetting.Username:
+                case OsuSetting.SaveUsername:
+                case OsuSetting.SavePassword:
+                case OsuSetting.UserOnlineStatus:
+                case OsuSetting.WasSupporter:
+                // Bookkeeping and one-time flows.
+                case OsuSetting.Version:
+                case OsuSetting.ShowFirstRunSetup:
+                case OsuSetting.ShowMobileDisclaimer:
+                case OsuSetting.LastProcessedMetadataId:
+                case OsuSetting.LastOnlineTagsPopulation:
+                case OsuSetting.ReleaseStream:
+                case OsuSetting.Ruleset:
+                // Pinned by the constructor; its default is not the value the game runs with.
+                case OsuSetting.SeasonalBackgroundMode:
+                    return true;
+            }
+
+            return false;
+        }
+
         protected override bool CheckLookupContainsPrivateInformation(OsuSetting lookup)
         {
             switch (lookup)

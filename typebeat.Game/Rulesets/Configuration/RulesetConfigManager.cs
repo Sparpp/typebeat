@@ -77,6 +77,16 @@ namespace typebeat.Game.Rulesets.Configuration
             return true;
         }
 
+        public int ResetToDefaults()
+        {
+            int reset = ConfigDefaults.Reset(ConfigStore, KeepOnReset);
+            Save();
+            return reset;
+        }
+
+        /// <summary>A setting <see cref="ResetToDefaults"/> leaves alone. None by default.</summary>
+        protected virtual bool KeepOnReset(TLookup lookup) => false;
+
         protected override void AddBindable<TBindable>(TLookup lookup, Bindable<TBindable> bindable)
         {
             base.AddBindable(lookup, bindable);

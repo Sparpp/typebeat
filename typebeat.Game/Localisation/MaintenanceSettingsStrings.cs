@@ -60,6 +60,17 @@ namespace typebeat.Game.Localisation
         public static LocalisableString ResetAllOffsets => new TranslatableString(getKey(@"reset_all_offsets"), @"Reset ALL beatmap offsets");
 
         /// <summary>
+        /// "Reset settings to defaults"
+        /// </summary>
+        public static LocalisableString ResetAllSettings => new TranslatableString(getKey(@"reset_all_settings"), @"Reset settings to defaults");
+
+        /// <summary>
+        /// "Every game and gameplay setting goes back to its default. Your login, key bindings, display and audio device settings, beatmaps, scores and installed skins are kept."
+        /// </summary>
+        public static LocalisableString ResetAllSettingsConfirmation => new TranslatableString(getKey(@"reset_all_settings_confirmation"),
+            @"Every game and gameplay setting goes back to its default. Your login, key bindings, display and audio device settings, beatmaps, scores and installed skins are kept.");
+
+        /// <summary>
         /// "Delete ALL scores"
         /// </summary>
         public static LocalisableString DeleteAllScores => new TranslatableString(getKey(@"delete_all_scores"), @"Delete ALL scores");

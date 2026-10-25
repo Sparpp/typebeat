@@ -8,7 +8,10 @@ using osu.Framework.Graphics;
 using osu.Framework.Localisation;
 using osu.Framework.Platform;
 using osu.Framework.Screens;
+using typebeat.Game.Configuration;
 using typebeat.Game.Localisation;
+using typebeat.Game.Overlays.Notifications;
+using typebeat.Game.Rulesets;
 using typebeat.Game.Screens;
 using typebeat.Game.Screens.Import;
 using typebeat.Game.Screens.Utility;
@@ -20,6 +23,35 @@ namespace typebeat.Game.Overlays.Settings.Sections.Maintenance
         protected override LocalisableString Header => CommonStrings.General;
 
         private ISystemFileSelector? selector;
+
+        [Resolved]
+        private OsuConfigManager config { get; set; } = null!;
+
+        [Resolved]
+        private RulesetStore rulesets { get; set; } = null!;
+
+        [Resolved]
+        private IRulesetConfigCache rulesetConfigs { get; set; } = null!;
+
+        [Resolved]
+        private IDialogOverlay? dialogOverlay { get; set; }
+
+        [Resolved]
+        private INotificationOverlay? notifications { get; set; }
+
+        /// <summary>
+        /// Puts the game's settings and every installed ruleset's settings back on their defaults.
+        /// What a reset deliberately keeps is listed on <see cref="OsuConfigManager.KeepOnReset"/>.
+        /// </summary>
+        public void ResetAllSettings()
+        {
+            config.ResetToDefaults();
+
+            foreach (var info in rulesets.AvailableRulesets)
+                rulesetConfigs.GetConfigFor(info.CreateInstance())?.ResetToDefaults();
+
+            notifications?.Post(new SimpleNotification { Text = "Settings were reset to their defaults." });
+        }
 
         [BackgroundDependencyLoader]
         private void load(OsuGameBase game, GameHost host, IPerformFromScreenRunner? performer)
@@ -44,7 +76,12 @@ namespace typebeat.Game.Overlays.Settings.Sections.Maintenance
                 {
                     Text = DebugSettingsStrings.RunLatencyCertifier,
                     Action = () => performer?.PerformFromScreen(menu => menu.Push(new LatencyCertifierScreen()))
-                }
+                },
+                new DangerousSettingsButtonV2
+                {
+                    Text = MaintenanceSettingsStrings.ResetAllSettings,
+                    Action = () => dialogOverlay?.Push(new ResetSettingsConfirmationDialog(ResetAllSettings)),
+                },
             });
         }
 
