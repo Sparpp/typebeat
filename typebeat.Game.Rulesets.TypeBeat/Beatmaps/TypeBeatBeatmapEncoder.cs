@@ -218,6 +218,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         json.WriteEndArray();
                     }
 
+                    // THE BACKING VOCALS (backlog 445), LAST in the line object and only when the line
+                    // carries any, so every map without them encodes byte for byte as it always has,
+                    // and the ranked-status strip (LyricOsuFormat.StripBacking) finds them at the end.
+                    BackingVocals.Write(json, line.BackingVocals);
+
                     json.WriteEndObject();
                 }
 

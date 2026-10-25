@@ -16,7 +16,8 @@ using typebeat.Game.Tests.Visual;
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
     /// <summary>
-    /// An IDLE editor's lyric strip, line list and line boundaries band allocate nothing per update frame (backlog 377, the band added by 379).
+    /// An IDLE editor's lyric strip, line list and line boundaries band allocate nothing per update frame (backlog 377, the band added by 379),
+    /// the strip's backing vocal lane included (backlog 445).
     /// Both re-sorted every line and rebuilt every row's strings (the pipe form, the caption, the
     /// time and index labels) on every frame, about 130 KiB a frame on a real map, which is a gen 0
     /// collection every couple of seconds while the mapper is only looking at the screen.
@@ -77,6 +78,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                         SingEndTime = start + 2700,
                         Units = units,
                         Original = $"空 心 夢 {i}",
+                        // Backing vocals (backlog 445), one placed and one on its default place, so the
+                        // backing lane's blocks, anchors and dotted lines are on the idle path too.
+                        BackingVocals = new[] { new BackingVocal("ah", start + 200, start + 600), new BackingVocal("oh", start + 1200, start + 1600, 0.3) },
                     },
                 });
             }

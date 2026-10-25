@@ -15,7 +15,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
     /// <summary>
     /// The Apple Music TTML converter: the &lt;p&gt;/&lt;span&gt; reading, the three time formats,
-    /// the backing-vocal drop, and the round trip through the synthesized timing.json into the
+    /// backing vocals kept off the typed line, and the round trip through the synthesized timing.json into the
     /// loader the editor and the decoder both go through.
     /// </summary>
     [TestFixture]
@@ -101,7 +101,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void BackingVocalsAreDroppedWithTheirSubtree()
+        public void BackingVocalsAreNeverTypedAndAreKeptAsBackingVocals()
         {
             const string withBackingVocal =
                 """
@@ -113,6 +113,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(TtmlParser.TryParse(withBackingVocal, out IReadOnlyList<LyricLine> lines, out _), Is.True);
             Assert.That(lines.Single().RawText, Is.EqualTo("You made heart ache"));
             Assert.That(lines.Single().Units.Count, Is.EqualTo(4), "a backing vocal never becomes a word the player types");
+            Assert.That(lines.Single().BackingVocals.Select(w => w.Text), Is.EqualTo(new[] { "I", "still", "see" }), "it is the line's backing vocals (backlog 445)");
         }
 
         [Test]

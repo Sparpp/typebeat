@@ -60,6 +60,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             Estimated = line.Estimated,
             Original = line.Original,
             UnromanisedWords = line.UnromanisedWords.Select(w => w with { StartTime = w.StartTime + deltaMs, EndTime = w.EndTime + deltaMs }).ToArray(),
+            BackingVocals = BackingVocals.Shift(line.BackingVocals, deltaMs),
             Units = line.Units.Select(u => new TimedUnit
             {
                 Text = u.Text,
@@ -158,25 +159,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <remarks>
         /// The line's ORIGINAL TEXT (backlog 330) rides along untouched unless
         /// <paramref name="originals"/> replaces it; its unromanised words keep their places, clamped
-        /// to the new word count.
+        /// to the new word count. Its BACKING VOCALS (backlog 445) ride along too unless
+        /// <paramref name="backing"/> replaces them, fitted into the new window either way; a placed
+        /// anchor is a fraction of the line's width, so it stays where it was across the line.
         /// </remarks>
         private static LyricLine rebuild(LyricLine line, string? rawText = null, double? start = null, double? end = null,
                                          double? singEnd = null, IReadOnlyList<TimedUnit>? units = null, double? sealGrace = null,
-                                         (string? Original, IReadOnlyList<UnromanisedWord> Pending)? originals = null)
+                                         (string? Original, IReadOnlyList<UnromanisedWord> Pending)? originals = null,
+                                         IReadOnlyList<BackingVocal>? backing = null)
         {
             var newUnits = units ?? line.Units;
+            double newStart = start ?? line.StartTime;
+            double newEnd = end ?? line.EndTime;
 
             return new LyricLine
             {
                 RawText = rawText ?? line.RawText,
-                StartTime = start ?? line.StartTime,
-                EndTime = end ?? line.EndTime,
+                StartTime = newStart,
+                EndTime = newEnd,
                 SingEndTime = singEnd ?? line.SingEndTime,
                 Units = newUnits,
                 SealGraceMs = sealGrace ?? line.SealGraceMs,
                 Estimated = line.Estimated,
                 Original = originals.HasValue ? originals.Value.Original : line.Original,
                 UnromanisedWords = clampPending(originals.HasValue ? originals.Value.Pending : line.UnromanisedWords, newUnits.Count),
+                BackingVocals = BackingVocals.Fit(backing ?? line.BackingVocals, newStart, newEnd),
             };
         }
 
@@ -729,6 +736,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 Estimated = false,
                 Original = line.Original,
                 UnromanisedWords = line.UnromanisedWords,
+                BackingVocals = line.BackingVocals,
             });
             promoteToWordGranularity(editorBeatmap);
             syncSingEndToLastUnit(editorBeatmap, hitObject, previousLastEnd);
@@ -782,6 +790,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 Estimated = false, // hand timing IS acoustic evidence; judge at full granularity again.
                 Original = line.Original,
                 UnromanisedWords = line.UnromanisedWords,
+                BackingVocals = line.BackingVocals,
             });
             promoteToWordGranularity(editorBeatmap);
             syncSingEndToLastUnit(editorBeatmap, hitObject, previousLastEnd);
@@ -2157,7 +2166,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 singEnd: firstSingEnd,
                 units: unitsFor(hitObject, firstText, firstUnits, line.StartTime, firstSingEnd, boundary),
                 sealGrace: 0,
-                originals: originalsOfRange(line, 0, firstUnitOfSecondLine, double.NegativeInfinity, boundary)));
+                originals: originalsOfRange(line, 0, firstUnitOfSecondLine, double.NegativeInfinity, boundary),
+                // The backing vocals (backlog 445) sung before the cut stay; the rest go with the new line.
+                backing: BackingVocals.Rebase(line.BackingVocals.Where(w => w.StartTime < boundary), line.StartTime, line.EndTime, line.StartTime, boundary)));
 
             editorBeatmap.Add(new TypeBeatHitObject
             {
@@ -2167,7 +2178,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     start: boundary,
                     singEnd: secondSingEnd,
                     units: unitsFor(hitObject, secondText, secondUnits, boundary, secondSingEnd, line.EndTime),
-                    originals: originalsOfRange(line, firstUnitOfSecondLine, line.Units.Count, boundary, double.PositiveInfinity)),
+                    originals: originalsOfRange(line, firstUnitOfSecondLine, line.Units.Count, boundary, double.PositiveInfinity),
+                    backing: BackingVocals.Rebase(line.BackingVocals.Where(w => w.StartTime >= boundary), line.StartTime, line.EndTime, boundary, line.EndTime)),
                 Granularity = hitObject.Granularity,
             });
 
@@ -2205,6 +2217,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 // words move behind the first line's words.
                 Original = a.Original == null && b.Original == null ? null : (a.Original ?? a.RawText) + " " + (b.Original ?? b.RawText),
                 UnromanisedWords = a.UnromanisedWords.Concat(b.UnromanisedWords.Select(w => w with { Position = w.Position + a.Units.Count })).ToArray(),
+                // Both lines' backing vocals (backlog 445) join, each placed anchor re-expressed against
+                // the joined line so the word still pops up over the same moment of it.
+                BackingVocals = BackingVocals.Fit(
+                    BackingVocals.Rebase(a.BackingVocals, a.StartTime, a.EndTime, a.StartTime, b.EndTime)
+                                 .Concat(BackingVocals.Rebase(b.BackingVocals, b.StartTime, b.EndTime, a.StartTime, b.EndTime)).ToArray(),
+                    a.StartTime, b.EndTime),
             });
             editorBeatmap.Remove(next);
 
@@ -2876,6 +2894,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 Estimated = false,
                 Original = line.Original,
                 UnromanisedWords = line.UnromanisedWords,
+                BackingVocals = line.BackingVocals,
             });
             syncGranularity(editorBeatmap);
             editorBeatmap.EndChange();
@@ -3254,6 +3273,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     // The caption travels whole: a line with unromanised words has one even when it
                     // stored none of its own, so the pasted line still spells them out.
                     Original = OriginalCaption(line),
+                    Backing = line.BackingVocals.Count == 0
+                        ? null
+                        : line.BackingVocals.Select(w => new LyricTimingClipboard.BackingSpan
+                        {
+                            Text = w.Text,
+                            Start = w.StartTime - line.StartTime,
+                            End = w.EndTime - line.StartTime,
+                            Anchor = w.Anchor,
+                        }).ToList(),
                 };
 
                 foreach (var unit in line.Units)
@@ -3401,6 +3429,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     Estimated = false, // pasted hand timing is acoustic evidence, same as a drag.
                     Original = line.Original,
                     UnromanisedWords = line.UnromanisedWords,
+                    BackingVocals = BackingVocals.Fit(line.BackingVocals, line.StartTime, end),
                 });
             }
 
@@ -3600,6 +3629,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 Estimated = source.Estimated ?? false,
                 // The copied line's ORIGINAL (backlog 330) comes with its words; the target's own goes.
                 Original = source.Original == source.RawText ? null : source.Original,
+                // So do its BACKING VOCALS (backlog 445), rebased onto the target's start.
+                BackingVocals = BackingVocals.Fit(source.Backing?.Select(b => new BackingVocal(BackingVocals.CleanText(b.Text), start + b.Start, start + b.End, b.Anchor)).ToArray(),
+                    start, end),
             });
         }
 
@@ -3815,6 +3847,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 UnromanisedWords = line.UnromanisedWords
                                        .Select(w => w.Position > insertAt || (w.Position == insertAt && w.StartTime >= from) ? w with { Position = w.Position + count } : w)
                                        .ToArray(),
+                BackingVocals = line.BackingVocals,
             });
             // A pasted subdivision has to reach Syllable, as the word paste's does.
             syncGranularity(editorBeatmap, keepAuthoredWords: true);
@@ -3919,6 +3952,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 Estimated = false,
                 Original = line.Original,
                 UnromanisedWords = line.UnromanisedWords,
+                BackingVocals = line.BackingVocals,
             });
 
             promoteToWordGranularity(editorBeatmap);

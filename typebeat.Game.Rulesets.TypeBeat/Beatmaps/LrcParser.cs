@@ -73,11 +73,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             // Second pass: collect every timestamped entry (empty text allowed; those are
             // pure boundary/terminator markers).
-            var entries = new List<(double Time, string Text, LyricOriginals.RomanisedLine? Romanised, StampedLine? Stamps)>();
+            var entries = new List<(double Time, string Text, LyricOriginals.RomanisedLine? Romanised, StampedLine? Stamps, BackingPart? Backing)>();
+
+            // WHOLE-LINE BACKING VOCALS (backlog 445): a line with nothing to type but bracketed words.
+            // Kept OUT of the entries on purpose, so the typed lines' windows and terminators are exactly
+            // what they always were; their words attach to the line being sung once the lines exist.
+            var wholeBacking = new List<(double Time, BackingPart Part)>();
 
             foreach (string raw in rawLines)
             {
-                extractEntries(raw, offset, entries, language);
+                extractEntries(raw, offset, entries, language, wholeBacking);
             }
 
             if (entries.Count == 0)
@@ -143,19 +148,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 double singEnd = start + Math.Min(end - start, MAX_MS_PER_TYPEABLE_CHAR * typeable);
 
+                var backing = entries[idx].Backing;
+
                 if (stamps != null)
                 {
-                    result.Add(stampedLine(stamps, text, start, end, singEnd, ref clampedWordStamps));
+                    result.Add(withBacking(stampedLine(stamps, text, start, end, singEnd, ref clampedWordStamps), backing));
                     continue;
                 }
 
                 if (romanised != null)
                 {
-                    result.Add(romanisedLine(romanised, text, start, end, singEnd));
+                    result.Add(withBacking(romanisedLine(romanised, text, start, end, singEnd), backing));
                     continue;
                 }
 
-                result.Add(new LyricLine
+                result.Add(withBacking(new LyricLine
                 {
                     // The pipes TIME the units (below) but are authoring marks, so the stored
                     // lyric is the text without them.
@@ -164,11 +171,158 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     EndTime = end,
                     SingEndTime = singEnd,
                     Units = InterpolateUnits(text, start, singEnd)
-                });
+                }, backing));
+            }
+
+            attachWholeLineBacking(result, entries, wholeBacking);
+            return result;
+        }
+
+        #region Backing vocals (backlog 445)
+
+        /// <summary>One bracketed word of an imported line, in bracket span <paramref name="Group"/>.</summary>
+        /// <param name="Text">The word.</param>
+        /// <param name="Group">Which bracketed span of the line it came from (words of one span are timed together).</param>
+        /// <param name="MainOffset">Where its span sat in the typed text, which times it when no stamp does.</param>
+        /// <param name="Stamp">Its own inline word stamp (enhanced LRC), before the line's shift.</param>
+        private readonly record struct BackingWord(string Text, int Group, int MainOffset, double? Stamp);
+
+        /// <summary>
+        /// The backing vocals of one imported line: its bracketed words, the length of its typed text (the
+        /// scale their places are read on), and the shift a duplicated leading tag moves stamps by.
+        /// </summary>
+        private sealed record BackingPart(IReadOnlyList<BackingWord> Words, int MainLength, double Shift = 0);
+
+        /// <summary>The backing part of a plain line's bracket extraction, or null when it has none.</summary>
+        private static BackingPart? backingPart(BackingVocals.Extraction extraction)
+        {
+            if (extraction.Spans.Count == 0)
+                return null;
+
+            var words = new List<BackingWord>();
+
+            for (int g = 0; g < extraction.Spans.Count; g++)
+            {
+                foreach (string word in BackingVocals.Words(extraction.Spans[g].Text))
+                    words.Add(new BackingWord(word, g, extraction.Spans[g].MainOffset, null));
+            }
+
+            return words.Count == 0 ? null : measuredOnTrimmedText(words, extraction.Main);
+        }
+
+        /// <summary>
+        /// A backing part whose places are measured on the TRIMMED typed text, so the space after a line
+        /// tag (or before its end) counts for nothing: the typed line is trimmed too.
+        /// </summary>
+        private static BackingPart measuredOnTrimmedText(IEnumerable<BackingWord> words, string main)
+        {
+            int lead = main.Length - main.TrimStart().Length;
+            int length = main.Trim().Length;
+
+            return new BackingPart(words.Select(w => w with { MainOffset = Math.Clamp(w.MainOffset - lead, 0, length) }).ToList(), length);
+        }
+
+        private static LyricLine withBacking(LyricLine line, BackingPart? part)
+            => part == null ? line : BackingVocals.With(line, timeBacking(part, line.StartTime, line.SingEndTime, line.EndTime));
+
+        /// <summary>
+        /// Times a line's backing words. A word with its own stamp is sung there; a span with no stamp at
+        /// all is sung where it sat in the line as it was WRITTEN (<see cref="BackingVocals.Place"/>'s rule:
+        /// every character, typed or bracketed, takes an equal share of the sung span, so a trailing
+        /// "(down)" is sung at the end of the line rather than after it); an unstamped word after a stamped
+        /// one follows it.
+        /// </summary>
+        private static List<BackingVocal> timeBacking(BackingPart part, double start, double singEnd, double windowEnd)
+        {
+            var result = new List<BackingVocal>();
+            double sung = Math.Max(0, singEnd - start);
+            var groups = part.Words.GroupBy(w => w.Group).Select(g => g.ToList()).ToList();
+
+            // A span's written length: its words and the single spaces between them.
+            static int lengthOf(List<BackingWord> words) => words.Sum(w => Math.Max(1, w.Text.Length)) + words.Count - 1;
+
+            int rawLength = part.MainLength + groups.Sum(lengthOf);
+            double perChar = rawLength > 0 ? Math.Min(MAX_MS_PER_TYPEABLE_CHAR, sung / rawLength) : MAX_MS_PER_TYPEABLE_CHAR;
+            int before = 0;
+
+            foreach (var words in groups)
+            {
+                int length = lengthOf(words);
+                double at = start + (rawLength > 0 ? sung * (Math.Clamp(words[0].MainOffset, 0, part.MainLength) + before) / rawLength : 0);
+                before += length;
+
+                if (words.All(w => w.Stamp == null))
+                {
+                    double until = Math.Min(windowEnd, at + Math.Max(BackingVocals.MIN_SPAN_MS * words.Count, perChar * length));
+                    result.AddRange(BackingVocals.Spread(words.Select(w => w.Text).ToList(), at, Math.Max(at, until)));
+                    continue;
+                }
+
+                double? previousEnd = null;
+
+                foreach (var word in words)
+                {
+                    double wordStart = word.Stamp is double stamp ? stamp + part.Shift : previousEnd ?? at;
+                    double wordEnd = wordStart + Math.Max(BackingVocals.MIN_SPAN_MS, perChar * Math.Max(1, word.Text.Length));
+                    result.Add(new BackingVocal(word.Text, wordStart, wordEnd));
+                    previousEnd = wordEnd;
+                }
+            }
+
+            // A word never runs on into the next one sung after it.
+            result.Sort((a, b) => a.StartTime.CompareTo(b.StartTime));
+
+            for (int i = 0; i + 1 < result.Count; i++)
+            {
+                if (result[i].EndTime > result[i + 1].StartTime && result[i + 1].StartTime > result[i].StartTime)
+                    result[i] = result[i] with { EndTime = result[i + 1].StartTime };
             }
 
             return result;
         }
+
+        /// <summary>
+        /// Hands each whole-line backing vocal to the line being sung when it starts (the last line
+        /// starting no later, else the first). Its own span runs to the next timestamp of any kind, no
+        /// longer than its letters take at <see cref="MAX_MS_PER_TYPEABLE_CHAR"/>.
+        /// </summary>
+        private static void attachWholeLineBacking(List<LyricLine> result,
+                                                   List<(double Time, string Text, LyricOriginals.RomanisedLine? Romanised, StampedLine? Stamps, BackingPart? Backing)> entries,
+                                                   List<(double Time, BackingPart Part)> wholeBacking)
+        {
+            if (result.Count == 0 || wholeBacking.Count == 0)
+                return;
+
+            foreach (var (time, part) in wholeBacking)
+            {
+                double next = double.PositiveInfinity;
+
+                foreach (var entry in entries)
+                {
+                    if (entry.Time > time)
+                    {
+                        next = entry.Time;
+                        break;
+                    }
+                }
+
+                int letters = part.Words.Sum(w => Math.Max(1, w.Text.Length));
+                double end = Math.Max(time + BackingVocals.MIN_SPAN_MS * part.Words.Count, Math.Min(next, time + MAX_MS_PER_TYPEABLE_CHAR * letters));
+                var words = timeBacking(part with { MainLength = 0 }, time, end, end);
+
+                int target = 0;
+
+                for (int i = 0; i < result.Count; i++)
+                {
+                    if (result[i].StartTime <= time)
+                        target = i;
+                }
+
+                result[target] = BackingVocals.With(result[target], result[target].BackingVocals.Concat(words).OrderBy(w => w.StartTime).ToArray());
+            }
+        }
+
+        #endregion
 
         /// <summary>The letters of a line's unromanised words, the weight they take in its timing.</summary>
         private static int unromanisedWeight(LyricOriginals.RomanisedLine romanised)
@@ -456,8 +610,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             return false;
         }
 
-        private static void extractEntries(string rawLine, double offset, List<(double Time, string Text, LyricOriginals.RomanisedLine? Romanised, StampedLine? Stamps)> entries,
-                                           string? language)
+        private static void extractEntries(string rawLine, double offset, List<(double Time, string Text, LyricOriginals.RomanisedLine? Romanised, StampedLine? Stamps, BackingPart? Backing)> entries,
+                                           string? language, List<(double Time, BackingPart Part)> wholeBacking)
         {
             if (string.IsNullOrEmpty(rawLine))
                 return;
@@ -498,7 +652,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // path, so every plain line below parses exactly as it always has.
             if (inline_stamp.IsMatch(rawText))
             {
-                extractStampedEntries(rawText, times, offset, entries, language);
+                extractStampedEntries(rawText, times, offset, entries, language, wholeBacking);
                 return;
             }
 
@@ -506,7 +660,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // with any letter it would have to respell) is romanised word by word first, and its
             // source kept as the original, instead of being thrown away. A plain ASCII line never
             // takes this branch, so it parses character for character as before.
-            string unbracketed = Typeability.StripBackingVocals(rawText);
+            // The brackets leave the typed text exactly as Typeability.StripBackingVocals takes them out,
+            // and what was in them is kept as the line's BACKING VOCALS (backlog 445).
+            var extraction = BackingVocals.Extract(rawText);
+            string unbracketed = extraction.Main;
+            var backing = backingPart(extraction);
 
             if (LyricOriginals.CarriesOriginal(unbracketed) || Romaniser.NeedsRomanising(unbracketed, language))
             {
@@ -520,7 +678,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     return;
 
                 foreach (double t in times)
-                    entries.Add((t, romanisedText, romanised, null));
+                    entries.Add((t, romanisedText, romanised, null, backing));
 
                 return;
             }
@@ -543,7 +701,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (Typeability.ToDefaultStream(stored).Length == 0)
             {
                 if (Typeability.Normalize(rawText).Length > 0)
+                {
+                    // Nothing to type, but bracketed words: a whole-line backing vocal (backlog 445).
+                    if (backing != null)
+                    {
+                        foreach (double t in times)
+                            wholeBacking.Add((t, backing));
+                    }
+
                     return;
+                }
 
                 // Junk that normalizes away entirely (including a bare "|") stays the empty
                 // boundary/terminator entry it has always been.
@@ -551,7 +718,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             }
 
             foreach (double t in times)
-                entries.Add((t, text, null, null));
+                entries.Add((t, text, null, null, backing));
         }
 
         #region Enhanced LRC (backlog 356)
@@ -659,12 +826,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// keeps its own original.
         /// </summary>
         private static void extractStampedEntries(string rawText, List<double> times, double offset,
-                                                  List<(double Time, string Text, LyricOriginals.RomanisedLine? Romanised, StampedLine? Stamps)> entries,
-                                                  string? language)
+                                                  List<(double Time, string Text, LyricOriginals.RomanisedLine? Romanised, StampedLine? Stamps, BackingPart? Backing)> entries,
+                                                  string? language, List<(double Time, BackingPart Part)> wholeBacking)
         {
             var clean = new StringBuilder(rawText.Length);
             var stampsAt = new List<(int Position, double Time)>();
             int depth = 0;
+
+            // THE BACKING VOCALS (backlog 445): the bracketed words, each timed by a stamp standing at its
+            // start inside the brackets when there is one.
+            var backingWords = new List<BackingWord>();
+            var backingCurrent = new StringBuilder();
+            double? backingStamp = null;
+            int group = -1;
+            int groupOffset = 0;
+            bool sung = false;
+
+            void finishBackingWord()
+            {
+                string word = BackingVocals.CleanText(backingCurrent.ToString());
+
+                // A square bracket is an annotation ("[x2]"), not a backing vocal: see BackingVocals.Extract.
+                if (sung && word.Length > 0)
+                    backingWords.Add(new BackingWord(word, group, groupOffset, backingStamp));
+
+                backingCurrent.Clear();
+                backingStamp = null;
+            }
 
             for (int i = 0; i < rawText.Length;)
             {
@@ -674,23 +862,54 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 {
                     if (depth == 0)
                         stampsAt.Add((clean.Length, ms - offset));
+                    else if (backingCurrent.Length == 0)
+                        backingStamp = ms - offset;
 
                     i += match.Length;
                     continue;
                 }
 
                 if (c == '(' || c == '[')
+                {
+                    if (depth == 0)
+                    {
+                        group++;
+                        groupOffset = clean.Length;
+                        sung = BackingVocals.IsSungBracket(c);
+
+                        // A stamp standing right before the bracket ("<00:13.00>(down)", the usual
+                        // enhanced LRC shape: one stamp ahead of every word) times its first word,
+                        // unless one inside the brackets does.
+                        if (stampsAt.Count > 0 && stampsAt[^1].Position == clean.Length)
+                            backingStamp = stampsAt[^1].Time;
+                    }
+                    else
+                        finishBackingWord();
+
                     depth++;
+                }
                 else if (c == ')' || c == ']')
                 {
                     if (depth > 0)
+                    {
                         depth--;
+                        finishBackingWord();
+                    }
                 }
                 else if (depth == 0)
                     clean.Append(c);
+                else if (char.IsWhiteSpace(c))
+                    finishBackingWord();
+                else
+                    backingCurrent.Append(c);
 
                 i++;
             }
+
+            if (depth > 0)
+                finishBackingWord();
+
+            BackingPart? backing = backingWords.Count == 0 ? null : measuredOnTrimmedText(backingWords, clean.ToString());
 
             string unbracketed = clean.ToString();
             bool romanise = LyricOriginals.CarriesOriginal(unbracketed) || Romaniser.NeedsRomanising(unbracketed, language);
@@ -765,12 +984,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (Typeability.ToDefaultStream(stored).Length == 0 && !anyFlagged)
             {
                 // Nothing to type: a line of bare stamps is the boundary marker a bare line tag is,
-                // anything else (backing vocals only, punctuation) vanishes as it does on the plain path.
+                // anything else (backing vocals only, punctuation) vanishes as it does on the plain path,
+                // the backing vocals going to the line being sung (backlog 445).
                 if (Typeability.Normalize(inline_stamp.Replace(rawText, string.Empty)).Length > 0)
+                {
+                    if (backing != null)
+                    {
+                        foreach (double t in times)
+                            wholeBacking.Add((t, backing with { Shift = t - times[0] }));
+                    }
+
                     return;
+                }
 
                 foreach (double t in times)
-                    entries.Add((t, string.Empty, null, null));
+                    entries.Add((t, string.Empty, null, null, null));
 
                 return;
             }
@@ -786,7 +1014,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             var stampedLine = new StampedLine(words, closing, 0, lineOriginal);
 
             foreach (double t in times)
-                entries.Add((t, lineText, null, stampedLine with { Shift = t - times[0] }));
+                entries.Add((t, lineText, null, stampedLine with { Shift = t - times[0] }, backing == null ? null : backing with { Shift = t - times[0] }));
         }
 
         private static IEnumerable<(int Start, string Token)> whitespaceTokens(string text)

@@ -56,6 +56,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// rather than in the text, and a word may take several - one per breath.
     /// SHIFT+Dragging a DOTTED line promotes that subdivision into one, the span it was dragged across
     /// becoming the rest (see <see cref="TypeBeatEditorOperations.ExtendSubdivisionIntoPause"/>).
+    ///
+    /// <para>The word blocks are the MAIN track, in the bottom <see cref="MAIN_TRACK_HEIGHT"/> of the
+    /// strip; the top is the BACKING VOCAL lane (backlog 445, see LyricTimeline.BackingVocals.cs),
+    /// and the line boundaries run through both.</para>
     /// </summary>
     public partial class LyricTimeline : CompositeDrawable, IProvideCursor
     {
@@ -86,6 +90,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private readonly Container bandLayer;
         private readonly Container blockLayer;
         private readonly Container handleLayer;
+        private readonly Container boundaryLayer;
         private readonly TapGhostLayer ghostLayer;
         private readonly Box playhead;
         private readonly ResizeCursorContainer resizeCursor;
@@ -112,12 +117,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private const double min_window_ms = 400;    // deepest zoom-in
         private const double max_window_ms = 120000; // furthest zoom-out
 
-        // Rebuild signature: line identities + text + unit / boundary / pause counts (positions are
-        // re-polled, but a HANDLE appearing or vanishing needs a rebuild). The LyricLine the
-        // signature was last checked against rides along: a line is immutable, so while the
+        // Rebuild signature: line identities + text + unit / boundary / pause / backing word counts
+        // (positions are re-polled, but a HANDLE appearing or vanishing needs a rebuild). The LyricLine
+        // the signature was last checked against rides along: a line is immutable, so while the
         // reference is unchanged the counts cannot have moved and the frame skips recounting them.
-        private readonly List<(TypeBeatHitObject hitObject, LyricLine line, string rawText, int unitCount, int[] syllableCount, int[] pauseCount)> displayed
-            = new List<(TypeBeatHitObject, LyricLine, string, int, int[], int[])>();
+        private readonly List<(TypeBeatHitObject hitObject, LyricLine line, string rawText, int unitCount, int[] syllableCount, int[] pauseCount, int backingCount)> displayed
+            = new List<(TypeBeatHitObject, LyricLine, string, int, int[], int[], int)>();
 
         // The idle editor re-polls every child each frame, so nothing on that path may allocate: the
         // sort is cached, and each layer's children are held in typed lists filled by rebuild()
@@ -153,9 +158,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                             Alpha = 0.6f,
                         },
                         bandLayer = new Container { RelativeSizeAxes = Axes.Both },
-                        blockLayer = new Container { RelativeSizeAxes = Axes.Both },
+                        // The word blocks and their handles live in the MAIN track (the bottom of the
+                        // strip, backlog 445), so they shrink with it and leave the top to the backing
+                        // vocal lane; the bands, the grid, the line boundaries and the playhead span both.
+                        mainTrack(blockLayer = new Container { RelativeSizeAxes = Axes.Both }),
+                        backingLane(
+                            backingLaneSeparator(),
+                            backingConnectorLayer = new Container { RelativeSizeAxes = Axes.Both },
+                            backingBlockLayer = new Container { RelativeSizeAxes = Axes.Both }),
                         new TimingGrid(() => (windowStart, windowStart + windowLength)),
-                        handleLayer = new Container { RelativeSizeAxes = Axes.Both },
+                        mainTrack(handleLayer = new Container { RelativeSizeAxes = Axes.Both }),
+                        boundaryLayer = new Container { RelativeSizeAxes = Axes.Both },
+                        // Above the line boundaries: an anchor placed at the very start or end of its
+                        // line sits ON a boundary, and must still be the thing a press there grabs (the
+                        // boundary stays grabbable along the rest of its height).
+                        backingLane(backingAnchorLayer = new Container { RelativeSizeAxes = Axes.Both }),
                         ghostLayer = new TapGhostLayer(),
                         playhead = new Box
                         {
@@ -287,6 +304,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             for (int i = 0; i < pauseRegions.Count; i++)
                 pauseRegions[i].UpdateLayout(this);
 
+            updateBackingVocalLayout();
+
             // A live tap-timing pass has committed nothing yet; its taps show as ghosts on top.
             ghostLayer.UpdateGhosts(state.TapSession?.Taps, positionOf);
 
@@ -304,7 +323,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             for (int i = 0; i < ordered.Count; i++)
             {
-                var (hitObject, line, rawText, unitCount, syllableCount, pauseCount) = displayed[i];
+                var (hitObject, line, rawText, unitCount, syllableCount, pauseCount, backingCount) = displayed[i];
 
                 if (ordered[i] != hitObject)
                     return true;
@@ -314,7 +333,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 if (ReferenceEquals(current, line))
                     continue;
 
-                if (current.RawText != rawText || current.Units.Count != unitCount)
+                if (current.RawText != rawText || current.Units.Count != unitCount || current.BackingVocals.Count != backingCount)
                     return true;
 
                 for (int unit = 0; unit < unitCount; unit++)
@@ -327,7 +346,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 }
 
                 // Retimed in place (a drag): the same handles, so no rebuild; remember the new line.
-                displayed[i] = (hitObject, current, rawText, unitCount, syllableCount, pauseCount);
+                displayed[i] = (hitObject, current, rawText, unitCount, syllableCount, pauseCount, backingCount);
             }
 
             return false;
@@ -339,6 +358,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             bandLayer.Clear();
             blockLayer.Clear();
             handleLayer.Clear();
+            boundaryLayer.Clear();
+            clearBackingVocals();
             bands.Clear();
             blocks.Clear();
             joins.Clear();
@@ -351,7 +372,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 var hitObject = ordered[i];
                 displayed.Add((hitObject, hitObject.Line, hitObject.Line.RawText, hitObject.Line.Units.Count,
                     hitObject.Line.Units.Select(unit => unit.SyllableBoundaries.Count).ToArray(),
-                    hitObject.Line.Units.Select(unit => unit.Pauses.Count).ToArray()));
+                    hitObject.Line.Units.Select(unit => unit.Pauses.Count).ToArray(),
+                    hitObject.Line.BackingVocals.Count));
 
                 bandLayer.Add(add(bands, new LineBand(this, hitObject, i)));
 
@@ -377,7 +399,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 // previous line's end together (SetLineStart maintains both sides).
                 // There is deliberately no sung-end marker: since backlog 246 a line's end_ms is
                 // derived from its last word's end, so the last word BLOCK is that marker.
-                handleLayer.Add(add(boundaryHandles, new BoundaryHandle(this, hitObject)));
+                // Full height, through the backing lane too: both tracks share the division.
+                boundaryLayer.Add(add(boundaryHandles, new BoundaryHandle(this, hitObject)));
+
+                addBackingVocals(hitObject);
             }
 
             static T add<T>(List<T> list, T drawable)
@@ -697,6 +722,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             private TimedUnit? runsUnit;
             private string? runsDisplay;
             private bool runsOriginalView;
+
+            /// <summary>The line this block's word is on (test support).</summary>
+            internal TypeBeatHitObject HitObject => hitObject;
+
+            /// <summary>The word's index in its line (test support).</summary>
+            internal int Index => index;
 
             public WordBlock(LyricTimeline strip, TypeBeatHitObject hitObject, int index)
             {

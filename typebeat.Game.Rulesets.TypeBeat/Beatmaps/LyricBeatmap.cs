@@ -741,6 +741,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// before). Such a line types nothing and judges nothing.</para>
         /// </summary>
         public IReadOnlyList<UnromanisedWord> UnromanisedWords { get; init; } = Array.Empty<UnromanisedWord>();
+
+        /// <summary>
+        /// The line's BACKING VOCALS (backlog 445), in time order, each inside this line's
+        /// [<see cref="StartTime"/>, <see cref="EndTime"/>] window: words shown above the line in
+        /// gameplay and never typed. Empty for every line of every map that has none. Display data
+        /// only: no cell, target, rating or score reads it. See <see cref="Beatmaps.BackingVocals"/>.
+        /// </summary>
+        public IReadOnlyList<BackingVocal> BackingVocals { get; init; } = Array.Empty<BackingVocal>();
     }
 
     public sealed class LyricBeatmapMetadata

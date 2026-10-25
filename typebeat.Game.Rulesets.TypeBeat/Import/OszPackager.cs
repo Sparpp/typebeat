@@ -73,10 +73,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 string? videoSource = videoSourcePath ?? (LyricImportExtensions.IsVideo(audioSourcePath) ? audioSourcePath : null);
                 string? videoFilename = videoSource == null ? null : Path.GetFileName(videoSource);
 
-                // The import boundary (backlog 255): backing vocals leave the lyric HERE, on the way
-                // into the stored map, because the decode now reads a bracket as a literal mark.
+                // The import boundary (backlog 255, backlog 445): backing vocals leave the TYPED lyric
+                // HERE and become the lines' backing vocals, because the decode reads a bracket as a literal mark.
                 // The provenance timing.json written below keeps the aligner's text untouched.
-                string osuText = LyricOsuFormat.GenerateOsu(artist, title, audioFilename, CREATOR, TimingJsonPostProcess.StripBackingVocalLines(timingJson),
+                string osuText = LyricOsuFormat.GenerateOsu(artist, title, audioFilename, CREATOR, TimingJsonPostProcess.ExtractBackingVocalLines(timingJson),
                     previewTime, audioLeadIn, videoFilename: videoFilename, language: string.IsNullOrEmpty(offeredLanguage) ? null : offeredLanguage);
 
                 if (File.Exists(oszPath))

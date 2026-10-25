@@ -350,6 +350,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
 
         /// <summary>The colour a LATE press is tinted towards, stored and read like <see cref="TimingTintEarlyColour"/>. Display only.</summary>
         TimingTintLateColour,
+
+        /// <summary>
+        /// Whether a map's BACKING VOCALS (backlog 445) pop up above their lines. On by default; display
+        /// only, live, and never in the replay CONFIG frame (backing vocals are never typed or judged).
+        /// </summary>
+        ShowBackingVocals,
     }
 
     /// <summary>
@@ -663,6 +669,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.UseSpaceErrorDot, true);
             SetDefault(TypeBeatRulesetSetting.ShowSyllableMarkers, true);
             SetDefault(TypeBeatRulesetSetting.ShowPaceColours, false);
+            SetDefault(TypeBeatRulesetSetting.ShowBackingVocals, true);
             SetDefault(TypeBeatRulesetSetting.PaceColourMode, PaceColourMode.MapRelative);
             SetDefault(TypeBeatRulesetSetting.PaceColourMapRelativeDefaultApplied, true);
             SetDefault(TypeBeatRulesetSetting.PaceColourOpacityCurve, 0.0f, 0.0f, 100.0f, 1.0f);

@@ -115,6 +115,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     Assert.That(a.Units[u].StartTime, Is.EqualTo(e.Units[u].StartTime).Within(1e-6), $"line {i} unit {u} start");
                     Assert.That(a.Units[u].EndTime, Is.EqualTo(e.Units[u].EndTime).Within(1e-6), $"line {i} unit {u} end");
                 }
+
+                // The backing vocals (backlog 445) reload as the editor held them, anchors included.
+                Assert.That(a.BackingVocals, Is.EqualTo(e.BackingVocals), $"line {i} backing vocals");
             }
         }
 

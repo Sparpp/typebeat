@@ -66,7 +66,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var lines = LrcParser.Parse(spectator_lyrics);
 
             // 36 emitted lines; the trailing [02:45.39] terminator is consumed (not a 37th line)
-            // and the 4 bracketed backing-vocal lines are dropped (never typed).
+            // and the 4 bracketed backing-vocal lines are no lines (never typed): their words are the
+            // backing vocals of the line being sung (backlog 445).
             Assert.That(lines.Count, Is.EqualTo(36));
             Assert.That(lines[0].StartTime, Is.EqualTo(7480));
             Assert.That(lines[0].RawText, Is.EqualTo("If we take it from the top now"));
@@ -77,14 +78,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void BackingVocalLinesAreDroppedAndSpannedOver()
+        public void BackingVocalLinesAreNoLinesAndAreSpannedOver()
         {
             var lines = LrcParser.Parse("[00:01.00] real one\n[00:02.00] (backing echo)\n[00:04.00] real two\n[00:06.00]\n");
 
             Assert.That(lines.Count, Is.EqualTo(2));
             Assert.That(lines[0].RawText, Is.EqualTo("real one"));
-            Assert.That(lines[0].EndTime, Is.EqualTo(4000)); // extends over the dropped backing line
+            Assert.That(lines[0].EndTime, Is.EqualTo(4000)); // extends over the backing line
             Assert.That(lines[1].EndTime, Is.EqualTo(6000)); // trailing terminator still honoured
+
+            // Its words are the first line's backing vocals (backlog 445).
+            Assert.That(lines[0].BackingVocals.Select(w => w.Text), Is.EqualTo(new[] { "backing", "echo" }));
         }
 
         [Test]

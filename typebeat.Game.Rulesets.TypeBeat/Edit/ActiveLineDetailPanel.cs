@@ -28,7 +28,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// then the interactive fine-timing surface (<see cref="LyricTimeline"/>), and WORD-level
     /// actions on the bottom (add word, remove word, subdivide, unsubdivide, insert pause) right
     /// beside the word blocks they act on. A line with an ORIGINAL text (backlog 330) also gets the
-    /// two-row word editor (<see cref="WordScriptEditor"/>) between the readouts and the strip.
+    /// two-row word editor (<see cref="WordScriptEditor"/>) between the readouts and the strip. The
+    /// line's BACKING VOCALS (backlog 445) are typed at the end of the line row
+    /// (<see cref="BackingVocalField"/>) and placed on the strip's backing lane.
     /// </summary>
     public partial class ActiveLineDetailPanel : CompositeDrawable
     {
@@ -138,7 +140,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                             // the button was dropped to declutter the row.
                             // Copy/paste timing stays on the standard ^C/^V hotkeys
                             // (LyricComposeScreen.Copy/Paste); the buttons were dropped.
-                            inset(actionRow("line", new[]
+                            inset(actionRow("line", new Drawable[]
                             {
                                 // Named for what they make; WHERE is in the tooltip (the playhead, the
                                 // selected word), since the "@" labels read as jargon (backlog 336).
@@ -147,6 +149,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                 actionButton("merge next (M)", mergeNext, line_button_width),
                                 actionButton("Quantize (Q)", QuantizeSelectedWords, line_button_width, "Snap selected words to the current timing grid"),
                                 actionButton("delete line", deleteLine, line_button_width),
+                                // The line's backing vocals (backlog 445): a line-level text, so it
+                                // shares the line row rather than taking a row of the strip's height.
+                                new BackingVocalField(),
                             })),
                         },
                         new Drawable[]

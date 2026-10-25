@@ -137,6 +137,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             public List<RestSpan>? Rests;
         }
 
+        /// <summary>One copied backing vocal (backlog 445), its times relative to its line's start.</summary>
+        public class BackingSpan
+        {
+            [JsonProperty("text")]
+            public string Text = string.Empty;
+
+            [JsonProperty("start")]
+            public double Start;
+
+            [JsonProperty("end")]
+            public double End;
+
+            [JsonProperty("anchor", NullValueHandling = NullValueHandling.Ignore)]
+            public double? Anchor;
+        }
+
         /// <summary>One line's internal timing, all offsets relative to the line's StartTime.</summary>
         public class LineTimings
         {
@@ -169,6 +185,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             /// </summary>
             [JsonProperty("original", NullValueHandling = NullValueHandling.Ignore)]
             public string? Original;
+
+            /// <summary>
+            /// The source line's BACKING VOCALS (backlog 445), timed relative to its start, or null for a
+            /// line with none (and on every payload written before the field). Read by the text paste
+            /// alone, which puts the copied line down whole; a timing paste keeps the target's own.
+            /// </summary>
+            [JsonProperty("backing", NullValueHandling = NullValueHandling.Ignore)]
+            public List<BackingSpan>? Backing;
 
             /// <summary>
             /// Whether this line spells out every word: at least one word, and each one's

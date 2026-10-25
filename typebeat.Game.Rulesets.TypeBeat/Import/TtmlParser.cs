@@ -30,8 +30,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
     /// carries spaces splits into its own words. For Japanese without a supplied transliteration,
     /// Kawazu's dictionary boundaries also separate words before the remaining pieces become
     /// syllables. A <c>&lt;span ttm:role="x-bg"&gt;</c> is a BACKING
-    /// VOCAL and is dropped with its whole subtree, which is the same reading the import boundary
-    /// already gives a bracketed backing vocal: the player never types it.</para>
+    /// VOCAL: the player never types it, the same reading the import boundary gives a bracketed one,
+    /// and it becomes one of the line's backing vocals (backlog 445) at its own begin/end. A line made
+    /// of nothing but backing vocals hands them to the line being sung when they start.</para>
     ///
     /// <para><b>A line with no timed spans is left LINE-LEVEL.</b> Files are published in
     /// <c>itunes:timing="Line"</c> as well as word timing, and inventing per-word stamps out of the
@@ -148,17 +149,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
             var transliterations = readTransliterations(root);
             var built = new List<LyricLine>();
+            var orphanBacking = new List<BackingVocal>();
 
             // Descendants() is document order, so lines come out in song order whatever the
             // div/p nesting looks like.
             foreach (XElement paragraph in root.Descendants().Where(e => e.Name.LocalName == "p"))
             {
-                if (tryBuildLine(paragraph, transliterations, language, out LyricLine line))
+                if (tryBuildLine(paragraph, transliterations, language, orphanBacking, out LyricLine line))
                     built.Add(line);
             }
 
             if (built.Count == 0)
                 return false;
+
+            // A paragraph of nothing but backing vocals (backlog 445): its words go to the line being
+            // sung when each starts (the last line starting no later, else the first). Raw times; the
+            // loader fits them into the line's window when it rebuilds the lines.
+            foreach (var word in orphanBacking)
+            {
+                int target = 0;
+
+                for (int i = 0; i < built.Count; i++)
+                {
+                    if (built[i].StartTime <= word.StartTime)
+                        target = i;
+                }
+
+                built[target] = withRawBacking(built[target], built[target].BackingVocals.Append(word).OrderBy(w => w.StartTime).ToArray());
+            }
 
             if (offsetMs != 0)
                 built = shift(built, offsetMs);
@@ -281,7 +299,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             public IReadOnlyList<int?>? Cuts { get; init; }
         }
 
-        private static bool tryBuildLine(XElement paragraph, IReadOnlyDictionary<string, XElement> transliterations, string? language, out LyricLine line)
+        private static bool tryBuildLine(XElement paragraph, IReadOnlyDictionary<string, XElement> transliterations, string? language,
+                                         List<BackingVocal> orphanBacking, out LyricLine line)
         {
             line = null!;
 
@@ -292,12 +311,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             double? partEnd = part != null && part.Name.LocalName == "div" ? readTime(part, "end") : null;
 
             var pieces = new List<Piece>();
-            collectPieces(paragraph, null, null, pieces);
+            var backingPieces = new List<Piece>();
+            collectPieces(paragraph, null, null, pieces, backingPieces);
 
             List<WordBuffer> words = buildWords(pieces);
 
+            // The paragraph's own span, for backing vocals that state none.
+            double? paragraphStart = readTime(paragraph, "begin") ?? partStart;
+            double? paragraphEnd = readTime(paragraph, "end") ?? partEnd;
+
             if (words.Count == 0)
+            {
+                if (paragraphStart is double orphanStart)
+                    orphanBacking.AddRange(backingWords(backingPieces, orphanStart, paragraphEnd ?? orphanStart));
+
                 return false;
+            }
 
             // THE ORIGINAL TEXT (backlog 330): the source's own transliteration when it ships one for
             // this line, else the romaniser word by word. A line of plain ASCII resolves to exactly
@@ -316,7 +345,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             bool anyFlagged = resolved.Count > typed.Count;
 
             if (TimingJsonLoader.YieldsNoCells(text) && !anyFlagged)
+            {
+                if (paragraphStart is double orphanStart)
+                    orphanBacking.AddRange(backingWords(backingPieces, orphanStart, paragraphEnd ?? orphanStart));
+
                 return false;
+            }
 
             string? lineOriginal = resolved.Any(r => r.Original != null) || anyFlagged
                 ? LyricOriginals.CollapseWhitespace(string.Concat(pieces.Select(p => p.Text)))
@@ -390,10 +424,87 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 Units = units,
                 Original = lineOriginal,
                 UnromanisedWords = pending,
+                // RAW times, like the line's own: the loader fits them into the window it rebuilds.
+                BackingVocals = backingWords(backingPieces, start, singEnd),
             };
 
             return true;
         }
+
+        /// <summary>
+        /// The BACKING VOCALS (backlog 445) of a line from its <c>x-bg</c> pieces: grouped into words the
+        /// way <see cref="buildWords"/> groups the typed ones (whitespace closes a word, adjacent pieces
+        /// are its syllables), each word's brackets dropped, and timed by its own pieces' earliest start and
+        /// latest end. Pieces that state no time are spread across the line's span.
+        /// </summary>
+        private static List<BackingVocal> backingWords(List<Piece> pieces, double lineStart, double lineEnd)
+        {
+            var words = new List<(System.Text.StringBuilder Text, double? Start, double? End)>();
+            bool open = false;
+
+            foreach (Piece piece in pieces)
+            {
+                foreach (char c in piece.Text)
+                {
+                    if (char.IsWhiteSpace(c))
+                    {
+                        open = false;
+                        continue;
+                    }
+
+                    if (!open)
+                    {
+                        words.Add((new System.Text.StringBuilder(), null, null));
+                        open = true;
+                    }
+
+                    var current = words[^1];
+
+                    if (c != '(' && c != ')' && c != '[' && c != ']')
+                        current.Text.Append(c);
+
+                    words[^1] = (current.Text,
+                        current.Start == null ? piece.Start : piece.Start == null ? current.Start : Math.Min(current.Start.Value, piece.Start.Value),
+                        current.End == null ? piece.End : piece.End == null ? current.End : Math.Max(current.End.Value, piece.End.Value));
+                }
+            }
+
+            var cleaned = words.Select(w => (Text: BackingVocals.CleanText(w.Text.ToString()), w.Start, w.End)).Where(w => w.Text.Length > 0).ToList();
+
+            if (cleaned.Count == 0)
+                return new List<BackingVocal>();
+
+            if (cleaned.All(w => w.Start == null))
+                return BackingVocals.Spread(cleaned.Select(w => w.Text).ToList(), lineStart, Math.Max(lineEnd, lineStart + BackingVocals.MIN_SPAN_MS * cleaned.Count));
+
+            var result = new List<BackingVocal>();
+            double previousEnd = lineStart;
+
+            foreach (var word in cleaned)
+            {
+                double start = word.Start ?? previousEnd;
+                double end = Math.Max(start, word.End ?? start + BackingVocals.MIN_SPAN_MS);
+                result.Add(new BackingVocal(word.Text, start, end));
+                previousEnd = end;
+            }
+
+            return result;
+        }
+
+        /// <summary>A raw TTML line with its backing vocals replaced, UNFITTED (its window is not known yet).</summary>
+        private static LyricLine withRawBacking(LyricLine line, IReadOnlyList<BackingVocal> words) => new LyricLine
+        {
+            RawText = line.RawText,
+            StartTime = line.StartTime,
+            EndTime = line.EndTime,
+            SingEndTime = line.SingEndTime,
+            Units = line.Units,
+            SealGraceMs = line.SealGraceMs,
+            Estimated = line.Estimated,
+            Original = line.Original,
+            UnromanisedWords = line.UnromanisedWords,
+            BackingVocals = words,
+        };
 
         /// <summary>
         /// One source word resolved by the ROMANISER (backlog 330). A word with nothing to romanise
@@ -535,7 +646,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// whose syllables are themselves spans keeps the syllables' own stamps while a plain span
         /// is one piece. A backing-vocal span is skipped with everything under it.
         /// </summary>
-        private static void collectPieces(XElement element, double? inheritedStart, double? inheritedEnd, List<Piece> pieces)
+        private static void collectPieces(XElement element, double? inheritedStart, double? inheritedEnd, List<Piece> pieces, List<Piece>? backing = null)
         {
             foreach (XNode node in element.Nodes())
             {
@@ -547,14 +658,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                         break;
 
                     case XElement span when span.Name.LocalName == "span":
-                        if (isBackingVocal(span))
-                            break;
-
                         double? start = readTime(span, "begin") ?? inheritedStart;
                         double? end = readTime(span, "end") ?? inheritedEnd;
 
+                        // A BACKING VOCAL never reaches the typed pieces; its own pieces (timed as the
+                        // typed ones are) are collected for the line's backing vocals (backlog 445).
+                        if (isBackingVocal(span))
+                        {
+                            if (backing != null)
+                            {
+                                if (span.Elements().Any(e => e.Name.LocalName == "span"))
+                                    collectPieces(span, start, end, backing, backing);
+                                else
+                                    backing.Add(new Piece(span.Value, start, end));
+
+                                // The space after the span still separates the words around it.
+                                backing.Add(new Piece(" ", start, end));
+                            }
+
+                            break;
+                        }
+
                         if (span.Elements().Any(e => e.Name.LocalName == "span"))
-                            collectPieces(span, start, end, pieces);
+                            collectPieces(span, start, end, pieces, backing);
                         else
                             pieces.Add(new Piece(span.Value, start, end));
 
@@ -563,7 +689,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                     // Any other element (<br/>, an unknown wrapper) is transparent: carry the
                     // ambient stamps through it rather than losing the text beneath.
                     case XElement other:
-                        collectPieces(other, inheritedStart, inheritedEnd, pieces);
+                        collectPieces(other, inheritedStart, inheritedEnd, pieces, backing);
                         break;
                 }
             }
@@ -790,6 +916,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                     UnromanisedWords = line.UnromanisedWords
                                            .Select(w => w with { StartTime = w.StartTime + deltaMs, EndTime = w.EndTime + deltaMs })
                                            .ToArray(),
+                    BackingVocals = BackingVocals.Shift(line.BackingVocals, deltaMs),
                     Units = line.Units.Select(u => new TimedUnit
                     {
                         Text = u.Text,

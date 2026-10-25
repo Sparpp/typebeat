@@ -180,6 +180,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// Backing vocals ship ON (backlog 445): a map's mapper put them there to be seen, they are
+        /// never typed, and the box only exists for a player who finds them distracting. A brand new
+        /// key, so every install reads this value on its next boot.
+        /// </summary>
+        [Test]
+        public void BackingVocalsDefaultToOn()
+        {
+            using (var rulesetConfig = new TypeBeatRulesetConfigManager(null, new TypeBeatRuleset().RulesetInfo))
+            {
+                Assert.That(rulesetConfig.GetBindable<bool>(TypeBeatRulesetSetting.ShowBackingVocals).Default, Is.True);
+            }
+        }
+
+        /// <summary>
         /// The sync metric ships OFF (backlog 251), which is the whole shape of that change: the
         /// owner asked for it out of the gameplay UI, and it comes back only for a player who ticks
         /// the box. The key is brand new, so unlike the two above this default is NOT harmless to

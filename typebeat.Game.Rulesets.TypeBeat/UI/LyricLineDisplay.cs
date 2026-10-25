@@ -523,6 +523,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 content.Add(progress);
             }
 
+            // The backing vocals (backlog 445): above the line, out of the layout box.
+            addBackingVocals();
+
             InternalChild = content;
             createIndicatorDrawables();
         }
@@ -785,6 +788,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             base.Update();
             updatePaceRail(Time.Current);
 
+            // Backing vocals pop up by song time alone (backlog 445), so a seek lands them exactly.
+            if (backingTexts.Length > 0)
+                updateBackingVocals(Time.Current);
+
             // A resized window changes the width the line has to fit in; re-fit (a scale change
             // only, the measured layout stands) so the stage reads the new geometry this frame.
             if (IsLoaded && Math.Abs(availableWidth - fittedWidth) > 0.5f)
@@ -990,6 +997,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             }
 
             applySyllableMarkers(animate: false);
+
+            // The backing vocals' resting places follow the measured line (backlog 445).
+            layoutBackingVocals();
         }
 
         /// <summary>

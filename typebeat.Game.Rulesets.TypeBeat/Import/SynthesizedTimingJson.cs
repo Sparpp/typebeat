@@ -67,7 +67,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             string? lineOriginal = TypeBeatBeatmapEncoder.LineOriginalToWrite(line);
             bool originals = lineOriginal != null || line.Units.Any(u => u.Original != null);
 
-            if (!freestyle && !subdivided && !(wordTiming && explicitWords) && !unromanised && !originals)
+            // THE BACKING VOCALS (backlog 445) an import read out of the file's brackets: written last,
+            // and only for a line that has any, so a bracket-free import keeps its plain shape.
+            bool backing = line.BackingVocals.Count > 0;
+
+            if (!freestyle && !subdivided && !(wordTiming && explicitWords) && !unromanised && !originals && !backing)
             {
                 // The shape every pipe-free, ampersand-free LRC import has always had.
                 return new
@@ -188,6 +192,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
                 json["words"] = words;
             }
+
+            if (BackingVocals.ToJson(line.BackingVocals) is JsonArray backingWords)
+                json[BackingVocals.WRITE_KEY] = backingWords;
 
             return json;
         }

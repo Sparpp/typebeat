@@ -372,6 +372,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// </summary>
         public static string StripOriginals(string osu) => original_field.Replace(osu, string.Empty);
 
+        private static readonly System.Text.RegularExpressions.Regex backing_field =
+            new System.Text.RegularExpressions.Regex(@",""backing"":\[(?:[^\[\]""]|""(?:[^""\\]|\\.)*"")*\]", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        /// <summary>
+        /// Removes every line's <c>"backing"</c> array (backlog 445) from a type!beat .osu, so two
+        /// encodings that differ only by their BACKING VOCALS compare equal. Same purpose as
+        /// <see cref="StripOriginals"/>: backing vocals are display data that no cell, target time or
+        /// rating reads, so adding, retiming or re-anchoring them on a ranked map must not demote it.
+        /// The server's gameplay fingerprint strips the same key with the same pattern.
+        ///
+        /// <para>Every writer puts the array LAST in its line object, after at least the
+        /// <c>"text"</c>, so the leading comma is what is stripped. The array holds flat word objects,
+        /// never a nested array, and a JSON string cannot hide an unescaped quote, so the pattern takes
+        /// strings whole (a bracket inside a word's text cannot end it early) and cannot reach past the
+        /// array into the rest of the line.</para>
+        /// </summary>
+        public static string StripBacking(string osu) => backing_field.Replace(osu, string.Empty);
+
         private static readonly System.Text.RegularExpressions.Regex unassigned_online_id_fields =
             new System.Text.RegularExpressions.Regex(@"^(?:BeatmapID:0|BeatmapSetID:-1)\r?\n",
                 System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.Compiled);

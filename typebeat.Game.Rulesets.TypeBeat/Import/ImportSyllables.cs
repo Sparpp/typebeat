@@ -148,6 +148,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                         Estimated = line.Estimated,
                         Original = line.Original,
                         UnromanisedWords = line.UnromanisedWords,
+                        BackingVocals = line.BackingVocals,
                     }
                     : line;
             }

@@ -52,8 +52,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             Assert.That(TimingJsonLoader.TryLoad(realTimingJsonPath(), out var lines), Is.True);
 
-            // Bracketed backing-vocal lines are dropped entirely, never displayed, never typed.
+            // Bracketed backing-vocal lines are never lines and never typed; since backlog 445 their
+            // words are the BACKING VOCALS of the line being sung, shown above it and nothing more.
             Assert.That(lines.Any(l => l.RawText.Contains('(')), Is.False);
+            Assert.That(lines.SelectMany(l => l.BackingVocals).Select(w => w.Text), Does.Contain("Spectator"));
+            Assert.That(lines.SelectMany(l => l.BackingVocals).Any(w => w.Text.Contains('(') || w.Text.Contains(')')), Is.False);
+            Assert.That(lines.All(l => l.BackingVocals.All(w => w.StartTime >= l.StartTime && w.EndTime <= l.EndTime)));
 
             // Dropping "(Cold stare...)" dissolves the overlap at its source: "Dying for a way to
             // let go" now extends to the next REAL line ("It's his voice..." at 36060), so its
@@ -118,7 +122,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(TimingJsonLoader.TryLoad(realTimingJsonPath(), out var lines), Is.True);
 
             // The gap line "I'm exactly where you want me to be" before the 81200 instrumental
-            // (index 17: two bracketed backing-vocal lines precede it and are dropped).
+            // (index 17: two bracketed backing-vocal lines precede it and are no lines).
             var gap = lines[17];
             Assert.That(gap.RawText, Is.EqualTo("I'm exactly where you want me to be"));
             Assert.That(gap.SingEndTime, Is.EqualTo(74580), "aligner vocal end drives SingEndTime");

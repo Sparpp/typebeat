@@ -48,8 +48,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// Used by the editor's align-in-place import, which holds the aligner output as a string.
         ///
         /// <para>THE IMPORT SIDE of the seam backlog 255 cut: a timing.json is an ALIGNER document,
-        /// a file being ingested, so its bracketed spans are backing vocals and are stripped exactly
-        /// as they always have been. The stored map is the other side (see
+        /// a file being ingested, so its bracketed spans are backing vocals. The typed lyric loses them
+        /// exactly as it always has, and since backlog 445 they are kept as the lines' backing vocals
+        /// (<see cref="BackingVocalImport"/>). The stored map is the other side (see
         /// <see cref="TryParseRawLine"/>), and there a bracket is a literal lyric mark.</para>
         /// </summary>
         public static bool TryParse(string json, out IReadOnlyList<LyricLine> lines)
@@ -60,6 +61,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             {
                 if (string.IsNullOrEmpty(json))
                     return false;
+
+                // The brackets of an ingested document become the lines' BACKING VOCALS (backlog 445)
+                // before the lines are read, exactly as the .osu writer's own pass does, so a re-align in
+                // the editor keeps them as an import does.
+                json = BackingVocalImport.FromTimingJson(json);
 
                 using var doc = JsonDocument.Parse(json);
                 JsonElement root = doc.RootElement;
@@ -346,7 +352,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 wordPauses.Exists(p => p.Count > 0) ? wordPauses : null,
                 lineOriginal,
                 wordOriginals.Exists(o => o != null) ? wordOriginals : null,
-                wordOriginalSplits.Exists(o => o.Count > 0) ? wordOriginalSplits : null);
+                wordOriginalSplits.Exists(o => o.Count > 0) ? wordOriginalSplits : null,
+                // THE BACKING VOCALS (backlog 445): display-only words, read raw here and fitted into
+                // the line's window by BuildLines, the only place that knows the window.
+                Beatmaps.BackingVocals.Read(lineElement));
             return true;
         }
 
@@ -482,6 +491,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                             line.WordOriginals![u.Index]!,
                             Math.Clamp(line.Words[u.Index].Start, start, end),
                             Math.Clamp(line.Words[u.Index].End, Math.Clamp(line.Words[u.Index].Start, start, end), end))).ToArray(),
+                    BackingVocals = Beatmaps.BackingVocals.Fit(line.BackingVocals, start, end),
                 });
             }
 
@@ -718,6 +728,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             List<List<(double Start, double End, int Split)>>? WordPauses = null,
             string? Original = null,
             List<string?>? WordOriginals = null,
-            List<List<OriginalLyricSplit>>? WordOriginalSplits = null);
+            List<List<OriginalLyricSplit>>? WordOriginalSplits = null,
+            List<BackingVocal>? BackingVocals = null);
     }
 }

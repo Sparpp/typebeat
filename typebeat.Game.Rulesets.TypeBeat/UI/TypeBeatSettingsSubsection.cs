@@ -209,6 +209,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 }),
                 new SettingsItemV2(new FormCheckBox
                 {
+                    Caption = "Show backing vocals",
+                    HintText = "Pop a map's backing vocals up above the lyric as they are sung. They are never typed. Display only.",
+                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ShowBackingVocals),
+                }),
+                new SettingsItemV2(new FormCheckBox
+                {
                     Caption = "Show word pace colours",
                     HintText = "Colour each word or subdivision using the selected pace colour mode. Turn this off for a plain underline. Display only.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ShowPaceColours),

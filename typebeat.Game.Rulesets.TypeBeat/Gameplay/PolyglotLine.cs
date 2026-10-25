@@ -163,6 +163,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 SealGraceMs = line.SealGraceMs,
                 Estimated = line.Estimated,
                 Original = line.Original,
+                // Shown above the line, never typed (backlog 445): the derived line keeps them.
+                BackingVocals = line.BackingVocals,
             };
 
             return new Result(derived, pieces.Select(p => p.Natural).ToArray(), rawCluster.ToArray());
@@ -193,6 +195,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             {
                 RawText = line.RawText, Original = line.Original, Units = units, UnromanisedWords = line.UnromanisedWords,
                 StartTime = line.StartTime, EndTime = line.EndTime, SingEndTime = line.SingEndTime, SealGraceMs = line.SealGraceMs, Estimated = line.Estimated,
+                BackingVocals = line.BackingVocals,
             };
         }
 

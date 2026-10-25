@@ -86,6 +86,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         // Display-only. Map-relative colours are on by default, including without a config.
         private readonly Bindable<bool> showPaceColours = new Bindable<bool>(true);
+        private readonly BindableBool showBackingVocals = new BindableBool(true);
         private readonly Bindable<PaceColourMode> paceColourMode = new Bindable<PaceColourMode>(PaceColourMode.MapRelative);
         private readonly BindableFloat paceColourOpacityCurve = new BindableFloat();
         private readonly BindableFloat paceColourGradient = new BindableFloat();
@@ -289,6 +290,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                                                  .Concat(lines.SelectMany(l => l.JapaneseInput?.Groups.SelectMany(g => g.Reading) ?? Enumerable.Empty<char>())));
             }
 
+            // BACKING VOCALS (backlog 445) are shown as the file wrote them, in whatever script that is, so
+            // their characters get the same fallback coverage when the lyric font cannot draw them.
+            if (lines.Any(l => l.Source.BackingVocals.Count > 0))
+                fontManager?.EnsureCoverage(lines.SelectMany(l => l.Source.BackingVocals.SelectMany(w => w.Text)));
+
             // The lyric SIZE (backlog 334) is read once, like the font: a display measures its glyphs
             // at load and cannot be re-sized in place, so the slider applies from the next play.
             if (config != null)
@@ -427,6 +433,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // CONFIG frame. The displays already exist by here, so firing immediately is what pushes
             // the setting into a line built before the binding ran.
             bindToDisplays(TypeBeatRulesetSetting.ShowSyllableMarkers, syllableMarkers, (d, v) => d.SetSyllableMarkersEnabled(v));
+
+            // The backing vocals (backlog 445): display only, live, never in the replay CONFIG frame.
+            bindToDisplays(TypeBeatRulesetSetting.ShowBackingVocals, showBackingVocals, (d, v) => d.SetBackingVocalsEnabled(v));
 
             bindToDisplays(TypeBeatRulesetSetting.TextPopInAmount, textPopInAmount, (d, v) => d.SetTextPopInAmount(v));
             bindToDisplays(TypeBeatRulesetSetting.ApproachBars, approachBars, (d, v) => d.SetApproachBarsEnabled(v));

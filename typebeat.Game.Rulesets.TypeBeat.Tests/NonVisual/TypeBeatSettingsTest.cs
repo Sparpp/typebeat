@@ -63,6 +63,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     "Approach bars",
                     "Text pop-in",
                     "Show syllable markers",
+                    "Show backing vocals",
                     "Show word pace colours",
                 }));
 
@@ -79,6 +80,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     TypeBeatRulesetSetting.ApproachBars,
                     TypeBeatRulesetSetting.TextPopIn,
                     TypeBeatRulesetSetting.ShowSyllableMarkers,
+                    TypeBeatRulesetSetting.ShowBackingVocals,
                     TypeBeatRulesetSetting.ShowPaceColours,
                 };
 
@@ -96,8 +98,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 }
 
                 // And the defaults a NEW install ships with (2026-10-25): Space to skip, Approach bars
-                // and word pace colours are off; the rest are on.
-                Assert.That(checkboxes.Select(c => c.Current.Value), Is.EqualTo(new[] { false, true, true, true, true, false, true, true, false }));
+                // and word pace colours are off; the rest are on, backing vocals (backlog 445) included.
+                Assert.That(checkboxes.Select(c => c.Current.Value), Is.EqualTo(new[] { false, true, true, true, true, false, true, true, true, false }));
             }
         }
 
@@ -148,6 +150,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     "Text pop-in",
                     "Pop-in amount",
                     "Show syllable markers",
+                    "Show backing vocals",
                     "Show word pace colours",
                     "Pace colour mode",
                     "Pace colour maximum change",

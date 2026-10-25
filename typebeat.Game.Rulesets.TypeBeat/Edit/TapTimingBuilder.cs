@@ -452,6 +452,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     // Paced words are guesses => judge the line at the wider Line-granularity
                     // windows. A fully tapped line is real evidence and clears the flag.
                     Estimated = anyPaced || (!anyRetimed && line.Estimated),
+                    // The backing vocals (backlog 445) move WITH their line: shifted by however far its
+                    // start moved, then fitted into the new window.
+                    BackingVocals = BackingVocals.Fit(BackingVocals.Shift(line.BackingVocals, lineStart[l] - line.StartTime), lineStart[l], lineEnd),
                 });
             }
 

@@ -403,97 +403,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         }
 
         /// <summary>
-        /// THE IMPORT-SIDE BACKING-VOCAL STRIP (backlog 255). Removes every bracketed span from the
-        /// line texts of an ALIGNER-produced timing.json and drops the lines that are left with
-        /// nothing to type, so the .osu an import writes never stores a bracket in the first place.
-        ///
-        /// <para>It exists because the strip used to happen on DECODE, and the map format now
-        /// preserves a literal '(' instead. The two halves of the owner's decision meet exactly
-        /// here: the file being ingested still loses its backing vocals, and everything downstream
-        /// of the stored map treats a bracket as ordinary punctuation. Because
-        /// <see cref="LyricOsuFormat.GenerateOsu"/> re-emits these line objects verbatim into
-        /// [Lyrics], stripping here is what keeps an import's decoded lines byte-identical to what
-        /// <see cref="TimingJsonLoader.TryLoad"/> reports for the same timing.json.</para>
-        ///
-        /// <para>Only the line <c>text</c> is touched: words[] is deliberately left alone, so a
-        /// PARTIAL strip still changes the token count and still sends that line to the
-        /// interpolation fallback in <see cref="TimingJsonLoader.BuildLines"/>, exactly as the
-        /// decode-side strip did. A whole bracketed line is REMOVED from lines[], which is the same
-        /// outcome as the decode dropping it (the previous line's window runs to the next surviving
-        /// line's start). A document whose line texts carry no bracket at all is returned VERBATIM,
-        /// so no map that could not have been affected has a single byte moved, and any parse
-        /// problem also returns the input unchanged: this is a polish pass, not a gate. Any other
-        /// failure does the same but is logged as an error.</para>
+        /// THE IMPORT-SIDE BACKING-VOCAL BOUNDARY (backlog 255, backlog 445). The bracketed spans of an
+        /// ALIGNER-produced timing.json leave the line texts exactly as backlog 255 stripped them, so the
+        /// .osu an import writes never stores a bracket in its typed lyric, but what was in them is kept as
+        /// each line's backing vocals (a <c>"backing"</c> array) instead of being thrown away. See
+        /// <see cref="BackingVocalImport.FromTimingJson"/>, the one implementation, which the in-editor
+        /// re-align reads through as well (<see cref="TimingJsonLoader.TryParse"/>).
         /// </summary>
-        public static string StripBackingVocalLines(string timingJson)
-        {
-            if (string.IsNullOrEmpty(timingJson))
-                return timingJson;
-
-            try
-            {
-                if (JsonNode.Parse(timingJson) is not JsonObject root
-                    || root["lines"] is not JsonArray lines)
-                {
-                    return timingJson;
-                }
-
-                var kept = new JsonArray();
-                bool changed = false;
-
-                foreach (JsonNode? node in lines)
-                {
-                    // A non-object element, or one whose "text" is missing or not a string, is
-                    // carried through untouched: the decode rejects it on its own terms, and
-                    // second-guessing that here would be a second copy of the same rule.
-                    if (node is not JsonObject line
-                        || line["text"] is not JsonValue textValue
-                        || !textValue.TryGetValue(out string? text))
-                    {
-                        kept.Add(node?.DeepClone());
-                        continue;
-                    }
-
-                    string stripped = Typeability.StripBackingVocals(text);
-
-                    if (stripped == text)
-                    {
-                        kept.Add(line.DeepClone());
-                        continue;
-                    }
-
-                    changed = true;
-
-                    // The same emptiness rule the decode applies, so an import cannot store a line
-                    // the decode would then drop (or drop one it would have kept).
-                    bool freestyle = line["freestyle"] is JsonValue flag && flag.TryGetValue(out bool on) && on;
-                    string normalized = Typeability.Normalize(stripped, keepFreestyleMarkers: freestyle, keepSplitMarkers: true);
-
-                    if (TimingJsonLoader.YieldsNoCells(normalized))
-                        continue;
-
-                    // The STRIPPED RAW text, not the normalized form: the rest of the normalization
-                    // still happens on decode, exactly where it always did.
-                    var copy = (JsonObject)line.DeepClone();
-                    copy["text"] = stripped;
-                    kept.Add(copy);
-                }
-
-                if (!changed)
-                    return timingJson;
-
-                root["lines"] = kept;
-                return root.ToJsonString();
-            }
-            catch (JsonException)
-            {
-                return timingJson;
-            }
-            catch (Exception e)
-            {
-                Logger.Error(e, "Stripping backing vocals from the timing failed; the lines keep their raw text");
-                return timingJson;
-            }
-        }
+        public static string ExtractBackingVocalLines(string timingJson) => BackingVocalImport.FromTimingJson(timingJson);
     }
 }
