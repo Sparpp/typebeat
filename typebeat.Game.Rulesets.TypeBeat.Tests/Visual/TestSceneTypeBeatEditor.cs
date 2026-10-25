@@ -948,6 +948,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
         private LyricComposeScreen compose() => Editor.ChildrenOfType<LyricComposeScreen>().Single();
 
+        /// <summary>
+        /// Slides the line list sidebar away, as a mapper would to reach word blocks it overlays: the
+        /// open sidebar covers the left of the word view and (correctly) takes clicks there.
+        /// </summary>
+        private void collapseLineList()
+        {
+            AddStep("collapse the line list", () => compose().LineListSidebar.Expanded.Value = false);
+            AddUntilStep("line list out of the way", () => compose().LineListSidebar.CoveredWidth <= LineListSidebar.TOGGLE_GUTTER + 0.5f);
+        }
+
         private TypeBeatHitObject firstLine() => lineAt(0);
 
         private TypeBeatHitObject lineAt(int index) => TypeBeatEditorOperations.OrderedLines(EditorBeatmap)[index];
@@ -1148,6 +1158,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         public void TestASecondPauseCanBeAddedAndOneTakenBackOut()
         {
             AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+            collapseLineList();
             AddUntilStep("insert pause button present", () => panelButton("insert pause (P)").DrawWidth > 0);
 
             AddStep("park the caret and select the word", () =>
@@ -1641,13 +1652,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddAssert("out of range, the drag is left alone", () => Math.Abs(wordStart() - caret) > 2 * msPerPixel);
 
-            AddStep("disarm snap to caret", () =>
-            {
-                var button = Editor.ChildrenOfType<LyricComposeScreen>().Single().ChildrenOfType<TimingGridControls>()
-                    .Single().ChildrenOfType<RoundedButton>().Single(b => b.Text.ToString() == "Snap to Caret: On");
-                InputManager.MoveMouseTo(button);
-                InputManager.Click(MouseButton.Left);
-            });
+            AddStep("disarm snap to caret", () => Editor.TimingToggle(TimingMenuItems.SNAP_TO_CARET).Press());
             AddAssert("magnet is off", () => !state().SnapToCaret.Value);
 
             AddStep("aim 4px short of the caret again", () =>
@@ -1669,6 +1674,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         public void TestWordDoubleClickSeeksToTheClickWithoutPlayback()
         {
             AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+            collapseLineList();
 
             AddStep("pause at 4000", () =>
             {
@@ -1706,6 +1712,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         public void TestBoundaryDoubleClickSeeksToItsOwnTime()
         {
             AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+            collapseLineList();
 
             AddStep("pause at 4000", () =>
             {

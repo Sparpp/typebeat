@@ -18,11 +18,13 @@ using typebeat.Game.Screens.Edit.Compose.Components.Timeline;
 using typebeat.Game.Storyboards;
 using typebeat.Game.Tests.Visual;
 using osuTK.Input;
+using typebeat.Game.Graphics.UserInterface;
+using typebeat.Game.Screens.Edit.Timing;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 {
     /// <summary>
-    /// The editor's Vocals Waveform toolbar toggle (backlog 392): it must SWAP the compose timeline's
+    /// The editor's Vocals Waveform toggle in the Timing menu (backlog 392): it must SWAP the compose timeline's
     /// waveform between the full mix and the map's isolated vocals stem, and it must be a VIEW-ONLY
     /// change (the track and the editor clock keep running the full mix). A map with no stem has the
     /// toggle disabled, and one with no stem at all cannot turn the vocals view on.
@@ -72,15 +74,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
         protected TimelineWaveformGraph graph() => Editor.ChildrenOfType<TimelineWaveformGraph>().Single();
 
-        protected RoundedButton toggle() =>
-            Editor.ChildrenOfType<RoundedButton>().First(b => b.Text.ToString().StartsWith("Vocals Waveform", StringComparison.Ordinal));
-
-        protected void click(string text)
-        {
-            var button = Editor.ChildrenOfType<RoundedButton>().First(b => b.Text.ToString() == text && b.IsPresent);
-            InputManager.MoveMouseTo(button);
-            InputManager.Click(MouseButton.Left);
-        }
+        protected ToggleMenuItem toggle() => Editor.TimingToggle(TimingMenuItems.VOCALS_WAVEFORM);
 
         /// <summary>A working beatmap whose stem stream is a real tone, so the stem waveform decodes.</summary>
         private class StemWorkingBeatmap : ClockBackedTestWorkingBeatmap
@@ -149,10 +143,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("the stem decoded", () => stem != null && !ReferenceEquals(stem, full));
             AddAssert("graph starts on the full mix", () => ReferenceEquals(graph().Waveform, full));
 
-            AddStep("enable vocals waveform", () => click("Vocals Waveform: Off"));
+            AddStep("enable vocals waveform", () => toggle().Press());
             AddUntilStep("graph swapped to the stem", () => ReferenceEquals(graph().Waveform, stem));
 
-            AddStep("disable vocals waveform", () => click("Vocals Waveform: On"));
+            AddStep("disable vocals waveform", () => toggle().Press());
             AddUntilStep("graph back on the full mix", () => ReferenceEquals(graph().Waveform, full));
         }
 
@@ -174,8 +168,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 time = EditorClock.CurrentTime;
             });
 
-            AddStep("enable vocals waveform", () => click("Vocals Waveform: Off"));
-            AddUntilStep("toggle is on", () => toggle().Text.ToString() == "Vocals Waveform: On");
+            AddStep("enable vocals waveform", () => toggle().Press());
+            AddUntilStep("toggle is on", () => toggle().State.Value);
 
             AddAssert("same working beatmap", () => ReferenceEquals(Beatmap.Value, working));
             AddAssert("same track", () => ReferenceEquals(Beatmap.Value.Track, track));
@@ -193,15 +187,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         public void ToggleIsDisabledAndTheVocalsViewCannotBeTurnedOn()
         {
             AddUntilStep("compose timeline loaded", () => Editor.ChildrenOfType<TimelineWaveformGraph>().Any(g => g.IsLoaded));
-            AddUntilStep("toggle loaded", () => toggle().IsLoaded);
-
             AddAssert("no stem waveform", () => Beatmap.Value.VocalsStemWaveform == null);
-            AddAssert("toggle disabled", () => !toggle().Enabled.Value);
+            AddAssert("toggle disabled", () => toggle().Action.Disabled);
 
-            // The disabled button is inert: a click on it leaves the graph on the full mix.
-            AddStep("click the disabled toggle", () => click("Vocals Waveform: Off"));
+            // The disabled item is inert: pressing it leaves the graph on the full mix.
+            AddStep("press the disabled toggle", () => toggle().Press());
             AddAssert("graph still on the full mix", () => ReferenceEquals(graph().Waveform, Beatmap.Value.Waveform));
-            AddAssert("toggle still reads off", () => toggle().Text.ToString() == "Vocals Waveform: Off");
+            AddAssert("toggle still reads off", () => !toggle().State.Value);
         }
     }
 }

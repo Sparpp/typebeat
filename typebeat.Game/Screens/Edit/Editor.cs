@@ -171,6 +171,11 @@ namespace typebeat.Game.Screens.Edit
         private readonly EditorTimingSettings timingSettings = new EditorTimingSettings();
 
         private readonly BindableBeatDivisor beatDivisor = new BindableBeatDivisor();
+
+        private TimingMenuItems timingMenuItems;
+
+        /// <summary>The Timing menu's grid controls (test support).</summary>
+        internal TimingMenuItems TimingMenu => timingMenuItems;
         private EditorClock clock;
 
         private IBeatmap playableBeatmap;
@@ -338,6 +343,11 @@ namespace typebeat.Game.Screens.Edit
             var bookmarkController = new BookmarkController();
             AddInternal(bookmarkController);
 
+            // The timing grid controls (BPM / Offset, grid subdivision, overlay and snap toggles,
+            // metronome, vocals waveform) live in the Timing menu rather than a toolbar row above the
+            // timeline, so the timeline screens get that row's height back.
+            timingMenuItems = new TimingMenuItems(timingSettings, beatDivisor, () => Mode.Value = EditorScreenMode.Timing);
+
             OsuMenuItem undoMenuItem;
             OsuMenuItem redoMenuItem;
 
@@ -421,11 +431,12 @@ namespace typebeat.Game.Screens.Edit
                                     },
                                     new MenuItem(EditorStrings.Timing)
                                     {
-                                        Items = new MenuItem[]
+                                        Items = timingMenuItems.Items.Concat(new MenuItem[]
                                         {
+                                            new OsuMenuItemSpacer(),
                                             new EditorMenuItem(EditorStrings.SetPreviewPointToCurrent, MenuItemType.Standard, SetPreviewPointToCurrentTime),
                                             bookmarkController.Menu,
-                                        }
+                                        }).ToArray()
                                     }
                                 }
                             },
@@ -459,6 +470,9 @@ namespace typebeat.Game.Screens.Edit
 
             Mode.Value = isNewBeatmap ? EditorScreenMode.SongSetup : EditorScreenMode.Compose;
             Mode.BindValueChanged(onModeChanged, true);
+
+            // Vocals Waveform only works for a map that carries a vocals stem (backlog 392).
+            Beatmap.BindValueChanged(b => timingMenuItems.SetVocalsStemAvailable(b.NewValue.VocalsStemWaveform != null), true);
 
             MutationTracker.InProgress.BindValueChanged(_ =>
             {

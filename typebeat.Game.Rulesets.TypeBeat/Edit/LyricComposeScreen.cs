@@ -103,6 +103,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private EditorRulesetAction rulesetAction { get; set; } = null!;
 
         private LineListPanel lineList = null!;
+        private LineListSidebar lineListSidebar = null!;
+
+        /// <summary>The collapsible line list sidebar (test support).</summary>
+        internal LineListSidebar LineListSidebar => lineListSidebar;
         private ActiveLineDetailPanel detailPanel = null!;
         private TapTimingOverlay tapOverlay = null!;
         private TypeBeatHitObject? lastAutoScrolled;
@@ -637,23 +641,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 new[] { Empty() },
                 new Drawable[]
                 {
-                    new GridContainer
+                    // The word block view spans the whole width; the line list is a collapsible sidebar
+                    // laid over its left side (open by default).
+                    new Container
                     {
                         RelativeSizeAxes = Axes.Both,
-                        ColumnDimensions = new[]
+                        Children = new Drawable[]
                         {
-                            new Dimension(GridSizeMode.Relative, 0.42f),
-                            new Dimension(GridSizeMode.Absolute, 6),
-                            new Dimension(),
-                        },
-                        Content = new[]
-                        {
-                            new[]
+                            new Container
                             {
-                                (Drawable)(lineList = new LineListPanel()),
-                                Empty(),
-                                detailPanel = new ActiveLineDetailPanel(),
+                                RelativeSizeAxes = Axes.Both,
+                                Padding = new MarginPadding { Left = LineListSidebar.TOGGLE_GUTTER },
+                                Child = detailPanel = new ActiveLineDetailPanel(),
                             },
+                            lineListSidebar = new LineListSidebar(lineList = new LineListPanel()),
                         },
                     },
                 },
@@ -663,6 +664,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         protected override void Update()
         {
             base.Update();
+
+            // Keep the detail panel's buttons and readouts clear of the line list sidebar (and its
+            // toggle) while the word blocks span the whole width under it. The panel already starts
+            // TOGGLE_GUTTER in, which is the toggle's room while the sidebar is collapsed.
+            if (lineListSidebar.IsLoaded)
+                detailPanel.ControlsInset = Math.Max(0, lineListSidebar.CoveredWidth - LineListSidebar.TOGGLE_GUTTER);
 
             // Auto-pause for line/word replay.
             if (state.ReplayStopTime is double stop && editorClock.IsRunning && editorClock.CurrentTime >= stop)

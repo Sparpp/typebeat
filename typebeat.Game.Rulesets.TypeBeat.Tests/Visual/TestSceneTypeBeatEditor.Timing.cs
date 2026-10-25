@@ -174,13 +174,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             if (grid)
             {
-                AddStep("enable grid snapping", () =>
-                {
-                    var button = Editor.ChildrenOfType<TimingGridControls>().Single()
-                        .ChildrenOfType<RoundedButton>().Single(b => b.Text.ToString() == "Snap to Grid: Off");
-                    InputManager.MoveMouseTo(button);
-                    InputManager.Click(MouseButton.Left);
-                });
+                AddStep("enable grid snapping", () => Editor.TimingToggle(TimingMenuItems.SNAP_TO_GRID).Press());
             }
 
             dragStripHandle(() => strip().PositionOf(1400) + 3, () => strip().PositionOf(2000), midDrag: () =>

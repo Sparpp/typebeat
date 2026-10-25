@@ -1,6 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System.Collections.Generic;
 using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
@@ -137,7 +138,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                             // the button was dropped to declutter the row.
                             // Copy/paste timing stays on the standard ^C/^V hotkeys
                             // (LyricComposeScreen.Copy/Paste); the buttons were dropped.
-                            actionRow("line", new[]
+                            inset(actionRow("line", new[]
                             {
                                 // Named for what they make; WHERE is in the tooltip (the playhead, the
                                 // selected word), since the "@" labels read as jargon (backlog 336).
@@ -146,11 +147,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                 actionButton("merge next (M)", mergeNext, line_button_width),
                                 actionButton("Quantize (Q)", QuantizeSelectedWords, line_button_width, "Snap selected words to the current timing grid"),
                                 actionButton("delete line", deleteLine, line_button_width),
-                            }),
+                            })),
                         },
                         new Drawable[]
                         {
-                            new FillFlowContainer
+                            inset(new FillFlowContainer
                             {
                                 RelativeSizeAxes = Axes.Both,
                                 Direction = FillDirection.Vertical,
@@ -175,11 +176,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                         Colour = TypeBeatStyle.UntypedChar,
                                     },
                                 },
-                            },
+                            }),
                         },
                         new Drawable[]
                         {
-                            new WordScriptEditor(),
+                            inset(new WordScriptEditor(), autoSizeY: true),
                         },
                         new Drawable[]
                         {
@@ -192,7 +193,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                         },
                         new Drawable[]
                         {
-                            actionRow("word", new Drawable[]
+                            inset(actionRow("word", new Drawable[]
                             {
                                 addWordButton = actionButton("add word", addWord, inertWhenDisabled: true),
                                 removeWordButton = actionButton("remove word", removeWord, inertWhenDisabled: true),
@@ -205,11 +206,45 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                 // edit, so it lives beside the subdivision buttons that it is clamped
                                 // and dragged like. Also gated on a word being selected (backlog 390).
                                 insertPauseButton = actionButton("insert pause (P)", InsertPauseOnSelectedWords, inertWhenDisabled: true),
-                            }),
+                            })),
                         },
                     },
                 },
             };
+        }
+
+        private readonly List<Container> insetRows = new List<Container>();
+        private float controlsInset;
+
+        /// <summary>
+        /// Left inset, in pixels, for every row EXCEPT the word block timeline: the line and word
+        /// buttons, the readouts and the script editor. The compose screen sets it to the width the line
+        /// list sidebar covers, so those controls stay clear of an open sidebar while the word blocks
+        /// keep spanning the whole width under it.
+        /// </summary>
+        public float ControlsInset
+        {
+            get => controlsInset;
+            set
+            {
+                if (controlsInset == value)
+                    return;
+
+                controlsInset = value;
+
+                foreach (var row in insetRows)
+                    row.Padding = new MarginPadding { Left = value };
+            }
+        }
+
+        private Container inset(Drawable content, bool autoSizeY = false)
+        {
+            var row = autoSizeY
+                ? new Container { RelativeSizeAxes = Axes.X, AutoSizeAxes = Axes.Y, Child = content }
+                : new Container { RelativeSizeAxes = Axes.Both, Child = content };
+            row.Padding = new MarginPadding { Left = controlsInset };
+            insetRows.Add(row);
+            return row;
         }
 
         /// <summary>Width of the four LINE action buttons (see the note where they are built).</summary>

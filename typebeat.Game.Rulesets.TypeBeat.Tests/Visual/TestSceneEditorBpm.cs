@@ -21,6 +21,7 @@ using typebeat.Game.Screens.Edit;
 using typebeat.Game.Tests.Visual;
 using osuTK.Input;
 using osuTK;
+using typebeat.Game.Screens.Edit.Components.Menus;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 {
@@ -74,17 +75,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         {
             AddUntilStep("compose loaded", () => Editor.ChildrenOfType<LyricTimeline>().Any(s => s.IsLoaded));
             AddAssert("lyric grid starts hidden", () => lyricGrid().Alpha == 0);
-            AddStep("enable overlay", () => click("Overlay Grid: Off"));
-            AddUntilStep("overlay on", () => Editor.ChildrenOfType<RoundedButton>().Any(b => b.Text.ToString() == "Overlay Grid: On"));
+            AddStep("enable overlay", () => Editor.TimingToggle(TimingMenuItems.OVERLAY_GRID).Press());
+            AddUntilStep("overlay on", () => Editor.TimingToggle(TimingMenuItems.OVERLAY_GRID).State.Value);
             AddUntilStep("grid draws over lyrics", () => lyricGrid().IsPresent && lyricGrid().ChildrenOfType<Box>().Any(b => b.Alpha > 0));
-            AddStep("hide overlay", () => click("Overlay Grid: On"));
+            AddStep("hide overlay", () => Editor.TimingToggle(TimingMenuItems.OVERLAY_GRID).Press());
             AddUntilStep("lyric grid hidden", () => !lyricGrid().IsPresent);
-            AddStep("show overlay again", () => click("Overlay Grid: Off"));
+            AddStep("show overlay again", () => Editor.TimingToggle(TimingMenuItems.OVERLAY_GRID).Press());
             AddUntilStep("grid reappears", () => lyricGrid().IsPresent && lyricGrid().ChildrenOfType<Box>().Any(b => b.Alpha > 0));
-            AddAssert("snap still off", () => Editor.ChildrenOfType<RoundedButton>().Any(b => b.Text.ToString() == "Snap to Grid: Off"));
+            AddAssert("snap still off", () => !Editor.TimingToggle(TimingMenuItems.SNAP_TO_GRID).State.Value);
             AddAssert("reference takes no input", () => Editor.ChildrenOfType<TimingGrid>().All(g => !g.HandlePositionalInput));
-            AddStep("enable snapping", () => click("Snap to Grid: Off"));
-            AddUntilStep("snapping on", () => Editor.ChildrenOfType<RoundedButton>().Any(b => b.Text.ToString() == "Snap to Grid: On"));
+            AddStep("enable snapping", () => Editor.TimingToggle(TimingMenuItems.SNAP_TO_GRID).Press());
+            AddUntilStep("snapping on", () => Editor.TimingToggle(TimingMenuItems.SNAP_TO_GRID).State.Value);
         }
 
         [Test]
@@ -104,10 +105,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         {
             AddUntilStep("word strip loaded", () => Editor.ChildrenOfType<LyricTimeline>().Any(s => s.IsLoaded));
             AddStep("select lyric line", () => Editor.ChildrenOfType<LyricComposeScreen>().Single().EditState.SelectedLine.Value = (TypeBeatHitObject)EditorBeatmap.HitObjects[0]);
-            AddStep("enable snapping", () => click("Snap to Grid: Off"));
+            AddStep("enable snapping", () => Editor.TimingToggle(TimingMenuItems.SNAP_TO_GRID).Press());
             dragWordEnd(1900, 1840);
             AddUntilStep("end on grid", () => Math.Abs(wordEnd() - EditorBeatmap.ControlPointInfo.GetClosestSnappedTime(1840, Editor.BeatDivisor)) < 0.001);
-            AddStep("disable snapping", () => click("Snap to Grid: On"));
+            AddStep("disable snapping", () => Editor.TimingToggle(TimingMenuItems.SNAP_TO_GRID).Press());
             dragWordEnd(() => wordEnd(), 1810);
             AddUntilStep("end follows cursor freely", () => Math.Abs(wordEnd() - 1810) < 0.01);
         }
@@ -115,48 +116,44 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         [Test]
         public void NoteLengthsStaySynchronizedAcrossTabs()
         {
-            AddUntilStep("grid controls loaded", () => Editor.ChildrenOfType<LyricComposeScreen>().Single().ChildrenOfType<TimingGridControls>().Any(c => c.IsLoaded));
-            AddStep("choose half notes", () => subdivision(EditorScreenMode.Compose).Current.Value = -2);
+            AddUntilStep("compose loaded", () => Editor.ChildrenOfType<LyricTimeline>().Any(s => s.IsLoaded));
+            AddStep("choose half notes", () => Editor.SelectSubdivision(-2));
+            AddAssert("half note selected", () => Editor.TimingMenu.CurrentSubdivision == -2);
             AddStep("open timing", () => Editor.Mode.Value = EditorScreenMode.Timing);
-            AddUntilStep("timing toolbar loaded", () => Editor.ChildrenOfType<TimingScreen>().Any(s => s.ChildrenOfType<TimingGridControls>().Any(c => c.IsLoaded)));
-            AddAssert("half note selected", () => subdivision(EditorScreenMode.Timing).Current.Value == -2);
-            AddStep("choose eighth notes", () => subdivision(EditorScreenMode.Timing).Current.Value = 2);
+            AddUntilStep("timing loaded", () => Editor.ChildrenOfType<TimingScreen>().Any(s => s.IsLoaded));
+            AddAssert("still half notes on the timing tab", () => Editor.TimingMenu.CurrentSubdivision == -2);
+            AddStep("choose eighth notes", () => Editor.SelectSubdivision(2));
             AddAssert("beat divisor follows", () => Editor.BeatDivisor == 2);
             AddStep("back to compose", () => Editor.Mode.Value = EditorScreenMode.Compose);
-            AddAssert("eighth note selected", () => subdivision(EditorScreenMode.Compose).Current.Value == 2);
+            AddAssert("eighth note selected", () => Editor.TimingMenu.CurrentSubdivision == 2);
         }
 
+        /// <summary>
+        /// The grid controls are entries of the top bar's Timing menu (they used to be a toolbar row above
+        /// the timeline): BPM / Offset, the subdivision, then the toggles, ahead of the menu's own entries.
+        /// </summary>
         [Test]
-        public void DropdownFitsToolbarAndSelectsAboveWaveform()
+        public void TimingMenuHoldsTheGridControls()
         {
-            AddUntilStep("compose toolbar loaded", () => Editor.ChildrenOfType<LyricComposeScreen>().Single().ChildrenOfType<TimingGridControls>().Any(c => c.IsLoaded));
-            AddAssert("header fits toolbar", () =>
+            AddUntilStep("compose loaded", () => Editor.ChildrenOfType<LyricTimeline>().Any(s => s.IsLoaded));
+            AddAssert("no toolbar row above the timeline", () => !Editor.ChildrenOfType<RoundedButton>().Any(b => b.Text.ToString().StartsWith("Snap to Grid", StringComparison.Ordinal)));
+            AddAssert("timing menu lists the grid controls first", () =>
             {
-                var dropdown = subdivision(EditorScreenMode.Compose);
-                var header = dropdown.ChildrenOfType<DropdownHeader>().Single();
-                var toolbar = Editor.ChildrenOfType<LyricComposeScreen>().Single().ChildrenOfType<TimingGridControls>().Single();
-                return header.ScreenSpaceDrawQuad.AABBFloat.Bottom <= toolbar.ScreenSpaceDrawQuad.AABBFloat.Bottom;
+                var timing = Editor.ChildrenOfType<EditorMenuBar>().Single().Items.Single(i => i.Text.Value.ToString() == "Timing");
+                var labels = timing.Items.Take(7).Select(i => i.Text.Value.ToString()).ToArray();
+                return labels[0] == TimingMenuItems.BPM_OFFSET
+                       && labels[1].StartsWith(TimingMenuItems.GRID_SUBDIVISION, StringComparison.Ordinal)
+                       && labels.Skip(2).SequenceEqual(new[]
+                       {
+                           TimingMenuItems.OVERLAY_GRID, TimingMenuItems.SNAP_TO_GRID, TimingMenuItems.SNAP_TO_CARET,
+                           TimingMenuItems.METRONOME, TimingMenuItems.VOCALS_WAVEFORM,
+                       });
             });
-            AddStep("open note menu", () =>
-            {
-                InputManager.MoveMouseTo(subdivision(EditorScreenMode.Compose).ChildrenOfType<DropdownHeader>().Single());
-                InputManager.Click(MouseButton.Left);
-            });
-            AddUntilStep("menu open", () => subdivision(EditorScreenMode.Compose).ChildrenOfType<OsuDropdown<int>.OsuDropdownMenu>().Single().State == MenuState.Open);
-            AddAssert("menu item overlaps waveform", () =>
-            {
-                var label = subdivision(EditorScreenMode.Compose).ChildrenOfType<OsuSpriteText>().First(t => t.Text.ToString() == "1/2 note");
-                var waveform = Editor.ChildrenOfType<LyricComposeScreen>().Single().TimelineArea.Timeline.ScreenSpaceDrawQuad.AABBFloat;
-                return label.ScreenSpaceDrawQuad.AABBFloat.Centre.Y > waveform.Top && label.ScreenSpaceDrawQuad.AABBFloat.Centre.Y < waveform.Bottom;
-            });
-            AddStep("select half note over waveform", () =>
-            {
-                var label = subdivision(EditorScreenMode.Compose).ChildrenOfType<OsuDropdown<int>.OsuDropdownMenu>().Single().ChildrenOfType<OsuSpriteText>().First(t => t.Text.ToString() == "1/2 note");
-                InputManager.MoveMouseTo(label);
-                InputManager.Click(MouseButton.Left);
-            });
-            AddUntilStep("half note selected", () => subdivision(EditorScreenMode.Compose).Current.Value == -2);
-            AddAssert("menu closed", () => subdivision(EditorScreenMode.Compose).ChildrenOfType<OsuDropdown<int>.OsuDropdownMenu>().Single().State == MenuState.Closed);
+            AddStep("choose half notes", () => Editor.SelectSubdivision(-2));
+            AddAssert("subdivision entry names the current note", () =>
+                Editor.TimingMenu.Items[1].Text.Value.ToString() == $"{TimingMenuItems.GRID_SUBDIVISION}: 1/2 note");
+            AddStep("open BPM / Offset", () => Editor.TimingMenu.Items[0].Press());
+            AddUntilStep("timing screen opened", () => Editor.Mode.Value == EditorScreenMode.Timing);
         }
 
         [Test]
@@ -164,10 +161,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         {
             var ticks = new List<(int beat, double time)>();
             int count = 0;
-            AddUntilStep("toolbar loaded", () => Editor.ChildrenOfType<TimingGridControls>().Any(c => c.IsLoaded));
+            AddUntilStep("compose loaded", () => Editor.ChildrenOfType<LyricTimeline>().Any(s => s.IsLoaded));
             AddStep("listen for ticks", () => Editor.ChildrenOfType<EditorMetronome>().Single().Ticked += beat => ticks.Add((beat, EditorClock.CurrentTime)));
-            AddStep("whole-note grid", () => subdivision(EditorScreenMode.Compose).Current.Value = -4);
-            AddStep("enable metronome", () => click("Metronome: Off"));
+            AddStep("whole-note grid", () => Editor.SelectSubdivision(-4));
+            AddStep("enable metronome", () => Editor.TimingToggle(TimingMenuItems.METRONOME).Press());
             AddStep("play from start", () => { EditorClock.Seek(0); EditorClock.Start(); });
             AddUntilStep("hear two beats", () => ticks.Count >= 2);
             AddAssert("ticks follow BPM and fractional offset", () => ticks.All(t =>
@@ -179,9 +176,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddWaitStep("wait while paused", 5);
             AddAssert("pause is silent", () => ticks.Count == count);
             AddStep("open timing", () => Editor.Mode.Value = EditorScreenMode.Timing);
-            AddUntilStep("timing metronome stays enabled", () => Editor.ChildrenOfType<TimingScreen>().Any(s => s.ChildrenOfType<RoundedButton>().Any(b => b.Text.ToString() == "Metronome: On")));
+            AddUntilStep("timing tab loaded", () => Editor.ChildrenOfType<TimingScreen>().Any(s => s.IsLoaded));
+            AddAssert("metronome stays enabled on the timing tab", () => Editor.TimingToggle(TimingMenuItems.METRONOME).State.Value);
             AddAssert("only one metronome across tabs", () => Editor.ChildrenOfType<EditorMetronome>().Count() == 1);
-            AddStep("disable metronome", () => click("Metronome: On"));
+            AddStep("disable metronome", () => Editor.TimingToggle(TimingMenuItems.METRONOME).Press());
             AddStep("resume playback", () => EditorClock.Start());
             AddUntilStep("pass next beat", () => EditorClock.CurrentTime > 1400);
             AddAssert("disabled metronome silent", () => ticks.Count == count);
@@ -189,32 +187,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         [Test]
-        public void CaretSnapSharesToolbarAndStateAcrossTabs()
+        public void CaretSnapSharesTheTimingMenuAndStateAcrossTabs()
         {
-            AddUntilStep("compose toolbar loaded", () => Editor.ChildrenOfType<LyricComposeScreen>().Single().ChildrenOfType<TimingGridControls>().Any(c => c.IsLoaded));
-            AddAssert("caret snap next to grid snap with matching UI", () =>
+            AddUntilStep("compose loaded", () => Editor.ChildrenOfType<LyricTimeline>().Any(s => s.IsLoaded));
+            AddAssert("caret snap sits right after grid snap", () =>
             {
-                var toolbar = Editor.ChildrenOfType<LyricComposeScreen>().Single().ChildrenOfType<TimingGridControls>().Single();
-                var grid = toolbar.ChildrenOfType<RoundedButton>().Single(b => b.Text.ToString() == "Snap to Grid: Off");
-                var caret = toolbar.ChildrenOfType<RoundedButton>().Single(b => b.Text.ToString() == "Snap to Caret: On");
-                return caret.GetType() == grid.GetType() && caret.Size == grid.Size && Math.Abs(caret.X - grid.X - grid.Width - 8) < 0.01;
+                var items = Editor.TimingMenu.Items.ToList();
+                return items.IndexOf(Editor.TimingToggle(TimingMenuItems.SNAP_TO_CARET)) == items.IndexOf(Editor.TimingToggle(TimingMenuItems.SNAP_TO_GRID)) + 1
+                       && !Editor.TimingToggle(TimingMenuItems.SNAP_TO_GRID).State.Value && Editor.TimingToggle(TimingMenuItems.SNAP_TO_CARET).State.Value;
             });
             AddAssert("old panel toggle removed", () => !Editor.ChildrenOfType<ActiveLineDetailPanel>().Single().ChildrenOfType<RoundedButton>().Any(b => b.Text.ToString().Contains("caret")));
-            AddStep("disable caret snap", () => click("Snap to Caret: On"));
+            AddStep("disable caret snap", () => Editor.TimingToggle(TimingMenuItems.SNAP_TO_CARET).Press());
             AddAssert("lyric magnet disabled", () => !Editor.ChildrenOfType<LyricComposeScreen>().Single().EditState.SnapToCaret.Value);
             AddStep("open timing", () => Editor.Mode.Value = EditorScreenMode.Timing);
-            AddUntilStep("timing toolbar shows caret off", () => Editor.ChildrenOfType<TimingScreen>().Any(s => s.ChildrenOfType<RoundedButton>().Any(b => b.Text.ToString() == "Snap to Caret: Off")));
-            AddStep("enable caret snap in timing", () => click("Snap to Caret: Off"));
+            AddUntilStep("timing tab loaded", () => Editor.ChildrenOfType<TimingScreen>().Any(s => s.IsLoaded));
+            AddAssert("menu shows caret off", () => !Editor.TimingToggle(TimingMenuItems.SNAP_TO_CARET).State.Value);
+            AddStep("enable caret snap in timing", () => Editor.TimingToggle(TimingMenuItems.SNAP_TO_CARET).Press());
             AddAssert("lyric magnet enabled", () => Editor.ChildrenOfType<LyricComposeScreen>().Single().EditState.SnapToCaret.Value);
             AddStep("back to compose", () => Editor.Mode.Value = EditorScreenMode.Compose);
-            AddAssert("compose toggle follows", () => Editor.ChildrenOfType<LyricComposeScreen>().Single().ChildrenOfType<RoundedButton>().Any(b => b.Text.ToString() == "Snap to Caret: On"));
-            AddAssert("grid snap remains independent", () => Editor.ChildrenOfType<LyricComposeScreen>().Single().ChildrenOfType<RoundedButton>().Any(b => b.Text.ToString() == "Snap to Grid: Off"));
+            AddAssert("compose magnet follows", () => Editor.ChildrenOfType<LyricComposeScreen>().Single().EditState.SnapToCaret.Value);
+            AddAssert("grid snap remains independent", () => !Editor.TimingToggle(TimingMenuItems.SNAP_TO_GRID).State.Value);
         }
 
         private TimingGrid lyricGrid() => Editor.ChildrenOfType<LyricTimeline>().Single().ChildrenOfType<TimingGrid>().Single();
-
-        private OsuDropdown<int> subdivision(EditorScreenMode mode) => Editor.ChildrenOfType<EditorScreenWithTimeline>().Single(s => s.Type == mode)
-            .ChildrenOfType<TimingGridControls>().Single().ChildrenOfType<OsuDropdown<int>>().Single();
 
         private double wordEnd() => ((TypeBeatHitObject)EditorBeatmap.HitObjects[0]).Line.Units[0].EndTime;
         private void dragWordEnd(double from, double to) => dragWordEnd(() => from, to);

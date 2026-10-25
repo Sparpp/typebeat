@@ -111,13 +111,9 @@ namespace typebeat.Game.Screens.Edit
                 LoadComponentAsync(TimelineArea = new TimelineArea(CreateTimelineContent()), timeline =>
                 {
                     ConfigureTimeline(timeline);
-                    // Draw the toolbar (including its open menu) above the waveform, while
-                    // keeping the vertical layout independent of drawable depth.
-                    var controls = new TimingGridControls { Depth = -1 };
-                    timelineContent.Add(controls);
+                    // The grid controls that used to sit in a row above the timeline are in the
+                    // editor's Timing menu now (TimingMenuItems).
                     timelineContent.Add(timeline);
-                    timelineContent.SetLayoutPosition(controls, 0);
-                    timelineContent.SetLayoutPosition(timeline, 1);
                 });
             });
         }
