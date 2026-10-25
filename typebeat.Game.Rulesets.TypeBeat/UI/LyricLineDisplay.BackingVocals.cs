@@ -71,7 +71,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 {
                     Text = words[i].Text,
                     Font = TypeBeatStyle.Lyric(requestedFontSize * BACKING_FONT_RATIO, fontFamily),
-                    Colour = TypeBeatStyle.TypedChar,
+                    // An untyped character's grey: a backing word is lyric nobody types, and inside the
+                    // line's content it dims with the line exactly as the untyped text does.
+                    Colour = TypeBeatStyle.UntypedChar,
                     Anchor = Anchor.TopLeft,
                     Origin = Anchor.BottomCentre,
                     Alpha = 0,
