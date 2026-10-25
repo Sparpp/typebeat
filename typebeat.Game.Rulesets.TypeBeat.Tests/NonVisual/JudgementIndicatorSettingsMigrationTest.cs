@@ -45,7 +45,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(config.Get<bool>(TypeBeatRulesetSetting.ApproachBars), Is.True);
                 Assert.That(config.Get<float>(TypeBeatRulesetSetting.SyllableBrightness), Is.EqualTo(60f));
                 Assert.That(config.Get<JudgementIndicatorMode>(TypeBeatRulesetSetting.JudgementIndicator), Is.EqualTo(JudgementIndicatorMode.FadeIn));
-                Assert.That(config.Get<float>(TypeBeatRulesetSetting.SyllableFadeInEnd), Is.Zero);
+                Assert.That(config.Get<float>(TypeBeatRulesetSetting.SyllableFadeInEnd), Is.EqualTo(100f));
                 Assert.That(config.Get<float>(TypeBeatRulesetSetting.SyllableFadeInDuration), Is.EqualTo(800f));
                 Assert.That(config.Get<bool>(TypeBeatRulesetSetting.TextPopIn), Is.True);
                 Assert.That(config.Get<float>(TypeBeatRulesetSetting.TextPopInAmount), Is.EqualTo(5f));
@@ -150,6 +150,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(config.Get<JudgementIndicatorMode>(TypeBeatRulesetSetting.JudgementIndicator), Is.EqualTo(JudgementIndicatorMode.BottomToTopFill));
                 Assert.That(config.GetBindable<float>(TypeBeatRulesetSetting.PaceColourGradient).Value, Is.Zero);
                 Assert.That(config.GetBindable<float>(TypeBeatRulesetSetting.PaceColourGradient).Disabled, Is.True);
+            });
+        }
+
+        [TestCase("0", 100f)]
+        [TestCase("30", 30f)]
+        [TestCase("100", 100f)]
+        [TestCase(null, 100f)]
+        public void IndicatorAlignmentMovesFromTheOldDefaultOnceAndKeepsOtherChoices(string? stored, float expected)
+        {
+            withStore((access, settings, ruleset) =>
+            {
+                // A profile that already took the indicator preset (which stamped 0) before the
+                // default moved to the Great window's centre.
+                access.Write(r =>
+                {
+                    r.Add(new RealmRulesetSetting { RulesetName = ruleset.ShortName, Variant = 7, Key = nameof(TypeBeatRulesetSetting.IndicatorDefaultsApplied), Value = "True" });
+                    if (stored != null)
+                        r.Add(new RealmRulesetSetting { RulesetName = ruleset.ShortName, Variant = 7, Key = nameof(TypeBeatRulesetSetting.SyllableFadeInEnd), Value = stored });
+                });
+
+                using (var config = new TypeBeatRulesetConfigManager(settings, ruleset.RulesetInfo, 7))
+                {
+                    Assert.That(config.Get<float>(TypeBeatRulesetSetting.SyllableFadeInEnd), Is.EqualTo(expected));
+                    Assert.That(config.Get<bool>(TypeBeatRulesetSetting.IndicatorAlignmentCentreApplied), Is.True);
+
+                    // Choosing the early edge AFTER the move is a real choice and must survive a restart.
+                    config.SetValue(TypeBeatRulesetSetting.SyllableFadeInEnd, 0f);
+                    config.Save();
+                }
+
+                using var reloaded = new TypeBeatRulesetConfigManager(settings, ruleset.RulesetInfo, 7);
+                Assert.That(reloaded.Get<float>(TypeBeatRulesetSetting.SyllableFadeInEnd), Is.Zero);
             });
         }
 

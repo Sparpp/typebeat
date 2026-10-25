@@ -181,7 +181,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(indicator.Current.Value, Is.EqualTo(JudgementIndicatorMode.FadeIn));
 
                 var end = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormSliderBar<float>>().Single(c => c.Caption.ToString() == "Indicator Alignment");
-                Assert.That(end.Current.Value, Is.Zero);
+                Assert.That(end.Current.Value, Is.EqualTo(100f));
                 end.Current.Value = 50f;
                 Assert.That(config.Get<float>(TypeBeatRulesetSetting.SyllableFadeInEnd), Is.EqualTo(50f));
                 config.SetValue(TypeBeatRulesetSetting.SyllableFadeInEnd, 1000f);
