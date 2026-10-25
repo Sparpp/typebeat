@@ -344,8 +344,9 @@ namespace typebeat.Game.Screens.Edit
             AddInternal(bookmarkController);
 
             // The timing grid controls (BPM / Offset, grid subdivision, overlay and snap toggles,
-            // metronome, vocals waveform) live in the Timing menu rather than a toolbar row above the
-            // timeline, so the timeline screens get that row's height back.
+            // metronome) live in the Timing menu rather than a toolbar row above the timeline, so the
+            // timeline screens get that row's height back. The vocals waveform toggle is built with
+            // them but shown under View.
             timingMenuItems = new TimingMenuItems(timingSettings, beatDivisor, () => Mode.Value = EditorScreenMode.Timing);
 
             OsuMenuItem undoMenuItem;
@@ -421,6 +422,9 @@ namespace typebeat.Game.Screens.Edit
                                                     },
                                                 ]
                                             },
+                                            // The timeline's waveform as the vocals stem alone (backlog 392): a view,
+                                            // not a timing control, so it lives here rather than under Timing.
+                                            timingMenuItems.VocalsWaveform,
                                             new OsuMenuItemSpacer(),
                                             new BackgroundDimMenuItem(editorBackgroundDim),
                                             new ToggleMenuItem(EditorStrings.ShowStoryboard)

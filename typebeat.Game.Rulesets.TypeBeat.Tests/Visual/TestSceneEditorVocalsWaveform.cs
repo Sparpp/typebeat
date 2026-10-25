@@ -24,7 +24,7 @@ using typebeat.Game.Screens.Edit.Timing;
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 {
     /// <summary>
-    /// The editor's Vocals Waveform toggle in the Timing menu (backlog 392): it must SWAP the compose timeline's
+    /// The editor's Vocals Waveform toggle in the View menu (backlog 392): it must SWAP the compose timeline's
     /// waveform between the full mix and the map's isolated vocals stem, and it must be a VIEW-ONLY
     /// change (the track and the editor clock keep running the full mix). A map with no stem has the
     /// toggle disabled, and one with no stem at all cannot turn the vocals view on.
@@ -74,7 +74,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
         protected TimelineWaveformGraph graph() => Editor.ChildrenOfType<TimelineWaveformGraph>().Single();
 
-        protected ToggleMenuItem toggle() => Editor.TimingToggle(TimingMenuItems.VOCALS_WAVEFORM);
+        protected ToggleMenuItem toggle() => Editor.TimingMenu.VocalsWaveform;
 
         /// <summary>A working beatmap whose stem stream is a real tone, so the stem waveform decodes.</summary>
         private class StemWorkingBeatmap : ClockBackedTestWorkingBeatmap

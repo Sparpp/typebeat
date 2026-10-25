@@ -140,14 +140,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("timing menu lists the grid controls first", () =>
             {
                 var timing = Editor.ChildrenOfType<EditorMenuBar>().Single().Items.Single(i => i.Text.Value.ToString() == "Timing");
-                var labels = timing.Items.Take(7).Select(i => i.Text.Value.ToString()).ToArray();
+                var labels = timing.Items.Take(6).Select(i => i.Text.Value.ToString()).ToArray();
                 return labels[0] == TimingMenuItems.BPM_OFFSET
                        && labels[1].StartsWith(TimingMenuItems.GRID_SUBDIVISION, StringComparison.Ordinal)
                        && labels.Skip(2).SequenceEqual(new[]
                        {
                            TimingMenuItems.OVERLAY_GRID, TimingMenuItems.SNAP_TO_GRID, TimingMenuItems.SNAP_TO_CARET,
-                           TimingMenuItems.METRONOME, TimingMenuItems.VOCALS_WAVEFORM,
-                       });
+                           TimingMenuItems.METRONOME,
+                       })
+                       && timing.Items.All(i => i.Text.Value.ToString() != TimingMenuItems.VOCALS_WAVEFORM);
+            });
+            AddAssert("vocals waveform is under View", () =>
+            {
+                var view = Editor.ChildrenOfType<EditorMenuBar>().Single().Items.Single(i => i.Text.Value.ToString() == "View");
+                return view.Items.Any(i => i == Editor.TimingMenu.VocalsWaveform);
             });
             AddStep("choose half notes", () => Editor.SelectSubdivision(-2));
             AddAssert("subdivision entry names the current note", () =>

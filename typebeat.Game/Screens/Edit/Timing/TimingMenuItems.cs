@@ -12,10 +12,12 @@ namespace typebeat.Game.Screens.Edit.Timing
 {
     /// <summary>
     /// The editor's timing grid controls, as entries of the top bar's Timing menu: BPM / Offset, the
-    /// grid subdivision, and the Overlay Grid, Snap to Grid, Snap to Caret, Metronome and Vocals
-    /// Waveform toggles. They used to be a row of buttons above the timeline on every timeline screen;
-    /// the menu holds the same state (<see cref="EditorTimingSettings"/> and the editor's
-    /// <see cref="BindableBeatDivisor"/>), so every screen still reads them live.
+    /// grid subdivision, and the Overlay Grid, Snap to Grid, Snap to Caret and Metronome toggles. They
+    /// used to be a row of buttons above the timeline on every timeline screen; the menu holds the same
+    /// state (<see cref="EditorTimingSettings"/> and the editor's <see cref="BindableBeatDivisor"/>), so
+    /// every screen still reads them live. The Vocals Waveform toggle is built here too, beside the
+    /// settings it binds, but it is a view of the waveform rather than a timing control, so the editor
+    /// puts it in the View menu (<see cref="VocalsWaveform"/>).
     /// </summary>
     public class TimingMenuItems
     {
@@ -31,8 +33,8 @@ namespace typebeat.Game.Screens.Edit.Timing
         public IReadOnlyList<MenuItem> Items { get; }
 
         /// <summary>
-        /// The Vocals Waveform toggle. It only works for a map that carries a vocals stem (backlog 392);
-        /// see <see cref="SetVocalsStemAvailable"/>.
+        /// The Vocals Waveform toggle, shown in the View menu rather than in <see cref="Items"/>. It only
+        /// works for a map that carries a vocals stem (backlog 392); see <see cref="SetVocalsStemAvailable"/>.
         /// </summary>
         public ToggleMenuItem VocalsWaveform { get; }
 
@@ -78,7 +80,6 @@ namespace typebeat.Game.Screens.Edit.Timing
                 new ToggleMenuItem(SNAP_TO_GRID) { State = { BindTarget = settings.SnapToGrid } },
                 new ToggleMenuItem(SNAP_TO_CARET) { State = { BindTarget = settings.SnapToCaret } },
                 new ToggleMenuItem(METRONOME) { State = { BindTarget = settings.Metronome } },
-                VocalsWaveform,
             };
         }
 
