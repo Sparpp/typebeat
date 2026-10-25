@@ -33,14 +33,8 @@ namespace typebeat.Game.Overlays.Settings.Sections.Gameplay
                 {
                     Keywords = new[] { "hide" },
                 },
-                new SettingsItemV2(new FormCheckBox
-                {
-                    Caption = GameplaySettingsStrings.AlwaysShowKeyOverlay,
-                    Current = config.GetBindable<bool>(OsuSetting.KeyOverlay),
-                })
-                {
-                    Keywords = new[] { "counter" },
-                },
+                // No "Always show key overlay": type!beat's ruleset gives the key counter nothing to
+                // count (TypeBeatInputManager.CountedActions), so the box could change nothing.
                 new SettingsItemV2(new FormCheckBox
                 {
                     Caption = GameplaySettingsStrings.AlwaysShowGameplayLeaderboard,

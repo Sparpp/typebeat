@@ -1,6 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using osu.Framework.Extensions;
@@ -29,12 +30,14 @@ namespace typebeat.Game.Rulesets.TypeBeat
         public IEnumerable<IKeyBinding> CurrentGestureBindings => gestureBindings.CurrentKeyBindings;
 
         /// <summary>
-        /// The gameplay key counter counts INPUT KEYS, so it keeps showing only the two button
-        /// actions. The word-level gestures are editing commands, not keys being played, and they are
-        /// resolved on the raw typing path rather than pressed as actions (see
-        /// <see cref="ResolveGesture"/>), so a counter for them could only ever read zero.
+        /// The gameplay key counter shows NOTHING in type!beat. It is osu!'s per-button tally (it showed
+        /// "B1" and "B2" for the two placeholder button actions, which nothing presses), and a typing
+        /// game has no buttons to count: every key is typed on the raw path, and the word-level
+        /// gestures are resolved there too (see <see cref="ResolveGesture"/>). With no action to
+        /// count, the counter draws nothing in any HUD layout, a saved one included, and during a
+        /// replay or Autoplay, where osu! shows it regardless of the setting.
         /// </summary>
-        protected override IEnumerable<TypeBeatAction> CountedActions => new[] { TypeBeatAction.Button1, TypeBeatAction.Button2 };
+        protected override IEnumerable<TypeBeatAction> CountedActions => Array.Empty<TypeBeatAction>();
 
         /// <summary>
         /// Which TYPING GESTURE (if any) the given key press newly satisfies under the user's

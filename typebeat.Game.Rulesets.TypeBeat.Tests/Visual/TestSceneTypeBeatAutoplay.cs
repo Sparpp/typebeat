@@ -4,6 +4,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
+using osu.Framework.Testing;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
@@ -60,6 +61,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 Line = line,
                 Granularity = TimingGranularity.Line,
             });
+        }
+
+        /// <summary>
+        /// osu!'s key counter shows during any replay, Autoplay included, whatever the setting; a
+        /// typing game has no buttons to count, so the ruleset gives it nothing and it draws nothing.
+        /// </summary>
+        [Test]
+        public void TestNoKeyCounterDuringAutoplay()
+        {
+            AddUntilStep("the HUD is up", () => Player.HUDOverlay.IsLoaded);
+            AddAssert("no key is counted", () => !Player.HUDOverlay.ChildrenOfType<typebeat.Game.Screens.Play.HUD.KeyCounter>().Any());
         }
 
         [Test]
