@@ -595,14 +595,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private const float boundaries_band_height = 26;
 
         /// <summary>
-        /// Horizontal inset matching the shared timeline's right-hand columns (35 zoom buttons
-        /// + 120 controls in TimelineArea), so the band's extents line up with the waveform
-        /// above it and both playheads sit on the same vertical while following playback.
+        /// Horizontal inset matching the shared timeline's right-hand column (the zoom buttons in
+        /// TimelineArea), so the band's extents line up with the waveform above it and both
+        /// playheads sit on the same vertical while following playback.
         /// EditorScreenWithTimeline also declares a 90px outer column, but its grid row has no
         /// cell for it (GridContainer sizes columns from Content), so it never applies and must
         /// NOT be counted here.
         /// </summary>
-        private const float timeline_right_inset = 155;
+        private const float timeline_right_inset = TimelineArea.CONTROLS_WIDTH;
 
         protected override Drawable CreateMainContent() => new Container
         {

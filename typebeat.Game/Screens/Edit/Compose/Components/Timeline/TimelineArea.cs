@@ -29,6 +29,13 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
             userContent = content ?? Empty();
         }
 
+        /// <summary>
+        /// Width of the column right of the waveform, which holds the zoom buttons. osu!'s timeline
+        /// reserved a further 120px column after it for its own controls; type!beat puts nothing there,
+        /// so it was dropped and the waveform runs up to the zoom buttons.
+        /// </summary>
+        public const float CONTROLS_WIDTH = 35;
+
         [BackgroundDependencyLoader]
         private void load(OverlayColourProvider colourProvider, Editor? editor)
         {
@@ -40,7 +47,7 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
                 {
                     Anchor = Anchor.TopRight,
                     Origin = Anchor.TopRight,
-                    Width = 35 + 120f,
+                    Width = CONTROLS_WIDTH,
                     RelativeSizeAxes = Axes.Y,
                     Colour = colourProvider.Background4
                 },
@@ -55,8 +62,7 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
                     ColumnDimensions = new[]
                     {
                         new Dimension(),
-                        new Dimension(GridSizeMode.Absolute, 35),
-                        new Dimension(GridSizeMode.Absolute, 120f),
+                        new Dimension(GridSizeMode.Absolute, CONTROLS_WIDTH),
                     },
                     Content = new[]
                     {
@@ -116,7 +122,6 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
                                     }
                                 }
                             },
-                            Empty()
                         },
                     },
                 }
