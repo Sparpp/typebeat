@@ -46,7 +46,7 @@
     </PackageReference>
     <PackageReference Include="Realm" Version="20.1.0"/>
     <PackageReference Include="ppy.osu.Framework" Version="2026.1004.0"/>
-    <PackageReference Include="typebeat.Game.Resources" Version="2026.718.1"/>
+    <PackageReference Include="typebeat.Game.Resources" Version="2026.1025.0"/>
     <PackageReference Include="Sentry" Version="6.11.0"/>
     <PackageReference Include="SharpCompress" Version="0.50.4"/>
     <!-- Runtime rasterisation of OpenDyslexic / system fonts for the gameplay typing surface.
