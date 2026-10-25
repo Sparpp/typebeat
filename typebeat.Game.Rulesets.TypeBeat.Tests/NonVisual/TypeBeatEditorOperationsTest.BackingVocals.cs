@@ -1,6 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using System.Linq;
 using NUnit.Framework;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
@@ -255,6 +256,53 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(pasted.BackingVocals.All(w => w.StartTime >= pasted.StartTime && w.EndTime <= pasted.EndTime));
 
             assertReloadStable(editorBeatmap);
+        }
+
+        [Test]
+        public void AddWordOnTheBackingTrackAddsABackingWordAtThePlayhead()
+        {
+            var editorBeatmap = createBeatmapWithBacking();
+            var hitObject = lineAt(editorBeatmap, 1);
+            string typed = hitObject.Line.RawText;
+
+            int at = TypeBeatEditorOperations.AddBackingVocal(editorBeatmap, hitObject, 3500);
+
+            Assert.That(hitObject.Line.BackingVocals[at], Is.EqualTo(new BackingVocal(TypeBeatEditorOperations.NEW_WORD_TEXT, 3500, 3500 + TypeBeatEditorOperations.NEW_BACKING_WORD_MS)));
+            Assert.That(hitObject.Line.BackingVocals.Select(w => w.StartTime), Is.Ordered);
+            Assert.That(hitObject.Line.RawText, Is.EqualTo(typed));
+
+            // A playhead outside the line puts it after the last one, held inside the window.
+            double lastEnd = hitObject.Line.BackingVocals[^1].EndTime;
+            at = TypeBeatEditorOperations.AddBackingVocal(editorBeatmap, hitObject, 100);
+            Assert.That(at, Is.EqualTo(hitObject.Line.BackingVocals.Count - 1));
+            Assert.That(hitObject.Line.BackingVocals[at].StartTime, Is.EqualTo(Math.Min(lastEnd, 6000 - BackingVocals.MIN_SPAN_MS)));
+            Assert.That(hitObject.Line.BackingVocals[at].EndTime, Is.LessThanOrEqualTo(6000));
+
+            Assert.That(TypeBeatEditorOperations.AddBackingVocal(editorBeatmap, hitObject, 3500, "two words"), Is.EqualTo(-1));
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        [TestCase("hello (oh oh)", "hello", false, "hello", "oh oh")]
+        [TestCase("hello (oh  (yeah))", "hello", false, "hello", "oh  (yeah)")]
+        [TestCase("hello", "hello", true, "hello", "")]
+        [TestCase("hello (oh)", "hello", true, "hello", "oh")]
+        [TestCase("hello there", "hello", true, "hello there", "")]
+        [TestCase("hello there", "hello", false, "hello there", null)]
+        [TestCase("(whole line)", "x", false, "(whole line)", null)]
+        [TestCase("hey (you) (yeah)", "hey (you)", true, "hey (you)", "yeah")]
+        [TestCase("hey (you)", "hey (you)", false, "hey (you)", null)]
+        [TestCase("hey (they) said", "hey", false, "hey (they) said", null)]
+        public void TheLineListSplitsATrailingBracketIntoBackingVocals(string text, string lineText, bool hadBacking, string main, string? backing)
+            => Assert.That(TypeBeatEditorOperations.SplitBackingSuffix(text, lineText, hadBacking), Is.EqualTo((main, backing)));
+
+        [Test]
+        public void TheLineListShowsBackingVocalsInBracketsOnlyWhenThereAreAny()
+        {
+            var editorBeatmap = createBeatmapWithBacking();
+
+            Assert.That(TypeBeatEditorOperations.BackingSuffix(lineAt(editorBeatmap, 1).Line), Is.EqualTo(" (ooh yeah)"));
+            Assert.That(TypeBeatEditorOperations.BackingSuffix(lineAt(editorBeatmap, 0).Line), Is.Empty);
         }
     }
 }

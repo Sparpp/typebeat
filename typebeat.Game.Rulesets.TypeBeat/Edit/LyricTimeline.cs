@@ -161,18 +161,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                         // The word blocks and their handles live in the MAIN track (the bottom of the
                         // strip, backlog 445), so they shrink with it and leave the top to the backing
                         // vocal lane; the bands, the grid, the line boundaries and the playhead span both.
-                        mainTrack(blockLayer = new Container { RelativeSizeAxes = Axes.Both }),
-                        backingLane(
+                        mainBlockTrack = mainTrack(blockLayer = new Container { RelativeSizeAxes = Axes.Both }),
+                        backingBlockLane = backingLane(
                             backingLaneSeparator(),
                             backingConnectorLayer = new Container { RelativeSizeAxes = Axes.Both },
                             backingBlockLayer = new Container { RelativeSizeAxes = Axes.Both }),
                         new TimingGrid(() => (windowStart, windowStart + windowLength)),
-                        mainTrack(handleLayer = new Container { RelativeSizeAxes = Axes.Both }),
+                        mainHandleTrack = mainTrack(handleLayer = new Container { RelativeSizeAxes = Axes.Both }),
                         boundaryLayer = new Container { RelativeSizeAxes = Axes.Both },
                         // Above the line boundaries: an anchor placed at the very start or end of its
                         // line sits ON a boundary, and must still be the thing a press there grabs (the
                         // boundary stays grabbable along the rest of its height).
-                        backingLane(backingAnchorLayer = new Container { RelativeSizeAxes = Axes.Both }),
+                        backingAnchorLane = backingLane(backingAnchorLayer = new Container { RelativeSizeAxes = Axes.Both }),
                         ghostLayer = new TapGhostLayer(),
                         playhead = new Box
                         {
@@ -305,6 +305,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 pauseRegions[i].UpdateLayout(this);
 
             updateBackingVocalLayout();
+            updateTrackDim();
 
             // A live tap-timing pass has committed nothing yet; its taps show as ghosts on top.
             ghostLayer.UpdateGhosts(state.TapSession?.Taps, positionOf);
@@ -492,6 +493,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             // A plain click that reaches the root landed on empty strip space (word blocks/handles
             // consume their own clicks; a click-drag fires OnDrag, never OnClick).
             SeekToScreenSpace(e.ScreenSpaceMousePosition);
+            selectTrackAt(e.ScreenSpaceMousePosition);
             return true;
         }
 
@@ -587,9 +589,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             protected override bool OnClick(ClickEvent e)
             {
                 // Grey band area = empty space: bring the playhead here (word blocks above consume
-                // their own clicks), and select the line so the detail panel edits it.
+                // their own clicks), and select the line so the detail panel edits it, on the track
+                // the click landed in (backlog 445).
                 strip.SeekToScreenSpace(e.ScreenSpaceMousePosition);
                 state.SelectedLine.Value = hitObject;
+                strip.selectTrackAt(e.ScreenSpaceMousePosition);
                 return true;
             }
         }

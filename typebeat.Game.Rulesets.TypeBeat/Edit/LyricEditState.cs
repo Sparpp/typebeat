@@ -182,7 +182,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             SelectedUnitIndices.Clear();
 
             if (index >= 0)
+            {
                 SelectedUnitIndices.Add(index);
+                SelectMainTrack();
+            }
 
             SelectedUnitIndex.Value = index;
         }
@@ -191,6 +194,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         public void SelectAllUnits(int unitCount)
         {
             SelectedUnitIndices.Clear();
+            SelectMainTrack();
 
             for (int i = 0; i < unitCount; i++)
                 SelectedUnitIndices.Add(i);
@@ -204,6 +208,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (index < 0)
                 return;
 
+            SelectMainTrack();
+
             if (!SelectedUnitIndices.Add(index))
                 SelectedUnitIndices.Remove(index);
 
@@ -216,6 +222,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         public void SelectUnitRange(int anchor, int index)
         {
             SelectedUnitIndices.Clear();
+            SelectMainTrack();
 
             int lo = System.Math.Min(anchor, index);
             int hi = System.Math.Max(anchor, index);
@@ -278,6 +285,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         public void ResetUnitSelectionFor(TypeBeatHitObject? active)
         {
             ClearUnitSelection();
+            resetBackingSelectionFor(active);
 
             if (pendingUnit is (TypeBeatHitObject line, int index) && line == active && index >= 0 && index < line.Line.Units.Count)
                 SelectUnit(index);

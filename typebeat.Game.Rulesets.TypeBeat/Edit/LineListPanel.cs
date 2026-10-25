@@ -567,7 +567,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     return;
                 }
 
-                if (!TypeBeatEditorOperations.SetLineText(editorBeatmap, HitObject, textBox.Text))
+                // The row shows the line's BACKING VOCALS in round brackets after its text (backlog 445),
+                // so a trailing bracketed group is edited back into them rather than into the lyric.
+                string lineText = TypeBeatEditorOperations.PipeDisplayText(HitObject.Line, TypeBeatEditorOperations.OriginalSubdivisionLanguage(editorBeatmap, HitObject.Line));
+                var (main, backing) = TypeBeatEditorOperations.SplitBackingSuffix(textBox.Text, lineText, HitObject.Line.BackingVocals.Count > 0);
+
+                editorBeatmap.BeginChange();
+                bool committed = main == lineText || TypeBeatEditorOperations.SetLineText(editorBeatmap, HitObject, main);
+
+                if (committed && backing != null)
+                    TypeBeatEditorOperations.SetBackingVocalText(editorBeatmap, HitObject, backing);
+
+                editorBeatmap.EndChange();
+
+                if (!committed)
                 {
                     // Normalized to empty; refuse and flash (delete the line instead). The pipe form
                     // while the box still has focus; at rest, Update puts the rest view back.
@@ -579,7 +592,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             private string committedText() => state.ShowOriginalLyrics.Value
                 ? TypeBeatEditorOperations.OriginalPipeDisplayText(HitObject.Line, TypeBeatEditorOperations.OriginalSubdivisionLanguage(editorBeatmap, HitObject.Line))
                     ?? TypeBeatEditorOperations.PipeDisplayText(HitObject.Line, TypeBeatEditorOperations.OriginalSubdivisionLanguage(editorBeatmap, HitObject.Line))
-                : TypeBeatEditorOperations.PipeDisplayText(HitObject.Line, TypeBeatEditorOperations.OriginalSubdivisionLanguage(editorBeatmap, HitObject.Line));
+                : TypeBeatEditorOperations.PipeDisplayText(HitObject.Line, TypeBeatEditorOperations.OriginalSubdivisionLanguage(editorBeatmap, HitObject.Line))
+                  + TypeBeatEditorOperations.BackingSuffix(HitObject.Line);
 
             /// <summary>Commits a focused edit before the view button changes the row's text.</summary>
             public void CommitPendingText()
@@ -630,7 +644,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     string romanized = TypeBeatEditorOperations.PipeDisplayText(line, language);
                     string? original = TypeBeatEditorOperations.OriginalPipeDisplayText(line, language);
                     bool originalView = showOriginal && original != null;
-                    display = originalView ? original! : romanized;
+                    // The backing vocals ride after the lyric in brackets in the romanised view (backlog
+                    // 445), where they are also edited; a line without any shows no brackets at all.
+                    display = originalView ? original! : showOriginal ? romanized : romanized + TypeBeatEditorOperations.BackingSuffix(line);
                     caption = originalView ? $"Romanized: {romanized}" : captionFor(line);
 
                     // At rest the box spells the words as gameplay does and marks each split with

@@ -28,9 +28,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// then the interactive fine-timing surface (<see cref="LyricTimeline"/>), and WORD-level
     /// actions on the bottom (add word, remove word, subdivide, unsubdivide, insert pause) right
     /// beside the word blocks they act on. A line with an ORIGINAL text (backlog 330) also gets the
-    /// two-row word editor (<see cref="WordScriptEditor"/>) between the readouts and the strip. The
-    /// line's BACKING VOCALS (backlog 445) are typed at the end of the line row
-    /// (<see cref="BackingVocalField"/>) and placed on the strip's backing lane.
+    /// two-row word editor (<see cref="WordScriptEditor"/>) between the readouts and the strip.
+    /// The word actions address the TRACK picked on the strip (backlog 445): on the backing track
+    /// "add word" and "remove word" add and remove backing vocals, and the subdivision and pause
+    /// actions, which only a typed word has, grey out.
     /// </summary>
     public partial class ActiveLineDetailPanel : CompositeDrawable
     {
@@ -123,10 +124,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     {
                         // Sandwich: LINE-level actions on top, then the readouts, then the
                         // fine-timing word strip, and WORD-level actions on the bottom (so the
-                        // word buttons sit right under the word blocks they act on). The line row
-                        // is sized by its content: one 30px row, or two when it is too narrow for
-                        // the backing vocal field beside the buttons (an open line list insets it).
-                        new Dimension(GridSizeMode.AutoSize),
+                        // word buttons sit right under the word blocks they act on).
+                        new Dimension(GridSizeMode.Absolute, 30),
                         new Dimension(GridSizeMode.Absolute, 52),
                         // The two-row word editor for the original text (backlog 330): no room at all
                         // on a line without one.
@@ -142,7 +141,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                             // the button was dropped to declutter the row.
                             // Copy/paste timing stays on the standard ^C/^V hotkeys
                             // (LyricComposeScreen.Copy/Paste); the buttons were dropped.
-                            inset(actionRow("line", new Drawable[]
+                            inset(actionRow("line", new[]
                             {
                                 // Named for what they make; WHERE is in the tooltip (the playhead, the
                                 // selected word), since the "@" labels read as jargon (backlog 336).
@@ -151,11 +150,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                 actionButton("merge next (M)", mergeNext, line_button_width),
                                 actionButton("Quantize (Q)", QuantizeSelectedWords, line_button_width, "Snap selected words to the current timing grid"),
                                 actionButton("delete line", deleteLine, line_button_width),
-                                // The line's backing vocals (backlog 445): a line-level text, so it
-                                // shares the line row rather than taking a row of the strip's height,
-                                // wrapping under the buttons only when the row is too narrow for it.
-                                new BackingVocalField(),
-                            }, wrap: true), autoSizeY: true),
+                            })),
                         },
                         new Drawable[]
                         {
@@ -258,9 +253,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>Width of the four LINE action buttons (see the note where they are built).</summary>
         private const float line_button_width = 100;
 
-        /// <summary>The height of one line of an action row, its buttons' own.</summary>
-        private const float action_row_height = 30;
-
         private static RoundedButton actionButton(string text, System.Action action, float width = 108, string? tooltip = null, bool inertWhenDisabled = false)
         {
             RoundedButton button = inertWhenDisabled ? new InertWhenDisabledButton() : new RoundedButton();
@@ -293,25 +285,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         /// <summary>
         /// One categorised action row: a small caption ("line" / "word") then its buttons, flowing
-        /// from the left. Editing modes live in the shared timing toolbar. A WRAPPING row sizes itself
-        /// by its content and moves whatever does not fit onto a second line, so its children are
-        /// given a fixed height rather than the row's.
+        /// from the left. Editing modes live in the shared timing toolbar.
         /// </summary>
-        private static Drawable actionRow(string category, Drawable[] buttons, bool wrap = false)
+        private static Drawable actionRow(string category, Drawable[] buttons)
         {
             var row = new FillFlowContainer
             {
-                RelativeSizeAxes = wrap ? Axes.X : Axes.Both,
-                AutoSizeAxes = wrap ? Axes.Y : Axes.None,
-                Direction = wrap ? FillDirection.Full : FillDirection.Horizontal,
-                Spacing = new Vector2(6, wrap ? 6 : 0),
+                RelativeSizeAxes = Axes.Both,
+                Direction = FillDirection.Horizontal,
+                Spacing = new Vector2(6, 0),
             };
 
             row.Add(new Container
             {
                 Width = 36,
-                RelativeSizeAxes = wrap ? Axes.None : Axes.Y,
-                Height = wrap ? action_row_height : 1,
+                RelativeSizeAxes = Axes.Y,
                 Child = new OsuSpriteText
                 {
                     Anchor = Anchor.CentreLeft,
@@ -354,11 +342,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             // "remove word" additionally needs a removal target (a whole-line selection is refused).
             bool wordSelected = editable && line != null && selectedWords(line).Length > 0;
 
+            // On the BACKING track (backlog 445) "remove word" needs a backing word to remove (the
+            // selected one, else the last), and the typed-word actions have nothing to act on.
+            bool backing = state.BackingTrackSelected;
+
             addWordButton.Enabled.Value = editable;
-            removeWordButton.Enabled.Value = wordSelected && line != null && removalTargets(line).Length > 0;
-            subdivideButton.Enabled.Value = wordSelected;
-            unsubdivideButton.Enabled.Value = wordSelected;
-            insertPauseButton.Enabled.Value = wordSelected;
+            removeWordButton.Enabled.Value = backing
+                ? editable && line != null && line.Line.BackingVocals.Count > 0
+                : wordSelected && line != null && removalTargets(line).Length > 0;
+            subdivideButton.Enabled.Value = wordSelected && !backing;
+            unsubdivideButton.Enabled.Value = wordSelected && !backing;
+            insertPauseButton.Enabled.Value = wordSelected && !backing;
 
             if (line == null || !live)
             {
@@ -449,6 +443,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (state.ActiveLine.Value is not TypeBeatHitObject line)
                 return;
 
+            // The backing track: a backing word at the playhead (after the last one when the playhead
+            // is outside the line), selected so its block lights up where it landed.
+            if (state.BackingTrackSelected)
+            {
+                int added = TypeBeatEditorOperations.AddBackingVocal(editorBeatmap, line, gridTime);
+
+                if (added >= 0)
+                    state.SelectBackingWord(added);
+
+                return;
+            }
+
             // Inserted after the PRIMARY selected word (the anchor of any multi-selection);
             // nothing selected appends at the line's end.
             int after = state.SelectedUnitIndex.Value;
@@ -463,6 +469,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (state.ActiveLine.Value is not TypeBeatHitObject line)
                 return;
 
+            if (state.BackingTrackSelected)
+            {
+                RemoveSelectedBackingVocal(line);
+                return;
+            }
+
             int[] targets = removalTargets(line);
 
             if (targets.Length == 0)
@@ -475,6 +487,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             // Keep the focus where the deletion happened: whatever shifted into the lowest removed
             // slot, clamped to the line's new end.
             state.SelectUnit(System.Math.Min(targets[0], line.Line.Units.Count - 1));
+        }
+
+        /// <summary>
+        /// Removes the selected backing word of <paramref name="line"/>, else its last one, keeping the
+        /// selection on whatever took its place. Shared with the Delete key on the backing track.
+        /// </summary>
+        public bool RemoveSelectedBackingVocal(TypeBeatHitObject line)
+        {
+            int count = line.Line.BackingVocals.Count;
+
+            if (count == 0 || state.TapSession != null)
+                return false;
+
+            int selected = state.SelectedBackingIndex.Value;
+            int target = selected >= 0 && selected < count ? selected : count - 1;
+
+            TypeBeatEditorOperations.RemoveBackingVocal(editorBeatmap, line, target);
+
+            if (line.Line.BackingVocals.Count > 0)
+                state.SelectBackingWord(System.Math.Min(target, line.Line.BackingVocals.Count - 1));
+            else
+                state.SelectBackingTrack();
+
+            return true;
         }
 
         private void subdivideSelectedWords()

@@ -197,40 +197,125 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         [Test]
-        public void TestTheBackingFieldTypesBackingVocalsIn()
+        public void TestClickingATrackPicksItAndDimsTheOther()
         {
-            AddUntilStep("strip built", () => Editor.ChildrenOfType<LyricTimeline>().SingleOrDefault()?.IsLoaded == true);
-            AddStep("select line 2", () => state().SelectedLine.Value = lineAt(1));
-            AddUntilStep("the field shows its (empty) backing vocals", () => Editor.ChildrenOfType<BackingVocalField>().Single().Text == string.Empty);
+            showLineOne();
 
-            // The line list is open by default and insets the line row by its width, so on a narrow
-            // window the field has to fit in what is left rather than run off the panel.
-            AddUntilStep("the field fits inside the panel beside an open line list", () =>
-                Editor.ChildrenOfType<BackingVocalField>().Single().ScreenSpaceDrawQuad.TopRight.X
-                <= Editor.ChildrenOfType<ActiveLineDetailPanel>().Single().ScreenSpaceDrawQuad.TopRight.X + 0.5f);
-            AddAssert("on a line of its own under the buttons", () => Editor.ChildrenOfType<BackingVocalField>().Single().X == 0);
-            AddAssert("the box is one button tall", () => Math.Abs(Editor.ChildrenOfType<BackingVocalField>().Single().TextBox.DrawHeight - 30) < 0.5f);
+            AddAssert("the main track is picked to begin with, the lane dimmed", () =>
+                !state().BackingTrackSelected && strip().MainTrackAlpha == 1 && strip().BackingLaneAlpha == LyricTimeline.UNSELECTED_TRACK_ALPHA);
 
-            AddStep("collapse the line list", () => Editor.ChildrenOfType<LyricComposeScreen>().Single().LineListSidebar.Expanded.Value = false);
-            AddUntilStep("with the room back, it rejoins the buttons", () => Editor.ChildrenOfType<BackingVocalField>().Single().X > 0
-                                                                          && Editor.ChildrenOfType<BackingVocalField>().Single().ScreenSpaceDrawQuad.TopRight.X
-                                                                          <= Editor.ChildrenOfType<ActiveLineDetailPanel>().Single().ScreenSpaceDrawQuad.TopRight.X + 0.5f);
+            AddStep("click the empty backing lane", () => InputManager.MoveMouseTo(laneSpaceAt(1500)));
+            AddStep("click", () => InputManager.Click(MouseButton.Left));
 
-            AddStep("click the field", () =>
+            AddUntilStep("the backing track is picked", () => state().BackingTrackSelected && state().SelectedBackingIndex.Value == -1);
+            AddUntilStep("and the main track is the dimmed one", () =>
+                strip().BackingLaneAlpha == 1 && strip().MainTrackAlpha == LyricTimeline.UNSELECTED_TRACK_ALPHA);
+            AddAssert("the typed-word actions grey out", () => !panelButton("subdivide (D)").Enabled.Value && !panelButton("insert pause (P)").Enabled.Value);
+
+            AddStep("click a backing block", () =>
             {
-                InputManager.MoveMouseTo(Editor.ChildrenOfType<BackingVocalField>().Single().TextBox);
+                InputManager.MoveMouseTo(strip().BackingBlockOf(lineAt(0), 1));
                 InputManager.Click(MouseButton.Left);
             });
-            AddStep("type two words", () => Editor.ChildrenOfType<BackingVocalField>().Single().TextBox.Text = "hey  ho");
-            AddStep("press enter", () => InputManager.Key(Key.Enter));
+            AddUntilStep("that backing word is selected", () => state().SelectedBackingIndex.Value == 1);
 
-            AddUntilStep("line 2 has them", () => lineAt(1).Line.BackingVocals.Select(w => w.Text).SequenceEqual(new[] { "hey", "ho" }));
-            AddAssert("the typed line is untouched", () => lineAt(1).Line.RawText == "down" && lineAt(1).Line.Units.Count == 1);
-            AddUntilStep("the strip draws them", () => strip().BackingBlockCount(lineAt(1)) == 2);
-            AddUntilStep("the field shows them as stored", () => Editor.ChildrenOfType<BackingVocalField>().Single().Text == "hey ho");
+            AddStep("click a word block", () =>
+            {
+                InputManager.MoveMouseTo(strip().WordBlockOf(lineAt(0), 2));
+                InputManager.Click(MouseButton.Left);
+            });
+            AddUntilStep("back on the main track", () => !state().BackingTrackSelected && state().SelectedUnitIndex.Value == 2 && state().SelectedBackingIndex.Value == -1);
+            AddUntilStep("with the lane dimmed again", () => strip().BackingLaneAlpha == LyricTimeline.UNSELECTED_TRACK_ALPHA);
+        }
 
-            AddStep("select line 1", () => state().SelectedLine.Value = lineAt(0));
-            AddUntilStep("the field follows the line", () => Editor.ChildrenOfType<BackingVocalField>().Single().Text == "down down");
+        [Test]
+        public void TestAddWordAndRemoveWordWorkOnThePickedTrack()
+        {
+            int words = 0;
+
+            showLineOne();
+            AddStep("remember the typed words", () => words = lineAt(0).Line.Units.Count);
+
+            AddStep("pick the backing lane at 1500", () =>
+            {
+                InputManager.MoveMouseTo(laneSpaceAt(1500));
+                InputManager.Click(MouseButton.Left);
+            });
+            AddUntilStep("backing track picked", () => state().BackingTrackSelected);
+
+            AddStep("add word", () => clickPanelButton("add word"));
+            AddUntilStep("a backing word lands at the playhead", () => lineAt(0).Line.BackingVocals.Count == 3
+                                                                 && lineAt(0).Line.BackingVocals[0].Text == TypeBeatEditorOperations.NEW_WORD_TEXT
+                                                                 && Math.Abs(lineAt(0).Line.BackingVocals[0].StartTime - EditorClock.CurrentTime) < 1);
+            AddAssert("selected, and no typed word was added", () => state().SelectedBackingIndex.Value == 0 && lineAt(0).Line.Units.Count == words);
+            AddUntilStep("the strip draws it", () => strip().BackingBlockCount(lineAt(0)) == 3);
+
+            AddStep("remove word", () => clickPanelButton("remove word"));
+            AddUntilStep("the selected backing word goes", () => lineAt(0).Line.BackingVocals.Select(w => w.Text).SequenceEqual(new[] { "down", "down" }));
+            AddAssert("still no typed word touched", () => lineAt(0).Line.Units.Count == words);
+
+            AddStep("select the second backing word and press Delete", () =>
+            {
+                state().SelectBackingWord(1);
+                InputManager.Key(Key.Delete);
+            });
+            AddUntilStep("Delete removes it", () => lineAt(0).Line.BackingVocals.Count == 1);
+            AddAssert("the line is still there", () => TypeBeatEditorOperations.OrderedLines(EditorBeatmap).Count == 2);
+        }
+
+        [Test]
+        public void TestTheLineListShowsAndEditsBackingVocalsInBrackets()
+        {
+            AddUntilStep("strip built", () => Editor.ChildrenOfType<LyricTimeline>().SingleOrDefault()?.IsLoaded == true);
+
+            AddUntilStep("a line with backing vocals ends with them in brackets", () => row(0).TextBox.Text == "i wanna let my hair (down down)");
+            AddUntilStep("a line without any shows no brackets", () => row(1).TextBox.Text == "down");
+
+            AddStep("click into line 2's text", () =>
+            {
+                InputManager.MoveMouseTo(row(1).TextBox);
+                InputManager.Click(MouseButton.Left);
+            });
+            AddUntilStep("focused", () => row(1).TextBox.HasFocus);
+            AddStep("type backing vocals after it", () => row(1).TextBox.Text = "down (hey  ho)");
+            AddStep("commit", () => InputManager.Key(Key.Enter));
+
+            AddUntilStep("they are line 2's backing vocals", () => lineAt(1).Line.BackingVocals.Select(w => w.Text).SequenceEqual(new[] { "hey", "ho" }));
+            AddAssert("and the typed line is untouched", () => lineAt(1).Line.RawText == "down" && lineAt(1).Line.Units.Count == 1);
+            AddUntilStep("the row shows them as stored", () => row(1).TextBox.Text == "down (hey ho)");
+
+            AddStep("click into line 1's text", () =>
+            {
+                InputManager.MoveMouseTo(row(0).TextBox);
+                InputManager.Click(MouseButton.Left);
+            });
+            AddUntilStep("focused", () => row(0).TextBox.HasFocus);
+            AddStep("retype the lyric and drop the brackets", () => row(0).TextBox.Text = "i wanna let my hair loose");
+            AddStep("commit", () => InputManager.Key(Key.Enter));
+
+            AddUntilStep("the lyric took the edit", () => lineAt(0).Line.RawText == "i wanna let my hair loose");
+            AddAssert("and its backing vocals are gone", () => lineAt(0).Line.BackingVocals.Count == 0);
+            AddUntilStep("so are the brackets", () => row(0).TextBox.Text == "i wanna let my hair loose");
+        }
+
+        private LineListPanel.LineRow row(int index) => Editor.ChildrenOfType<LineListPanel.LineRow>().Single(r => r.HitObject == lineAt(index));
+
+        private typebeat.Game.Graphics.UserInterfaceV2.RoundedButton panelButton(string text)
+            => Editor.ChildrenOfType<ActiveLineDetailPanel>().Single()
+                     .ChildrenOfType<typebeat.Game.Graphics.UserInterfaceV2.RoundedButton>().Single(b => b.Text.ToString() == text);
+
+        private void clickPanelButton(string text)
+        {
+            InputManager.MoveMouseTo(panelButton(text));
+            InputManager.Click(MouseButton.Left);
+        }
+
+        /// <summary>A screen-space point in the backing lane's empty space at <paramref name="time"/>: below the blocks, above the anchors.</summary>
+        private Vector2 laneSpaceAt(double time)
+        {
+            var quad = strip().ScreenSpaceDrawQuad;
+            float x = strip().ToScreenSpace(new Vector2(strip().PositionOf(time), 0)).X;
+            return new Vector2(x, quad.TopLeft.Y + quad.Height * 0.24f);
         }
     }
 }

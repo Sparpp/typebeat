@@ -117,6 +117,49 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             replaceBacking(editorBeatmap, hitObject, index, line.BackingVocals[index] with { Anchor = anchor is double a ? BackingVocals.RoundAnchor(a) : null });
         }
 
+        /// <summary>How long a backing word added by "add word" is, where its line has the room.</summary>
+        public const double NEW_BACKING_WORD_MS = 400;
+
+        /// <summary>
+        /// "add word" on the backing track: a new backing word (<see cref="NEW_WORD_TEXT"/>, renamed in
+        /// the line's text like any new word) starting at <paramref name="time"/> when that falls inside
+        /// the line, else right after the line's last backing word (at its start for the first one),
+        /// <see cref="NEW_BACKING_WORD_MS"/> long where the line has the room. Returns the new word's
+        /// index in the line's (start-ordered) backing words, or -1 when nothing was added.
+        /// </summary>
+        public static int AddBackingVocal(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, double time, string text = NEW_WORD_TEXT)
+        {
+            var line = hitObject.Line;
+            string clean = BackingVocals.CleanText(text);
+
+            if (clean.Length == 0 || clean.Contains(' ') || line.EndTime <= line.StartTime)
+                return -1;
+
+            var words = line.BackingVocals;
+            double start = time >= line.StartTime && time < line.EndTime
+                ? time
+                : words.Count > 0 ? words[^1].EndTime : line.StartTime;
+
+            start = Math.Clamp(start, line.StartTime, Math.Max(line.StartTime, line.EndTime - BackingVocals.MIN_SPAN_MS));
+            double end = Math.Min(line.EndTime, start + NEW_BACKING_WORD_MS);
+
+            // Placed AFTER any word that starts at the same moment (Fit's ordering is stable), so it
+            // is the last of them, and found there again by its start.
+            var fitted = BackingVocals.Fit(words.Append(new BackingVocal(clean, start, end)).ToArray(), line.StartTime, line.EndTime);
+            int index = -1;
+
+            for (int i = 0; i < fitted.Count; i++)
+            {
+                if (fitted[i].StartTime == start && fitted[i].Text == clean)
+                    index = i;
+            }
+
+            editorBeatmap.BeginChange();
+            setLine(editorBeatmap, hitObject, withBacking(line, fitted));
+            editorBeatmap.EndChange();
+            return index;
+        }
+
         /// <summary>Removes backing word <paramref name="index"/>.</summary>
         public static void RemoveBackingVocal(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int index)
         {
@@ -132,6 +175,56 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         /// <summary>The backing vocals of a line as the text the editor's backing field shows: the words joined by single spaces.</summary>
         public static string BackingVocalText(LyricLine line) => string.Join(' ', line.BackingVocals.Select(w => w.Text));
+
+        /// <summary>
+        /// How the line list shows a line's backing vocals: in round brackets after its text
+        /// (" (yeah yeah)"), or nothing at all for a line without any.
+        /// </summary>
+        public static string BackingSuffix(LyricLine line) => line.BackingVocals.Count == 0 ? string.Empty : $" ({BackingVocalText(line)})";
+
+        /// <summary>
+        /// Splits a line row's edited text back into the line's own text and its backing vocals: a
+        /// trailing round-bracketed group is the backing text (an import's convention, so typing
+        /// "(oh oh)" after a line gives it backing vocals). Backing is null when the edit says nothing
+        /// about them, and empty when it removed them (the line had some and no group is left).
+        ///
+        /// <para>A bracket is also a literal lyric mark (backlog 255), so a line whose own text ends in
+        /// one and has no backing vocals keeps that group as its text; and a group with nothing in
+        /// front of it is the line itself, not a backing part.</para>
+        /// </summary>
+        /// <param name="text">The row's committed text.</param>
+        /// <param name="lineText">The line's own text as the row shows it (its pipe form), without the backing suffix.</param>
+        /// <param name="lineHasBacking">Whether the line has backing vocals now (so the row showed them).</param>
+        public static (string Main, string? Backing) SplitBackingSuffix(string text, string lineText, bool lineHasBacking)
+        {
+            string trimmed = text.TrimEnd();
+            string? unchanged = lineHasBacking ? string.Empty : null;
+
+            if (trimmed == lineText.TrimEnd() || !trimmed.EndsWith(')'))
+                return (text, unchanged);
+
+            int depth = 0;
+            int open = -1;
+
+            for (int i = trimmed.Length - 1; i >= 0; i--)
+            {
+                if (trimmed[i] == ')')
+                    depth++;
+                else if (trimmed[i] == '(' && --depth == 0)
+                {
+                    open = i;
+                    break;
+                }
+            }
+
+            if (open <= 0 || trimmed[..open].Trim().Length == 0)
+                return (text, unchanged);
+
+            if (!lineHasBacking && lineText.TrimEnd().EndsWith(')'))
+                return (text, null);
+
+            return (trimmed[..open].TrimEnd(), trimmed[(open + 1)..^1]);
+        }
 
         /// <summary>Where backing word <paramref name="index"/> may start: inside the line, and between its neighbours' starts.</summary>
         private static (double Floor, double Ceiling) backingStartRange(LyricLine line, int index)

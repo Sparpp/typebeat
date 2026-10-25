@@ -897,6 +897,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             var active = state.ActiveLine.Value;
 
+            // A selected BACKING word (backlog 445) goes the way "remove word" takes it on that track.
+            if (state.MultiSelectedLines.Count < 2 && active != null && state.BackingTrackSelected && state.SelectedBackingIndex.Value >= 0)
+                return detailPanel.RemoveSelectedBackingVocal(active);
+
             if (state.MultiSelectedLines.Count < 2 && active != null)
             {
                 int words = TypeBeatEditorOperations.WordCount(active.Line);

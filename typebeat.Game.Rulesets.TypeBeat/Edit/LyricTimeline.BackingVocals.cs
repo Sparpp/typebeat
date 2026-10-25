@@ -35,6 +35,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// here against the line's band (the band's left edge is the lyric's left end). Anchors spread
     /// evenly across the line until one is dragged (<see cref="BackingVocals.DefaultAnchor"/>), and
     /// double-clicking one puts it back. Display data only: nothing here changes what is typed.</para>
+    ///
+    /// <para>The two tracks are SELECTED like a word is (<see cref="LyricEditState.SelectedTrack"/>):
+    /// a click in a track, on a block, an anchor or its empty space, picks it for the word actions
+    /// ("add word" adds a backing word on the backing track), and the other track is drawn dimmed.
+    /// A backing word's text is edited in the line list, in brackets after the line's own.</para>
     /// </summary>
     public partial class LyricTimeline
     {
@@ -55,6 +60,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         // The anchor dot's radius: the dotted line stops at the dot rather than running into it.
         private const float backing_anchor_radius = 5;
+
+        /// <summary>How opaque the track the word actions are NOT addressing is drawn (see <see cref="LyricEditState.SelectedTrack"/>).</summary>
+        public const float UNSELECTED_TRACK_ALPHA = 0.35f;
+
+        private readonly Container mainBlockTrack;
+        private readonly Container mainHandleTrack;
+        private readonly Container backingBlockLane;
+        private readonly Container backingAnchorLane;
 
         private readonly Container backingConnectorLayer;
         private readonly Container backingBlockLayer;
@@ -126,6 +139,44 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             for (int i = 0; i < backingConnectors.Count; i++)
                 backingConnectors[i].UpdateLayout(this, laneHeight);
         }
+
+        /// <summary>
+        /// Dims whichever track the word actions are not addressing (backlog 445). Still clickable:
+        /// a press in the dimmed track is what picks it.
+        /// </summary>
+        private void updateTrackDim()
+        {
+            bool backing = state.BackingTrackSelected;
+            float main = backing ? UNSELECTED_TRACK_ALPHA : 1;
+            float lane = backing ? 1 : UNSELECTED_TRACK_ALPHA;
+
+            mainBlockTrack.Alpha = mainHandleTrack.Alpha = main;
+            backingBlockLane.Alpha = backingAnchorLane.Alpha = lane;
+        }
+
+        /// <summary>Picks the track a click on empty strip space landed in: the backing lane at the top, the main track below it.</summary>
+        private void selectTrackAt(Vector2 screenSpacePosition)
+        {
+            if (ToLocalSpace(screenSpacePosition).Y < DrawHeight * BACKING_LANE_HEIGHT)
+                state.SelectBackingTrack();
+            else
+                state.SelectMainTrack();
+        }
+
+        /// <summary>Selects backing word <paramref name="index"/> of <paramref name="hitObject"/>'s line, making that line active first when it is not.</summary>
+        private void selectBackingWord(TypeBeatHitObject hitObject, int index)
+        {
+            if (state.ActiveLine.Value != hitObject)
+                state.SelectLineAtBackingWord(hitObject, index);
+            else
+                state.SelectBackingWord(index);
+        }
+
+        /// <summary>How opaque the strip draws the main track's word blocks right now (test support).</summary>
+        internal float MainTrackAlpha => mainBlockTrack.Alpha;
+
+        /// <summary>How opaque the strip draws the backing lane right now (test support).</summary>
+        internal float BackingLaneAlpha => backingBlockLane.Alpha;
 
         private static T addTo<T>(List<T> list, T drawable)
         {
@@ -267,8 +318,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 label.MaxWidth = Math.Max(1, width - 6);
                 label.Alpha = width < 14 ? 0 : 1;
 
-                BorderColour = dragging || IsHovered ? TypeBeatStyle.Caret : TypeBeatStyle.TypedChar.Opacity(active ? 0.7f : 0.45f);
-                body.Alpha = dragging ? 0.3f : 0.16f;
+                bool selected = active && state.BackingTrackSelected && state.SelectedBackingIndex.Value == Index;
+
+                BorderColour = selected || dragging || IsHovered ? TypeBeatStyle.Caret : TypeBeatStyle.TypedChar.Opacity(active ? 0.7f : 0.45f);
+                body.Colour = selected ? TypeBeatStyle.Caret : TypeBeatStyle.TypedChar;
+                body.Alpha = selected ? 0.4f : dragging ? 0.3f : 0.16f;
             }
 
             private Grab grabAt(float localX)
@@ -299,9 +353,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             protected override bool OnClick(ClickEvent e)
             {
-                if (state.ActiveLine.Value != HitObject)
-                    state.SelectedLine.Value = HitObject;
-
+                strip.selectBackingWord(HitObject, Index);
                 return true;
             }
 
@@ -320,8 +372,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 grabEnd = current.EndTime;
                 grabTime = strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMouseDownPosition).X);
 
-                if (state.ActiveLine.Value != HitObject)
-                    state.SelectedLine.Value = HitObject;
+                strip.selectBackingWord(HitObject, Index);
 
                 dragging = true;
                 state.BeginInteraction();
@@ -458,9 +509,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             protected override bool OnClick(ClickEvent e)
             {
-                if (state.ActiveLine.Value != HitObject)
-                    state.SelectedLine.Value = HitObject;
-
+                strip.selectBackingWord(HitObject, Index);
                 return true;
             }
 
@@ -475,8 +524,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 if (Index >= HitObject.Line.BackingVocals.Count)
                     return false;
 
-                if (state.ActiveLine.Value != HitObject)
-                    state.SelectedLine.Value = HitObject;
+                strip.selectBackingWord(HitObject, Index);
 
                 // Grabbed off-centre, the dot keeps that offset rather than jumping to the cursor.
                 grabOffset = strip.ToLocalSpace(e.ScreenSpaceMouseDownPosition).X - strip.backingAnchorX(HitObject.Line, Index);
