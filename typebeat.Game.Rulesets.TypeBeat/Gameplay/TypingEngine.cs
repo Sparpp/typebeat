@@ -196,6 +196,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public bool Polyglot { get; }
 
+        /// <summary>
+        /// Shorthand mod: only word and syllable onsets are typed (see <see cref="TypingLine.ForMods"/>).
+        /// Every space is completed, so a pressed space is inert.
+        /// </summary>
+        public bool Shorthand { get; }
+
         public event Action<CharJudgement>? CharJudged;
         public event Action<int>? LineActivated;
         public event Action<LineSealResult>? LineSealed;
@@ -451,7 +457,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         // cells (PolyglotLine.Derive). A CELL LIST era, so it is fixed here at construction rather
         // than applied from the header; both factories read it off the hit objects the nested
         // scoring objects were built from (TypeBeatHitObject.LegacyJapaneseSpaces).
-        public TypingEngine(LyricBeatmap beatmap, bool literate = false, bool polyglot = false, string? polyglotLanguage = null, bool legacyJapaneseSpaces = false)
+        public TypingEngine(LyricBeatmap beatmap, bool literate = false, bool polyglot = false, string? polyglotLanguage = null, bool legacyJapaneseSpaces = false, bool shorthand = false)
         {
             Beatmap = beatmap ?? throw new ArgumentNullException(nameof(beatmap));
 
@@ -464,13 +470,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             Literate = literate;
             CaseSensitive = literate;
             Polyglot = polyglot;
+            Shorthand = shorthand;
             UsesJapaneseRomaji = polyglot && JapaneseReading.IsJapanese(polyglotLanguage);
             JapaneseRomajiInput = UsesJapaneseRomaji;
 
             lines = new List<TypingLine>(beatmap.Lines.Count);
 
             foreach (var line in beatmap.Lines)
-                lines.Add(TypingLine.ForMods(line, literate, polyglot, polyglotLanguage, japaneseCharacterTiming: true, legacyJapaneseSpaces: legacyJapaneseSpaces));
+                lines.Add(TypingLine.ForMods(line, literate, polyglot, polyglotLanguage, japaneseCharacterTiming: true, legacyJapaneseSpaces: legacyJapaneseSpaces, shorthand: shorthand));
 
             lineSealed = new bool[lines.Count];
             lineAbandoned = new bool[lines.Count];
@@ -482,6 +489,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             foreach (JudgementType type in Enum.GetValues<JudgementType>())
                 counts[type] = 0;
+
+            resetHolds();
 
             countable = new CountableStream(lines);
         }
@@ -596,6 +605,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             foreach (JudgementType type in Enum.GetValues<JudgementType>())
                 counts[type] = 0;
 
+            resetHolds();
+
             nextSealIndex = 0;
             activeLineIndex = -1;
             caretIndex = 0;
@@ -640,6 +651,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         {
             accrueActiveTime(time, clockRate);
 
+            // Holds settle ahead of this update's seals.
+            creditTicksDueBy(time);
+            completeHoldsDueBy(time);
+
             // A final n is already a complete reading. If no confirmation key arrives before the
             // line ends, resolve it at its typed timestamp before sealing can turn it into a miss.
             if (activeLineIndex >= 0 && time >= lines[activeLineIndex].EndTime)
@@ -656,9 +671,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             //     EndTime; lines with a seal grace (vocals overrunning into the next line, or a
             //     boundary-pinned last target) stay typeable through the grace window and seal
             //     early the moment nothing is left to type, so the next line isn't held up.
-            while (nextSealIndex < lines.Count && (canSeal(lines[nextSealIndex], time) || finishedEarly(nextSealIndex)) && sealPermitted(nextSealIndex, time))
+            while (nextSealIndex < lines.Count && (canSeal(nextSealIndex, time) || finishedEarly(nextSealIndex)) && sealPermitted(nextSealIndex, time))
             {
-                if (sealLine(nextSealIndex))
+                if (sealLine(nextSealIndex, time))
                     pendingActivation = true;
             }
 
@@ -736,11 +751,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// with at most one combo break, and hand a dragging caret on. Returns whether the caret was handed
         /// on to the next line, which the caller announces once.
         /// </summary>
-        private bool sealLine(int index)
+        private bool sealLine(int index, double time)
         {
             bool handedOn = false;
 
             var line = lines[index];
+
+            // A hold still down is graded before the seal's break, so SurvivingCombo counts it.
+            closeOpenHoldAtSeal(index, time);
 
             int missed = 0;
 
@@ -894,6 +912,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (broke)
                 raise(ComboBroken);
 
+            sealHolds(index);
             raise(LineSealed, new LineSealResult(index, missed, broke, survivingCombo));
 
             return handedOn;

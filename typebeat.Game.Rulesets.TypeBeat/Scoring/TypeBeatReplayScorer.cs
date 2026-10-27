@@ -316,8 +316,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // other half of several of these seams and is not simulated.
             int consumed;
 
-            using (TypeBeatComboFeed.Attach(engine, () => scoreProcessor, rule, applyCellResult, applySealResults))
-                consumed = feed(engine, replay);
+            // As TypeBeatPlayfield.onHoldTailJudged / onHoldTickJudged: a hold's tail and ticks take
+            // their own results, outside TypeBeatComboFeed, and a never-opened hold's are marked
+            // combo-neutral first.
+            void onHoldTailJudged(HoldTailJudgement judgement)
+            {
+                if (judgement.AtSeal)
+                    scoreProcessor.MarkTailComboNeutral(judgement.LineIndex, judgement.CellIndex);
+
+                cells.ResolveHoldPart(scoreProcessor, judgement.LineIndex, judgement.CellIndex, -1, TypeBeatResultMapping.TailResult(judgement.Type));
+            }
+
+            void onHoldTickJudged(HoldTickJudgement judgement)
+            {
+                if (judgement.Neutral)
+                    scoreProcessor.MarkTickComboNeutral(judgement.LineIndex, judgement.CellIndex, judgement.TickIndex);
+
+                cells.ResolveHoldPart(scoreProcessor, judgement.LineIndex, judgement.CellIndex, judgement.TickIndex, TypeBeatResultMapping.TickResult(judgement.Hit));
+            }
+
+            engine.HoldTickJudged += onHoldTickJudged;
+            engine.HoldTailJudged += onHoldTailJudged;
+
+            try
+            {
+                using (TypeBeatComboFeed.Attach(engine, () => scoreProcessor, rule, applyCellResult, applySealResults))
+                    consumed = feed(engine, replay);
+            }
+            finally
+            {
+                engine.HoldTickJudged -= onHoldTickJudged;
+                engine.HoldTailJudged -= onHoldTailJudged;
+            }
 
             var populated = new ScoreInfo { Ruleset = ruleset.RulesetInfo };
             scoreProcessor.PopulateScore(populated);
@@ -419,7 +449,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // from, exactly as the live factory reads it (see alignJapaneseSpaceEra in Score).
             bool legacyJapaneseSpaces = polyglot && lineObjects.Any(h => h.LegacyJapaneseSpaces);
 
-            var engine = new TypingEngine(lyricBeatmap, literate, polyglot, polyglot ? TypeBeatModPolyglot.LanguageFor(playable) : null, legacyJapaneseSpaces);
+            // SHORTHAND, likewise.
+            bool shorthand = mods.Any(m => m is TypeBeatModShorthand);
+
+            var engine = new TypingEngine(lyricBeatmap, literate, polyglot, polyglot ? TypeBeatModPolyglot.LanguageFor(playable) : null, legacyJapaneseSpaces, shorthand);
 
             // SyllableTiming is NOT selected here, and deliberately not: it is the one era axis
             // that travels in the replay itself (CONFIG frame, bit 2), so ReplayEngineFeed.Apply
@@ -615,6 +648,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                     foreach (var nested in lineObject.NestedHitObjects.OfType<TypeBeatCharObject>())
                         line.Cells[(nested.CellIndex, nested.Phase)] = new Cell(nested);
 
+                    foreach (var nested in lineObject.NestedHitObjects)
+                    {
+                        if (TypeBeatResultMapping.HoldPartKey(nested) is { } key)
+                            line.HoldParts[(key.Cell, key.Tick)] = new Cell(nested);
+                    }
+
                     lines[lineObject.LineIndex] = line;
                 }
             }
@@ -625,6 +664,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                     return;
 
                 cell.Apply(scoreProcessor, result, inputs, upgraded, delta);
+            }
+
+            /// <summary><see cref="Resolve"/> for a hold's tail (tick -1) or tick.</summary>
+            public void ResolveHoldPart(ScoreProcessor scoreProcessor, int lineIndex, int cellIndex, int tickIndex, HitResult result)
+            {
+                if (lines.TryGetValue(lineIndex, out var line) && line.HoldParts.TryGetValue((cellIndex, tickIndex), out var part))
+                    part.Apply(scoreProcessor, result);
             }
 
             public void Seal(ScoreProcessor scoreProcessor, int lineIndex, TypingEngine engine, TypoRule rule)
@@ -654,15 +700,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             /// </summary>
             public readonly SortedDictionary<(int Cell, int Phase), Cell> Cells = new SortedDictionary<(int Cell, int Phase), Cell>();
 
+            /// <summary>Hold tails (tick -1) and ticks, keyed by (held cell, tick).</summary>
+            public readonly Dictionary<(int Cell, int Tick), Cell> HoldParts = new Dictionary<(int, int), Cell>();
+
             private readonly Slot slot = new Slot(lineObject);
 
             public void Apply(ScoreProcessor scoreProcessor, HitResult result) => slot.Apply(scoreProcessor, result);
         }
 
-        private sealed class Cell(TypeBeatCharObject charObject)
+        /// <summary>A cell, hold tail or hold tick.</summary>
+        private sealed class Cell(HitObject hitObject)
         {
-            public bool Enabled => charObject.ScoringEnabled;
-            private readonly Slot slot = new Slot(charObject);
+            // A Japanese finish phase is scored off (ScoringEnabled); hold tails and ticks always score.
+            public bool Enabled => hitObject is not TypeBeatCharObject charObject || charObject.ScoringEnabled;
+            private readonly Slot slot = new Slot(hitObject);
 
             /// <summary><c>DrawableHitObject.Judged</c>: this cell has already taken its one result.</summary>
             public bool Judged => slot.Judged;

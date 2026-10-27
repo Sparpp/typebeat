@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
@@ -176,7 +177,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// list covering EVERY line, so the result can be handed straight to
         /// <see cref="TypeBeatEditorOperations.ReplaceLines"/>.
         /// </summary>
-        public static IReadOnlyList<LyricLine> Build(IReadOnlyList<LyricLine> lines, IReadOnlyList<TapTarget> queue, IReadOnlyList<double> taps)
+        public static IReadOnlyList<LyricLine> Build(IReadOnlyList<LyricLine> lines, IReadOnlyList<TapTarget> queue, IReadOnlyList<double> taps,
+                                                     IReadOnlyList<double?>? releases = null)
         {
             if (lines.Count == 0)
                 return Array.Empty<LyricLine>();
@@ -373,6 +375,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 previousLineStart = lineStart[l];
             }
 
+            // Taps that were held long enough carry a release; group them by the word they time.
+            Dictionary<(int, int), List<(int syllable, double release)>>? releaseSlots = null;
+
+            if (releases != null)
+            {
+                for (int k = 0; k < releases.Count && k < taps.Count && k < queue.Count; k++)
+                {
+                    if (releases[k] is not double r)
+                        continue;
+
+                    var t = queue[k];
+                    releaseSlots ??= new Dictionary<(int, int), List<(int syllable, double release)>>();
+
+                    if (!releaseSlots.TryGetValue((t.LineIndex, t.UnitIndex), out var list))
+                        releaseSlots[(t.LineIndex, t.UnitIndex)] = list = new List<(int, double)>();
+
+                    list.Add((t.SyllableIndex, r));
+                }
+            }
+
             // Assemble. Every line is rebuilt (the model is init-only), but only retimed words
             // change source/confidence or lose subdivisions.
             var result = new List<LyricLine>(lines.Count);
@@ -408,6 +430,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                     units[u] = new TimedUnit
                     {
+                        Objects = retimed[p] ? source.Objects.Retimed(source.StartTime, source.EndTime, s, e) : source.Objects,
                         Text = source.Text,
                         StartTime = s,
                         EndTime = e,
@@ -427,6 +450,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                         // re-tap replaces with the taps it heard.
                         Pauses = retimed[p] ? TypeBeatEditorOperations.ClampPauses(source, s, e) : source.Pauses,
                     };
+
+                    if (releaseSlots != null && releaseSlots.TryGetValue((l, u), out var held))
+                        units[u] = withTimedHolds(units[u], held);
                 }
 
                 double singEnd = count > 0 ? units[^1].EndTime : lineStart[l];
@@ -459,6 +485,50 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// <paramref name="unit"/> with a hold on the first character of each held syllable in <paramref name="held"/>,
+        /// from the syllable's start to the release (clamped to the next cut). An unusable hold is skipped.
+        /// </summary>
+        private static TimedUnit withTimedHolds(TimedUnit unit, List<(int syllable, double release)> held)
+        {
+            var splits = SyllableSegments.SplitsFor(unit);
+            var boundaries = unit.SyllableBoundaries;
+            var holds = unit.Objects.Holds.ToList();
+            var current = unit;
+
+            foreach (var (syllable, release) in held)
+            {
+                if (syllable > splits.Count)
+                    continue;
+
+                int c = syllable == 0 ? 0 : splits[syllable - 1];
+                double s = syllable == 0 ? unit.StartTime : syllable - 1 < boundaries.Count ? boundaries[syllable - 1] : double.NaN;
+
+                if (double.IsNaN(s))
+                    continue;
+
+                // Leave room for any letters after the held one (the usual release lands exactly on the next cut).
+                double cap = unit.EndTime;
+
+                if (syllable < boundaries.Count)
+                    cap = Math.Min(cap, boundaries[syllable]);
+
+                bool lettersFollow = c + 1 < unit.Text.Length;
+                double e = Math.Min(release, lettersFollow ? cap - TypeBeatEditorOperations.MIN_SYLLABLE_MS : cap);
+
+                var hold = new WordHold(c, s, e);
+                var candidate = current.WithObjects(current.Objects with { Holds = holds.Where(h => h.Char != c).Append(hold).ToList() });
+
+                if (!HeldWord.UsableHolds(candidate).Contains(hold))
+                    continue;
+
+                current = candidate;
+                holds = candidate.Objects.Holds.ToList();
+            }
+
+            return current;
         }
 
         /// <summary>

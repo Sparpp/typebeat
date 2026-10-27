@@ -121,10 +121,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             litCells[index] = lit;
             litAmounts[index] = amount;
             // Only the untyped fill changes during the approach; judgement feedback keeps its colour.
-            if (index < cells.Length && Line.Cells[index].State == CellState.Untyped && !Line.Cells[index].IsFreestyle)
+            if (index < cells.Length && Line.Cells[index].State == CellState.Untyped && !Line.Cells[index].IsFreestyle && !Line.Cells[index].IsAutoCompleted)
             {
                 float brightnessAmount = textHighlightAmount(index);
-                cells[index].Colour = TypeBeatStyle.SungCharForBrightness(sungBrightness * brightnessAmount);
+                cells[index].Colour = Line.Cells[index].IsOnset
+                    ? TypeBeatStyle.ShorthandOnsetCharForBrightness(sungBrightness * brightnessAmount)
+                    : TypeBeatStyle.SungCharForBrightness(sungBrightness * brightnessAmount);
             }
         }
 
@@ -303,6 +305,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 float amount = owner.indicatorProgress[index];
                 bool visible = owner.glyphFillMode && owner.litCells[index] && owner.indicatorRelease[index] > 0
                                && owner.Line.Cells[index].State == CellState.Untyped && !owner.Line.Cells[index].IsFreestyle
+                               && !owner.Line.Cells[index].IsAutoCompleted
                                && amount > 0 && amount < 1;
                 Alpha = visible ? source.Alpha : 0;
                 if (!visible)
@@ -333,58 +336,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 JudgementIndicatorMode.BottomToTopFill => (new Vector2(0, glyphSize.Y * (1 - amount)), new Vector2(glyphSize.X, glyphSize.Y * amount)),
                 _ => (Vector2.Zero, Vector2.Zero),
             };
-        }
-
-        private sealed partial class FloatingIndicatorBar : Box
-        {
-            private readonly LyricLineDisplay owner;
-            private readonly int index;
-
-            public FloatingIndicatorBar(LyricLineDisplay owner, int index)
-            {
-                this.owner = owner;
-                this.index = index;
-                AlwaysPresent = true;
-                BypassAutoSizeAxes = Axes.Both;
-                Depth = -0.5f;
-                Alpha = 0;
-            }
-
-            protected override void Update()
-            {
-                base.Update();
-                Alpha = 0;
-                if (!owner.approachBarsEnabled || index >= owner.cells.Length || !owner.Line.Cells[index].IsCountable)
-                    return;
-                var span = owner.sungSpan(index);
-                var windows = owner.windowsFor(index);
-                // Bars always land on the sung target, independently of text indicator alignment.
-                double time = owner.sungTime;
-                float release = IndicatorRelease(time, span.end + windows.GreatLate);
-                if (double.IsNaN(time) || time < span.start - owner.syllableFadeInDuration || release <= 0)
-                    return;
-                float progress = SyllableFadeInProgress(time, span.start, owner.syllableFadeInDuration);
-                float fadeIn = SyllableFadeInProgress(time, span.start - owner.syllableFadeInDuration + approach_bar_fade_in_duration_ms,
-                    approach_bar_fade_in_duration_ms);
-                // A point-judged cell keeps a bar of its own; cells judged on one shared span draw one.
-                bool charTimed = span.start == span.end;
-                if (!charTimed && index > 0 && owner.Line.Cells[index - 1].IsCountable
-                    && owner.sungSpan(index - 1) == span && owner.windowsFor(index - 1) == windows)
-                    return;
-                int end = index + 1;
-                if (!charTimed)
-                    while (end < owner.cells.Length && owner.Line.Cells[end].IsCountable && owner.sungSpan(end) == span
-                           && owner.windowsFor(end) == windows)
-                        end++;
-                float visible = 1;
-                for (int i = index; i < end; i++)
-                    visible = Math.Min(visible, owner.cells[i].Alpha);
-                Alpha = fadeIn * release * visible;
-                Position = new Vector2(owner.cellX[index], owner.glyphHeight + SWEEP_RAIL_OFFSET * owner.SizeRatio
-                    + 24 * owner.SizeRatio * (1 - progress));
-                Size = new Vector2(owner.cellX[end] - owner.cellX[index], SWEEP_RAIL_HEIGHT * owner.SizeRatio);
-                Colour = owner.paceColourFor(index);
-            }
         }
 
         private sealed partial class JudgementColourBar : Box

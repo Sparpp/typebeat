@@ -199,12 +199,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// <c>ReplayEngineFeed.Apply</c> deliberately does not apply it to anything.</para>
     ///
     /// <para><b>A sentinel this client does not know</b> is IGNORED rather than typed
-    /// (<c>ReplayEngineFeed.Apply</c>): any character below 0x20 that is not one of the four this build knows (the three above and <see cref="CONFIG_EXTENDED"/>)
+    /// (<c>ReplayEngineFeed.Apply</c>): any character below 0x20 that is not one of the five this build knows (<see cref="CONFIG"/>, <see cref="BACKSPACE"/>, <see cref="ENTER"/>, <see cref="CONFIG_EXTENDED"/> and <see cref="RELEASE"/>)
     /// resolves no cell and mutates nothing, so a frame kind added later degrades to a missing input
     /// on an older client instead of a wrong-key judgement that desynchronises every keystroke after
     /// it. <see cref="ENTER"/> itself needs no era bit for the opposite reason: a replay recorded
     /// before backlog 241 contains no such frame at all, and the skip it encodes changes no judged
     /// value or time (see <c>TypingEngine.ProcessEnter</c>), only which line the caret is on.</para>
+    ///
+    /// <para><b>A hold's release (<see cref="RELEASE"/>, 0x03)</b> needs no era bit: it exists only in
+    /// replays of maps with holds. Legacy mapping: MouseX = 3, MouseY = 0.</para>
     ///
     /// <para>Only EFFECTIVE inputs are recorded (calls where the engine mutated state), which is what
     /// makes playback deterministic: replaying performs, per frame, <c>Update(Time)</c> then the
@@ -268,6 +271,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// first word's carrier is full (see the class summary). An older client ignores it.
         /// </summary>
         public const char CONFIG_EXTENDED = '';
+
+        /// <summary>
+        /// Sentinel character for a hold release (ASCII ETX), played back through <c>TypingEngine.ProcessRelease</c>.
+        /// 0x02 is reserved for the third settings carrier.
+        /// </summary>
+        public const char RELEASE = '\u0003';
 
         /// <summary>
         /// The character fed to the engine (layout-remapped, Shift-cased), or a sentinel
@@ -637,6 +646,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         public bool IsConfig => Character == CONFIG;
 
         public bool IsConfigExtended => Character == CONFIG_EXTENDED;
+
+        public bool IsRelease => Character == RELEASE;
 
         public TypeBeatReplayFrame()
         {

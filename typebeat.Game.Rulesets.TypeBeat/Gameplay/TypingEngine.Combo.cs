@@ -32,6 +32,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>Credit one increment, earned on <paramref name="cellIndex"/> of the active line (see <see cref="ComboLedger.Credit"/>).</summary>
         private void creditCombo(int cellIndex) => ledger.Credit(activeLineIndex, cellIndex);
 
+        /// <summary><see cref="creditCombo(int)"/> on an explicit line (a hold's line need not be the active one).</summary>
+        private void creditCombo(int lineIndex, int cellIndex) => ledger.Credit(lineIndex, cellIndex);
+
         /// <summary>Zero the run and hand back its positions (see <see cref="ComboLedger.Break"/>).</summary>
         private List<ComboPosition> breakRun() => ledger.Break();
 

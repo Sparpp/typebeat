@@ -1,6 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using typebeat.Game.Rulesets.Objects;
 using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 
@@ -347,5 +348,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// </summary>
         public static HitResult UnresolvedCellResult(bool leftWrong, TypoRule rule)
             => leftWrong && rule == TypoRule.Deferred ? UNFIXED_TYPO : SEAL_MISS;
+
+        /// <summary>The osu result of a hold tail's engine grade (Great, Ok, Meh, else Miss).</summary>
+        public static HitResult TailResult(JudgementType type) => type switch
+        {
+            JudgementType.Great => HitResult.Great,
+            JudgementType.Ok => HitResult.Ok,
+            JudgementType.Meh => HitResult.Meh,
+            _ => HitResult.Miss,
+        };
+
+        /// <summary>A hold tick's osu result: lazer's slider-tick pair.</summary>
+        public static HitResult TickResult(bool hit) => hit ? HitResult.LargeTickHit : HitResult.LargeTickMiss;
+
+        /// <summary>The (line, cell, tick) key of a hold tail (tick -1) or tick, else null.</summary>
+        public static (int Line, int Cell, int Tick)? HoldPartKey(HitObject hitObject) => hitObject switch
+        {
+            Objects.TypeBeatHoldTailObject tail => (tail.LineIndex, tail.CellIndex, -1),
+            Objects.TypeBeatHoldTickObject tick => (tick.LineIndex, tick.CellIndex, tick.TickIndex),
+            _ => null,
+        };
     }
 }

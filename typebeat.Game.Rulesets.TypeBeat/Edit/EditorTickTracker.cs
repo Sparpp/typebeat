@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
@@ -95,7 +96,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// syllable-subdivision boundaries (the lighter sub-tick for the draggable dotted lines). The END
     /// of an authored pause ticks with the second stream, exactly as a subdivision boundary does: the
     /// characters after a rest are timed FROM there (see <see cref="Gameplay.PausedWord"/>), so it is
-    /// the moment the next character is due and the mapper has to hear it to time the breath.
+    /// the moment the next character is due and the mapper has to hear it to time the breath. Hold
+    /// ticks tick with this stream too.
     ///
     /// Dedupe rule: a time that is both a word start and (degenerately) a syllable boundary
     /// belongs to the word stream ONLY; the accented word tick plays alone, never doubled by a
@@ -122,6 +124,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     // ran out, the end is where the next one lands.
                     foreach (var pause in unit.Pauses)
                         boundaries.Add(pause.EndTime);
+
+                    foreach (var hold in HeldWord.UsableHolds(unit))
+                        boundaries.AddRange(HoldTicks.UsableTicks(hold));
                 }
             }
 

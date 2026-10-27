@@ -90,6 +90,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// </summary>
         private readonly HashSet<(int lineIndex, int cellIndex)> comboNeutralCells = new HashSet<(int, int)>();
 
+        /// <summary>Hold tails (tick -1) and ticks that leave combo where they find it, like <see cref="comboNeutralCells"/>.</summary>
+        private readonly HashSet<(int Line, int Cell, int Tick)> comboNeutralHoldParts = new HashSet<(int, int, int)>();
+
         public TypeBeatScoreProcessor(TypeBeatRuleset ruleset)
             : base(ruleset)
         {
@@ -138,6 +141,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             comboNeutralCells.Clear();
             if (engine != null)
                 resyncCellAwards(engine);
+            comboNeutralHoldParts.Clear();
         }
 
         /// <summary>
@@ -209,9 +213,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             => beatmap.HitObjects.OfType<TypeBeatHitObject>().SelectMany(h => h.NestedHitObjects.OfType<TypeBeatCharObject>()).Any(c => c.JapaneseInputScoring)
                 ? MaximumComboFor(beatmap) : null;
 
+        /// <summary>
+        /// The full combo: every scoring cell (a romaji-scored Japanese cell counts its minimum
+        /// inputs), plus one for each hold tail and tick, which take combo like a cell.
+        /// </summary>
         public static int MaximumComboFor(IBeatmap beatmap)
-            => beatmap.HitObjects.OfType<TypeBeatHitObject>().SelectMany(h => h.NestedHitObjects.OfType<TypeBeatCharObject>())
-                .Where(c => c.ScoringEnabled).Sum(c => c.JapaneseInputScoring ? c.MinimumRomajiInputs : 1);
+            => beatmap.HitObjects.OfType<TypeBeatHitObject>().SelectMany(h => h.NestedHitObjects).Sum(n => n switch
+            {
+                TypeBeatCharObject c => c.ScoringEnabled ? c.JapaneseInputScoring ? c.MinimumRomajiInputs : 1 : 0,
+                TypeBeatHoldTailObject or TypeBeatHoldTickObject => 1,
+                _ => 0,
+            });
 
         public override void ApplyBeatmap(IBeatmap beatmap)
         {
@@ -257,6 +269,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             adjustJapaneseMaximum(result, -1);
         }
 
+        /// <summary><see cref="MarkComboNeutral"/> for a never-opened hold's seal tail Miss: its head already took the break.</summary>
+        public void MarkTailComboNeutral(int lineIndex, int cellIndex) => comboNeutralHoldParts.Add((lineIndex, cellIndex, -1));
+
+        /// <summary><see cref="MarkComboNeutral"/> for a never-opened hold's tick miss.</summary>
+        public void MarkTickComboNeutral(int lineIndex, int cellIndex, int tickIndex) => comboNeutralHoldParts.Add((lineIndex, cellIndex, tickIndex));
+
+        private bool isComboNeutral(JudgementResult result)
+            => result.HitObject is TypeBeatCharObject cell
+                ? comboNeutralCells.Contains((cell.LineIndex, cell.CellIndex))
+                : TypeBeatResultMapping.HoldPartKey(result.HitObject) is { } holdPart && comboNeutralHoldParts.Contains(holdPart);
+
         /// <summary>
         /// The combo-weighted score portion a result contributes. A combo-neutral cell (see
         /// <see cref="MarkComboNeutral"/>) is weighted by the combo it FOUND rather than by the one
@@ -288,7 +311,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                 return GetBaseScoreForResult(result.Judgement.MaxResult) * count * Math.Pow(combo, COMBO_EXPONENT);
             }
 
-            if (result.Type.IncreasesCombo() && result.HitObject is TypeBeatCharObject cell && comboNeutralCells.Contains((cell.LineIndex, cell.CellIndex)))
+            if (result.Type.IncreasesCombo() && isComboNeutral(result))
                 return GetBaseScoreForResult(result.Judgement.MaxResult) * Math.Pow(result.ComboAtJudgement, COMBO_EXPONENT);
 
             return base.GetComboScoreChange(result);
@@ -342,10 +365,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                 ComboNotesJudged += GetComboIncrease(result);
             adjustJapaneseMaximum(result, 1);
 
-            if (!result.Type.AffectsCombo() || result.HitObject is not TypeBeatCharObject cell)
-                return;
-
-            if (!comboNeutralCells.Contains((cell.LineIndex, cell.CellIndex)))
+            if (!result.Type.AffectsCombo() || !isComboNeutral(result))
                 return;
 
             Combo.Value = result.ComboAtJudgement;
@@ -398,6 +418,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             comboNeutralCells.Clear();
             awardedCells.Clear();
             ComboNotesJudged = 0;
+            comboNeutralHoldParts.Clear();
         }
 
         /// <summary>

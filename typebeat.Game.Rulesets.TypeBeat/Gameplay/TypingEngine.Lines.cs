@@ -217,11 +217,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>The earliest instant the caret may rush onto line <paramref name="index"/> (see <see cref="LineLifecycle.EntryOpensAt"/>).</summary>
         private double entryOpensAt(int index) => LineLifecycle.EntryOpensAt(lines[index], BoundedRush);
 
-        /// <summary>The DEADLINE half of a seal (see <see cref="LineLifecycle.CanSeal"/>).</summary>
-        private bool canSeal(TypingLine line, double time) => LineLifecycle.CanSeal(line, time, effectiveSealTimeOf);
+        /// <summary>
+        /// The DEADLINE half of a seal (see <see cref="LineLifecycle.CanSeal"/>). An open hold blocks the
+        /// early arm: the line then seals only at its hard deadline.
+        /// </summary>
+        private bool canSeal(int index, double time)
+        {
+            var line = lines[index];
+            return LineLifecycle.CanSeal(line, time, effectiveSealTimeOf) && (!holdOpenOn(index) || time >= effectiveSealTimeOf(line));
+        }
 
-        /// <summary>EARLY FINISH: the final line is typed out (see <see cref="LineLifecycle.FinishedEarly"/>).</summary>
-        private bool finishedEarly(int index) => LineLifecycle.FinishedEarly(lines, index, EarlyFinish);
+        /// <summary>EARLY FINISH: the final line is typed out (see <see cref="LineLifecycle.FinishedEarly"/>), with no hold still down on it.</summary>
+        private bool finishedEarly(int index) => !holdOpenOn(index) && LineLifecycle.FinishedEarly(lines, index, EarlyFinish);
 
         /// <summary>Whether the line still owes a typeable cell (see <see cref="LineLifecycle.HasUntypedTypeable"/>).</summary>
         private static bool hasUntypedTypeable(TypingLine line) => LineLifecycle.HasUntypedTypeable(line);

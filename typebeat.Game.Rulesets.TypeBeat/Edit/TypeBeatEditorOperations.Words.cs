@@ -16,7 +16,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>
         /// Joins adjacent words, including their originals, in one undo step. The former word
         /// boundary becomes a subdivision, or a pause when the words have a gap in their timing.
-        /// Existing subdivisions and pauses keep their times and their character cuts.
+        /// Existing subdivisions and pauses keep their times and their character cuts. Refused when
+        /// the merged word would carry both holds and pauses (a word has one or the other).
         /// </summary>
         public static bool MergeWords(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int leftIndex)
         {
@@ -103,6 +104,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             int cut = left.Text.Length;
             var merged = new TimedUnit
             {
+                Objects = new WordObjects(left.Objects.AutoFill || right.Objects.AutoFill)
+                {
+                    Holds = left.Objects.Holds.Concat(right.Objects.Holds.Select(h => h with { Char = h.Char + cut })).ToArray(),
+                    // Picks survive only when both sides have them, so the joined word is never half-picked.
+                    TypedLetters = left.Objects.AutoFill && right.Objects.AutoFill && left.Objects.TypedLetters.Count > 0 && right.Objects.TypedLetters.Count > 0
+                        ? left.Objects.TypedLetters.Concat(right.Objects.TypedLetters.Select(i => i + cut)).ToArray()
+                        : Array.Empty<int>(),
+                },
                 Text = left.Text + right.Text,
                 Original = left.Original == null && right.Original == null ? null : (left.Original ?? left.Text) + (right.Original ?? right.Text),
                 OriginalSplits = left.OriginalSplits.Concat(right.OriginalSplits.Select(link => new OriginalLyricSplit(
@@ -121,6 +130,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 Pauses = left.Pauses.Concat(gap ? new[] { new WordPause(left.EndTime, right.StartTime, cut) } : Array.Empty<WordPause>())
                              .Concat(right.Pauses.Select(p => p with { SplitChar = p.SplitChar + cut })).ToArray(),
             };
+
+            // A word carries pauses or holds, never both.
+            if (merged.Objects.Holds.Count > 0 && merged.Pauses.Count > 0)
+                return false;
 
             var units = line.Units.ToList();
             units[leftIndex] = merged;

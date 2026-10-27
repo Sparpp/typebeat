@@ -60,6 +60,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public bool IsCountable => IsTypeable && Expected != ' ';
 
+        /// <summary>A character completed for the player (Shorthand, auto-fill): built non-typeable, drawn darker.</summary>
+        public bool IsAutoCompleted { get; }
+
+        /// <summary>A letter the player types in an onsets-only word, drawn a step brighter.</summary>
+        public bool IsOnset { get; internal set; }
+
+        /// <summary>
+        /// A held cell's span, which its release is graded on. The hold does not move the cell's own
+        /// <see cref="TargetTime"/>. Null on other cells and under Polyglot.
+        /// </summary>
+        public double? HoldStart { get; internal set; }
+
+        /// <inheritdoc cref="HoldStart"/>
+        public double? HoldEnd { get; internal set; }
+
+        /// <summary>
+        /// The held cell this one follows (the next typeable cell of its word). Its target is never before the
+        /// hold's end, and a press in the hold's release slack is judged on time. No era bit: it only moves cells
+        /// on maps with holds, which never had replays under another rule.
+        /// </summary>
+        public int? HandsOffFrom { get; internal set; }
+
+        /// <summary>A held cell's usable tick times; null on cells without a hold.</summary>
+        public IReadOnlyList<double>? HoldTickTimes { get; internal set; }
+
         public double TargetTime { get; internal set; }
         public double? EndTargetTime { get; internal set; }
         public int MinimumRomajiInputs { get; internal set; }
@@ -129,6 +154,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             TargetTime = targetTime;
             State = CellState.Untyped;
         }
+
+        private TypingCell(char expected, double targetTime, bool autoCompleted)
+            : this(expected, false, targetTime)
+        {
+            IsAutoCompleted = autoCompleted;
+        }
+
+        /// <summary>The same character and target, completed by the Shorthand mod instead of typed.</summary>
+        internal static TypingCell AutoCompleted(TypingCell typed) => new TypingCell(typed.Expected, typed.TargetTime, autoCompleted: true);
     }
 
     /// <summary>
@@ -304,6 +338,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         public bool HasFreestyleCells { get; }
 
+        /// <summary>Whether this line was flattened under the Shorthand mod.</summary>
+        public bool Shorthand { get; private set; }
+
         /// <summary>
         /// The line's SYLLABLE groups (backlog 174): ordered, non-overlapping cell ranges, one per
         /// syllable of each whitespace token, with the time span each syllable is sung over. Built
@@ -445,6 +482,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>
         /// Piecewise-linear anchor points for <see cref="SungPositionAt"/>:
         /// (StartTime, 0), each typeable cell's (TargetTime, displayIndex), (SweepEndTime, Cells.Count).
+        /// A held cell anchors at (HoldStart, displayIndex) and (HoldEnd, displayIndex + 1) instead.
         /// Times are clamped monotonic non-decreasing at construction.
         /// </summary>
         private readonly List<(double time, double index)> sungPoints;
@@ -674,12 +712,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             for (int i = 0; i < Cells.Count; i++)
             {
-                if (!Cells[i].IsTypeable)
+                // An auto-completed cell is still sung, so it keeps its point.
+                if (!Cells[i].IsTypeable && !Cells[i].IsAutoCompleted)
                     continue;
 
-                double t = Math.Max(Cells[i].TargetTime, lastTime);
+                // A held cell's sweep spans its letter and track from the hold's start to its end (display only).
+                double t = Math.Max(Cells[i].HoldStart ?? Cells[i].TargetTime, lastTime);
                 sungPoints.Add((t, i));
                 lastTime = t;
+
+                if (Cells[i].HoldEnd is double holdEnd)
+                {
+                    t = Math.Max(holdEnd, lastTime);
+                    sungPoints.Add((t, i + 1));
+                    lastTime = t;
+                }
             }
 
             // The tail anchor is the LAST WORD's own end, not the line's sung-end flag: see
@@ -744,9 +791,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// editor's effective character cuts every live run is judged on. It goes through the same
         /// lazy aligned build the engine's setter uses, so the result is cell for cell what a live
         /// engine holds.</para>
+        ///
+        /// <para>Word objects (auto-fill, holds) apply here; a line without them flattens as before.</para>
         /// </summary>
-        public static TypingLine FromLyricLine(LyricLine line, bool literate = false, bool alignSubdivisionTargets = false)
-            => withTargetEra(build(line, literate, CellRules.Default, null, null), alignSubdivisionTargets);
+        public static TypingLine FromLyricLine(LyricLine line, bool literate = false, bool alignSubdivisionTargets = false, bool shorthand = false)
+            => withTargetEra(build(line, literate, CellRules.Default, null, null, shorthand: shorthand, wordObjects: true), alignSubdivisionTargets);
 
         private static TypingLine withTargetEra(TypingLine line, bool alignSubdivisionTargets)
         {
@@ -766,6 +815,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// are cells (<see cref="Typeability.IsPolyglotCell"/>), any script's punctuation is a
         /// Literate cell, and the default stream drops every other character. On a line with no
         /// original anywhere the cells are the romanised ones, byte for byte.
+        /// Word objects are ignored here: auto-fill words are typed in full and holds are plain presses.
         /// </summary>
         /// <param name="line">The authored line.</param>
         /// <param name="literate">The Literate mod: case and punctuation of whichever text is played.</param>
@@ -778,11 +828,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <param name="legacyJapaneseSpaces">The Japanese SPACE era of a replay recorded without
         /// extended bit 8 (see <see cref="PolyglotLine.Derive"/>). Unlike the timing eras it changes
         /// the CELL LIST, so it is fixed here, at construction, and every era swap keeps it.</param>
+        /// <param name="shorthand">The Shorthand mod; incompatible with Polyglot.</param>
         public static TypingLine ForMods(LyricLine line, bool literate, bool polyglot, string? language, bool alignSubdivisionTargets = false, bool japaneseWordTiming = true, bool japaneseCharacterTiming = false,
-                                         bool legacyJapaneseSpaces = false)
+                                         bool legacyJapaneseSpaces = false, bool shorthand = false)
         {
             if (!polyglot)
-                return FromLyricLine(line, literate, alignSubdivisionTargets);
+                return FromLyricLine(line, literate, alignSubdivisionTargets, shorthand);
 
             var derived = PolyglotLine.Derive(line, language, japaneseWordTiming, japaneseCharacterTiming, legacyJapaneseSpaces);
             var result = withTargetEra(build(derived.Line, literate, CellRules.Polyglot, derived.NaturalSplits, derived.RawCluster), alignSubdivisionTargets);
@@ -834,8 +885,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public int JamoBlockHead(int cellIndex)
             => jamoHead != null && cellIndex >= 0 && cellIndex < jamoHead.Length ? jamoHead[cellIndex] : -1;
 
-        private static TypingLine build(LyricLine line, bool literate, CellRules rules, PolyglotLine.NaturalSplit?[]? naturalSplits, int[]? rawCluster, bool alignSubdivisions = false)
-
+        private static TypingLine build(LyricLine line, bool literate, CellRules rules, PolyglotLine.NaturalSplit?[]? naturalSplits, int[]? rawCluster, bool alignSubdivisions = false,
+                                        bool shorthand = false, bool wordObjects = false)
         {
             string text = line.RawText;
             var units = line.Units;
@@ -996,11 +1047,217 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             var natural = grouping(buildSyllables(line, tokens, cells, defaultSources, naturalSplits, rules.IsCell, authoredOnly: false), cells);
             var (words, cellWord) = buildWords(line, tokens, cells, defaultSources);
 
+            // Word objects. A hold adds no cut, so the groupings above are unchanged by them.
+            Dictionary<int, WordHold>? heldCells = null;
+            (HashSet<int> Picked, HashSet<int> Words)? picked = null;
+            (int Token, int Offset)[]? positions = null;
+
+            if (wordObjects && units.Any(u => !u.Objects.IsEmpty))
+            {
+                positions = cellPositions(tokens, n, cells.Length, defaultSources);
+                heldCells = heldCellsOf(units, positions, cells, rules.IsCell);
+                picked = pickedCellsOf(units, positions, cells, rules.IsCell);
+            }
+
+            // Last, so the groupings were cut from the full cell list: this only decides which cells are pressed.
+            if (shorthand)
+                cells = applyOnsetsOnly(cells, authored, _ => true, completeSpaces: true, heldCells, picked?.Picked, picked?.Words);
+            else if (positions is { } cellPos && units.Any(u => u.Objects.AutoFill))
+            {
+                cells = applyOnsetsOnly(cells, authored, i => cellPos[i].Token >= 0 && cellPos[i].Token < units.Count && units[cellPos[i].Token].Objects.AutoFill,
+                    completeSpaces: false, heldCells, picked?.Picked, picked?.Words);
+            }
+
+            if (heldCells != null)
+            {
+                foreach (var (i, hold) in heldCells)
+                {
+                    cells[i].HoldStart = hold.StartTime;
+                    cells[i].HoldEnd = hold.EndTime;
+                    cells[i].HoldTickTimes = HoldTicks.UsableTicks(hold);
+                }
+
+                assignHandoffs(cells, cellWord);
+            }
+
             var result = new TypingLine(line, cells, Math.Min(sealGrace, max_seal_grace_ms), authored, natural, words, cellWord, lastUnitEnd,
                 buildJamoHeads(cells, defaultSources, rawCluster));
             result.rawCellIndices = defaultSources?.ToArray();
+            result.Shorthand = shorthand;
             if (!alignSubdivisions)
-                result.alignedTimingFactory = () => build(line, literate, rules, naturalSplits, rawCluster, alignSubdivisions: true);
+                result.alignedTimingFactory = () => build(line, literate, rules, naturalSplits, rawCluster, alignSubdivisions: true, shorthand: shorthand, wordObjects: wordObjects);
+            return result;
+        }
+
+        /// <summary>
+        /// Onsets only: of the cells <paramref name="applies"/> to, only the first letter of each word and of
+        /// each <paramref name="authored"/> syllable stays typed ("This is a li|ne" is typed "tialn"); the rest
+        /// is completed. Freestyle slots and held cells stay typed; a word with picks types only its picks.
+        /// Shorthand completes every space (<paramref name="completeSpaces"/>); an auto-fill word completes
+        /// the space after it. Targets do not move, so no era bit is needed.
+        /// </summary>
+        private static TypingCell[] applyOnsetsOnly(TypingCell[] cells, SyllableGrouping authored, Func<int, bool> applies, bool completeSpaces,
+                                                    IReadOnlyDictionary<int, WordHold>? heldCells, ISet<int>? pickedCells, ISet<int>? pickedWordCells)
+        {
+            var result = new TypingCell[cells.Length];
+
+            // The group of the last letter in the current word; null at a word start.
+            int? lastGroup = null;
+
+            // Whether the last non-space cell was in an applied word, whose following space is completed.
+            bool afterAppliedWord = false;
+
+            for (int i = 0; i < cells.Length; i++)
+            {
+                var cell = cells[i];
+
+                if (cell.Expected == ' ')
+                {
+                    lastGroup = null;
+                    result[i] = (completeSpaces || afterAppliedWord) && cell.IsTypeable ? TypingCell.AutoCompleted(cell) : cell;
+                    continue;
+                }
+
+                afterAppliedWord = applies(i);
+
+                if (!cell.IsTypeable || !afterAppliedWord)
+                {
+                    result[i] = cell;
+                    continue;
+                }
+
+                if (!cell.IsFreestyle && !char.IsLetterOrDigit(cell.Expected))
+                {
+                    result[i] = TypingCell.AutoCompleted(cell);
+                    continue;
+                }
+
+                int group = authored.IndexOf(i);
+
+                // A word with picks types only its picks.
+                bool onset = pickedWordCells?.Contains(i) == true
+                    ? pickedCells!.Contains(i)
+                    : lastGroup == null || (group >= 0 && group != lastGroup);
+
+                lastGroup = group;
+
+                if (onset || cell.IsFreestyle || heldCells?.ContainsKey(i) == true)
+                {
+                    cell.IsOnset = true;
+                    result[i] = cell;
+                }
+                else
+                    result[i] = TypingCell.AutoCompleted(cell);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// The hand-off: the next typeable cell of each held cell's word follows the hold
+        /// (<see cref="TypingCell.HandsOffFrom"/>), due no earlier than its end, and later cells of the word
+        /// no earlier than it. Only targets move. Never run on a line without holds.
+        /// </summary>
+        private static void assignHandoffs(TypingCell[] cells, int[] cellWord)
+        {
+            for (int i = 0; i < cells.Length; i++)
+            {
+                if (cells[i].HoldEnd is not double end || cellWord[i] < 0)
+                    continue;
+
+                double? floor = null;
+
+                for (int j = i + 1; j < cells.Length && cellWord[j] == cellWord[i] && cells[j].Expected != ' '; j++)
+                {
+                    if (!cells[j].IsTypeable)
+                        continue;
+
+                    if (floor == null)
+                    {
+                        cells[j].HandsOffFrom = i;
+                        floor = Math.Max(cells[j].TargetTime, end);
+                    }
+
+                    cells[j].TargetTime = Math.Max(cells[j].TargetTime, floor.Value);
+                }
+            }
+        }
+
+        /// <summary>Per cell, the usable hold on the first typeable cell of its character; null when there are none.</summary>
+        private static Dictionary<int, WordHold>? heldCellsOf(IReadOnlyList<TimedUnit> units, (int Token, int Offset)[] positions, TypingCell[] cells, Func<char, bool> isCell)
+        {
+            Dictionary<int, WordHold>? result = null;
+            var usable = new IReadOnlyList<WordHold>?[units.Count];
+            var claimed = new HashSet<(int, int)>();
+
+            for (int i = 0; i < cells.Length; i++)
+            {
+                var (m, offset) = positions[i];
+
+                if (!cells[i].IsTypeable || m < 0 || m >= units.Count || units[m].Objects.Holds.Count == 0)
+                    continue;
+
+                foreach (var hold in usable[m] ??= HeldWord.UsableHolds(units[m], isCell))
+                {
+                    if (hold.Char == offset && claimed.Add((m, offset)))
+                        (result ??= new Dictionary<int, WordHold>())[i] = hold;
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// The typeable cells usable picks land on, and every cell of a word with at least one such pick;
+        /// null when there are none.
+        /// </summary>
+        private static (HashSet<int> Picked, HashSet<int> Words)? pickedCellsOf(IReadOnlyList<TimedUnit> units, (int Token, int Offset)[] positions, TypingCell[] cells, Func<char, bool> isCell)
+        {
+            HashSet<int>? picked = null;
+            var picks = new IReadOnlyList<int>?[units.Count];
+
+            for (int i = 0; i < cells.Length; i++)
+            {
+                var (m, offset) = positions[i];
+
+                if (!cells[i].IsTypeable || m < 0 || m >= units.Count || units[m].Objects.TypedLetters.Count == 0)
+                    continue;
+
+                if ((picks[m] ??= TypedLetters.UsablePicks(units[m], isCell)).Contains(offset))
+                    (picked ??= new HashSet<int>()).Add(i);
+            }
+
+            if (picked == null)
+                return null;
+
+            var pickedWords = picked.Select(i => positions[i].Token).ToHashSet();
+            return (picked, Enumerable.Range(0, cells.Length).Where(i => pickedWords.Contains(positions[i].Token)).ToHashSet());
+        }
+
+        /// <summary>Per cell, its whitespace token (an index into the line's units) and offset in it; (-1, -1) for an inter-word space.</summary>
+        private static (int Token, int Offset)[] cellPositions(string[] tokens, int rawLength, int cellCount, List<int>? defaultSources)
+        {
+            var raw = new (int Token, int Offset)[rawLength];
+            Array.Fill(raw, (-1, -1));
+
+            int pos = 0;
+
+            for (int m = 0; m < tokens.Length; m++)
+            {
+                for (int t = 0; t < tokens[m].Length && pos + t < rawLength; t++)
+                    raw[pos + t] = (m, t);
+
+                pos += tokens[m].Length + 1;
+            }
+
+            var result = new (int Token, int Offset)[cellCount];
+
+            for (int i = 0; i < cellCount; i++)
+            {
+                int src = defaultSources?[i] ?? i;
+                result[i] = src >= 0 && src < rawLength ? raw[src] : (-1, -1);
+            }
+
             return result;
         }
 
@@ -1722,6 +1979,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         internal static double[] CellTargetsFor(TimedUnit unit, int typeableCount, Func<char, bool>? isCell = null)
             => tokenCellTargets(unit.Text, unit.StartTime, unit.EndTime, unit, typeableCount, isCell, alignSubdivisions: true);
+
+        /// <summary>The target of character <paramref name="charIndex"/> as the word alone spreads it, the later of the two eras.</summary>
+        internal static double HoldFreeCellTarget(TimedUnit unit, int charIndex, Func<char, bool> isCell)
+        {
+            int k = 0, j = 0;
+
+            for (int i = 0; i < unit.Text.Length; i++)
+            {
+                if (!isCell(unit.Text[i]))
+                    continue;
+
+                if (i < charIndex)
+                    j++;
+
+                k++;
+            }
+
+            if (j >= k)
+                return unit.EndTime;
+
+            double legacy = tokenCellTargets(unit.Text, unit.StartTime, unit.EndTime, unit, k, isCell)[j];
+            double aligned = tokenCellTargets(unit.Text, unit.StartTime, unit.EndTime, unit, k, isCell, alignSubdivisions: true)[j];
+            return Math.Max(legacy, aligned);
+        }
 
         private const double min_boundary_grace_ms = 250;
         private const double max_seal_grace_ms = 700;

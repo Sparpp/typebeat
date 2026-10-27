@@ -248,6 +248,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>A unit re-spelled: same span, and its subdivision and rests kept only while they still fit the new text.</summary>
         private static TimedUnit respelled(TimedUnit unit, string text) => new TimedUnit
         {
+            Objects = unit.Objects.ForText(unit.Text, text),
             Text = text,
             StartTime = unit.StartTime,
             EndTime = unit.EndTime,

@@ -30,6 +30,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
         /// </summary>
         private readonly SortedDictionary<(int Cell, int Phase), DrawableTypeBeatCharObject> charDrawablesByCell = new SortedDictionary<(int Cell, int Phase), DrawableTypeBeatCharObject>();
 
+        // Hold tails by held cell and ticks by (held cell, tick), sorted like charDrawablesByCell.
+        private readonly SortedDictionary<int, DrawableTypeBeatHoldPart<TypeBeatHoldTailObject>> tailDrawablesByCell = new SortedDictionary<int, DrawableTypeBeatHoldPart<TypeBeatHoldTailObject>>();
+        private readonly SortedDictionary<(int CellIndex, int TickIndex), DrawableTypeBeatHoldPart<TypeBeatHoldTickObject>> tickDrawables = new SortedDictionary<(int, int), DrawableTypeBeatHoldPart<TypeBeatHoldTickObject>>();
+
         public DrawableTypeBeatHitObject(TypeBeatHitObject hitObject)
             : base(hitObject)
         {
@@ -39,6 +43,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
         {
             if (hitObject is TypeBeatCharObject charObject)
                 return new DrawableTypeBeatCharObject(charObject);
+
+            if (hitObject is TypeBeatHoldTailObject tailObject)
+                return new DrawableTypeBeatHoldPart<TypeBeatHoldTailObject>(tailObject);
+
+            if (hitObject is TypeBeatHoldTickObject tickObject)
+                return new DrawableTypeBeatHoldPart<TypeBeatHoldTickObject>(tickObject);
 
             return base.CreateNestedHitObject(hitObject);
         }
@@ -52,12 +62,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
                 charDrawablesByCell[(charDrawable.HitObject.CellIndex, charDrawable.HitObject.Phase)] = charDrawable;
                 AddInternal(charDrawable);
             }
+            else if (hitObject is DrawableTypeBeatHoldPart<TypeBeatHoldTailObject> tailDrawable)
+            {
+                tailDrawablesByCell[tailDrawable.HitObject.CellIndex] = tailDrawable;
+                AddInternal(tailDrawable);
+            }
+            else if (hitObject is DrawableTypeBeatHoldPart<TypeBeatHoldTickObject> tickDrawable)
+            {
+                tickDrawables[(tickDrawable.HitObject.CellIndex, tickDrawable.HitObject.TickIndex)] = tickDrawable;
+                AddInternal(tickDrawable);
+            }
         }
 
         protected override void ClearNestedHitObjects()
         {
             base.ClearNestedHitObjects();
             charDrawablesByCell.Clear();
+            tailDrawablesByCell.Clear();
+            tickDrawables.Clear();
             ClearInternal(false);
         }
 
@@ -102,6 +124,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
 
             charDrawable.ApplyEngineResult(result, judgement.Delta,
                 judgement.Inputs?.Select(i => TypeBeatResultMapping.CellResult(i.Type, TypoRule.Deferred) ?? HitResult.Miss).ToArray());
+        }
+
+        public void ApplyHoldTailJudgement(HoldTailJudgement judgement)
+            => ApplyHoldTailResult(judgement.CellIndex, TypeBeatResultMapping.TailResult(judgement.Type));
+
+        /// <summary>Applies <paramref name="result"/> to a hold tail as given (the test play's grant).</summary>
+        public void ApplyHoldTailResult(int cellIndex, HitResult result)
+        {
+            if (tailDrawablesByCell.TryGetValue(cellIndex, out var tail))
+                tail.ApplyEngineResult(result);
+        }
+
+        public void ApplyHoldTickJudgement(HoldTickJudgement judgement)
+            => ApplyHoldTickResult(judgement.CellIndex, judgement.TickIndex, TypeBeatResultMapping.TickResult(judgement.Hit));
+
+        /// <summary>Applies <paramref name="result"/> to a hold tick as given (the test play's grant).</summary>
+        public void ApplyHoldTickResult(int cellIndex, int tickIndex, HitResult result)
+        {
+            if (tickDrawables.TryGetValue((cellIndex, tickIndex), out var tick))
+                tick.ApplyEngineResult(result);
         }
 
         /// <summary>

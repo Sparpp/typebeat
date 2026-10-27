@@ -105,6 +105,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
             var generated = new TimedUnit
             {
+                Objects = unit.Objects,
                 Text = unit.Text,
                 StartTime = unit.StartTime,
                 EndTime = unit.EndTime,
