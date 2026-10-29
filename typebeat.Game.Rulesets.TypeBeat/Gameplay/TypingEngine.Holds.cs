@@ -8,8 +8,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 {
     public sealed partial class TypingEngine
     {
-        /// <summary>The hold currently down: its cell and authored span.</summary>
-        public readonly record struct ActiveHoldInfo(int LineIndex, int CellIndex, double StartTime, double EndTime);
+        /// <summary>The hold currently down: its cell, authored span and the time its head was pressed.</summary>
+        public readonly record struct ActiveHoldInfo(int LineIndex, int CellIndex, double StartTime, double EndTime, double PressTime);
 
         /// <summary>The hold the player is in, set by a correct press of a held cell and cleared when its tail is judged.</summary>
         public ActiveHoldInfo? ActiveHold { get; private set; }
@@ -30,7 +30,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (ActiveHold is not ActiveHoldInfo hold)
                 return false;
 
-            judgeHoldTail(hold, time, HoldTailRule.Grade(hold.StartTime, hold.EndTime, time), atSeal: false);
+            judgeHoldTail(hold, time, HoldTailRule.Grade(hold.StartTime, hold.EndTime, hold.PressTime, time), atSeal: false);
             return true;
         }
 
@@ -45,11 +45,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (cell.HoldStart is not double start || cell.HoldEnd is not double end || judgedTails.Contains((lineIndex, cellIndex)))
                 return;
 
-            var hold = new ActiveHoldInfo(lineIndex, cellIndex, start, end);
-
             // A retype of the open hold's own head leaves it as it is.
-            if (ActiveHold == hold)
+            if (ActiveHold is ActiveHoldInfo open && open.LineIndex == lineIndex && open.CellIndex == cellIndex)
                 return;
+
+            var hold = new ActiveHoldInfo(lineIndex, cellIndex, start, end, time);
 
             releaseActiveHoldAt(time);
 
@@ -108,7 +108,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 return;
 
             double release = Math.Min(time, hold.EndTime);
-            judgeHoldTail(hold, release, HoldTailRule.Grade(hold.StartTime, hold.EndTime, release), atSeal: false);
+            judgeHoldTail(hold, release, HoldTailRule.Grade(hold.StartTime, hold.EndTime, hold.PressTime, release), atSeal: false);
         }
 
         /// <summary>As line <paramref name="lineIndex"/> seals: every unjudged tail never opened, so it is a neutral Miss.</summary>
