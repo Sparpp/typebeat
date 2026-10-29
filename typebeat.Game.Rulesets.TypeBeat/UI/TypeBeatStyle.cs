@@ -29,14 +29,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public static Color4 SungAccent { get; } = new Color4((byte)126, (byte)200, (byte)227, (byte)255);  // #7ec8e3
         public static Color4 PanelBackground { get; } = new Color4((byte)44, (byte)46, (byte)49, (byte)255); // #2c2e31
 
-        /// <summary>A character completed for the player (Shorthand, auto-fill): just above the background.</summary>
+        /// <summary>A character completed for the player (Shorthand): just above the background.</summary>
         public static Color4 AutoCompletedChar { get; } = new Color4((byte)60, (byte)62, (byte)65, (byte)255); // #3c3e41
-
-        /// <summary>Editor: an auto-fill word.</summary>
-        public static Color4 AutoFillWord { get; } = new Color4((byte)70, (byte)110, (byte)200, (byte)255); // #466ec8
-
-        /// <summary>Editor: a picked letter of an auto-fill word.</summary>
-        public static Color4 AutoFillPickedLetter { get; } = new Color4((byte)145, (byte)180, (byte)245, (byte)255); // #91b4f5
 
         /// <summary>A held letter in the editor, and the fill of its hold bar.</summary>
         public static Color4 HoldChar { get; } = new Color4((byte)110, (byte)80, (byte)190, (byte)255); // #6e50be

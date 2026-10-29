@@ -3,7 +3,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
@@ -421,39 +420,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// Each shifted symbol pays unless the preceding played character is the same symbol.
         /// Capitals share a charge while Shift is held ("USA" pays one, "A B" two).
         /// Freestyle slots never pay. Nothing is charged without Literate.
-        ///
-        /// <para>With a <paramref name="pressed"/> mask (an auto-fill word's <see cref="LyricDifficulty.Word.Pressed"/>,
-        /// indexed in the typed order of a Literate stream), a character the player does not press is no
-        /// keystroke: it is skipped WITHOUT releasing Shift, so a completed capital costs nothing and the
-        /// pressed characters either side read as the run they are typed as. Null charges every character.
-        /// The mask MUST have been built with literate = true (as every word of a Literate play's is), so its
-        /// indices count the marks this loop walks; a mask of any other length is a caller error.</para>
         /// </summary>
-        internal static double ShiftSurcharge(string token, bool literate, double cost, bool[]? pressed = null)
+        internal static double ShiftSurcharge(string token, bool literate, double cost)
         {
             if (!literate || !(cost > 0))
                 return 0;
 
-            Debug.Assert(pressed == null || pressed.Length == token.Count(ch => LyricDifficulty.IsTypedChar(ch, true)),
-                "A Shift mask must index the Literate typed stream.");
-
             double charges = 0;
             bool held = false;
             char previous = '\0';
-            int typedIndex = 0;
 
             foreach (char c in token)
             {
                 // Only the characters the stream can actually put on a cell carry a flag: everything
                 // else (the syllable-split marker, junk a normalizer let through) is skipped WITHOUT
-                // releasing Shift or interrupting a repeated symbol. Under Literate that set is the
-                // typed stream plus the space.
-                if (c != ' ' && !LyricDifficulty.IsTypedChar(c, true))
-                    continue;
-
-                // A space is in no mask (it is untimed) and stays a keystroke that resets Shift. An
-                // unpressed character is skipped as above: no keystroke, so no Shift release either.
-                if (pressed != null && c != ' ' && !(typedIndex < pressed.Length && pressed[typedIndex++]))
+                // releasing Shift or interrupting a repeated symbol.
+                if (!Typeability.IsTypeable(c) && !Typeability.IsFreestyle(c) && !Typeability.IsPunctuation(c))
                     continue;
 
                 bool shiftedMark = IsShiftedMark(c);
@@ -507,11 +489,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 double lo = Math.Max(aMs, other.Start), hi = Math.Min(endMs, other.End);
 
                 if (hi > lo)
-                {
-                    // An auto-fill word's material is the characters it presses.
-                    double chars = other.Pressed == null ? CharsOf(other.Token, literate) : LyricDifficulty.PressedCharacters(other, literate);
-                    mass += chars * ((hi - lo) / other.Span);
-                }
+                    mass += CharsOf(other.Token, literate) * ((hi - lo) / other.Span);
             }
 
             return mass;
@@ -640,8 +618,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             foreach (LyricDifficulty.Word word in words)
             {
-                // An auto-fill word pays Shift only on the characters it presses.
-                double surcharge = ShiftSurcharge(word.Token, literate, settings.shift_cost, word.Pressed) + word.ExtraInputs * settings.shift_cost;
+                double surcharge = ShiftSurcharge(word.Token, literate, settings.shift_cost) + word.ExtraInputs * settings.shift_cost;
 
                 if (!(surcharge > 0))
                     continue;

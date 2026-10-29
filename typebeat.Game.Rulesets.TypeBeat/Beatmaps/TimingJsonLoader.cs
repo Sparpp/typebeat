@@ -336,19 +336,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     wordPauses.Add(pauses);
 
                     // Word objects, read as written (holds are validated at play time).
-                    bool autoFill = wordElement.TryGetProperty("autofill", out JsonElement autoFillEl) && autoFillEl.ValueKind == JsonValueKind.True;
-                    var typedLetters = new List<int>();
-
-                    // Picks exist only on auto-fill words.
-                    if (autoFill && wordElement.TryGetProperty("autofill_letters", out JsonElement lettersEl) && lettersEl.ValueKind == JsonValueKind.Array)
-                    {
-                        foreach (JsonElement letterEl in lettersEl.EnumerateArray())
-                        {
-                            if (tryGetInt(letterEl, out int letter))
-                                typedLetters.Add(letter);
-                        }
-                    }
-
                     var holds = new List<WordHold>();
 
                     if (wordElement.TryGetProperty("holds", out JsonElement holdsEl) && holdsEl.ValueKind == JsonValueKind.Array)
@@ -380,9 +367,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         }
                     }
 
-                    wordObjects.Add(!autoFill && holds.Count == 0 && typedLetters.Count == 0
-                        ? WordObjects.None
-                        : new WordObjects(autoFill) { Holds = holds.ToArray(), TypedLetters = typedLetters.ToArray() });
+                    wordObjects.Add(holds.Count == 0 ? WordObjects.None : new WordObjects { Holds = holds.ToArray() });
                 }
             }
 

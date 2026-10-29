@@ -112,7 +112,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>
         /// The finest granularity the unit data requires: Syllable when any word carries subdivision
         /// boundaries, else Word when some unit timing is Explicit (authored words[]) OR some word
-        /// carries an authored pause or is auto-fill, else Line. Line-granularity maps also carry one unit per
+        /// carries an authored pause or a hold, else Line. Line-granularity maps also carry one unit per
         /// token, but those are Interpolated, synthesized by the loader, not real word timing.
         ///
         /// <para>The pause counts as its own Word trigger rather than riding on the Explicit stamp its
@@ -872,16 +872,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <param name="editorBeatmap">The beatmap being edited.</param>
         /// <param name="hitObject">The line whose text is committed.</param>
         /// <param name="rawUserText">The text as the mapper typed it.</param>
-        /// <param name="autoFillNewWords">Mark every word this commit adds or retypes auto-fill.</param>
         /// <param name="ticksTrimmed">Called when a hold was asked for more ticks than fit.</param>
-        public static bool SetLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText, bool autoFillNewWords = false, Action? ticksTrimmed = null)
+        public static bool SetLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText, Action? ticksTrimmed = null)
         {
             // THE ORIGINAL TEXT (backlog 330): text in any other script (or with any letter the typed
             // text must respell) is romanised first and kept as the line's original.
             if (LyricOriginals.CarriesOriginal(rawUserText) || Romaniser.NeedsRomanising(rawUserText))
-                return setOriginalLineText(editorBeatmap, hitObject, rawUserText, autoFillNewWords, ticksTrimmed);
+                return setOriginalLineText(editorBeatmap, hitObject, rawUserText, ticksTrimmed);
 
-            return setLineText(editorBeatmap, hitObject, rawUserText, autoFillNewWords, null, ticksTrimmed);
+            return setLineText(editorBeatmap, hitObject, rawUserText, null, ticksTrimmed);
         }
 
         /// <summary>
@@ -900,7 +899,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <para>Tick stars are read and stripped from the source before romanising, and their counts
         /// ride each word's placement token into <see cref="setLineText"/>.</para>
         /// </summary>
-        private static bool setOriginalLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText, bool autoFillNewWords, Action? ticksTrimmed)
+        private static bool setOriginalLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText, Action? ticksTrimmed)
         {
             string source = rawUserText;
             IReadOnlyList<IReadOnlyDictionary<int, int>?>? sourceCounts = null;
@@ -988,7 +987,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (tokens.Count == 0)
                 return false;
 
-            return setLineText(editorBeatmap, hitObject, string.Join(' ', tokens), autoFillNewWords, units =>
+            return setLineText(editorBeatmap, hitObject, string.Join(' ', tokens), units =>
             {
                 var kept = new List<TimedUnit>();
                 var pending = new List<UnromanisedWord>();
@@ -1020,7 +1019,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// line's final text, units and originals; it is null for plain text, which keeps the line's
         /// originals as they are. Such a commit passes its tick counts as <paramref name="readTickCounts"/>.
         /// </summary>
-        private static bool setLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText, bool autoFillNewWords,
+        private static bool setLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText,
                                         Func<IReadOnlyList<TimedUnit>, (string Text, IReadOnlyList<TimedUnit> Units, (string? Original, IReadOnlyList<UnromanisedWord> Pending) Originals)>? finish,
                                         Action? ticksTrimmed = null, IReadOnlyList<IReadOnlyDictionary<int, int>?>? readTickCounts = null)
         {
@@ -1111,8 +1110,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             }
 
             // Word objects follow their words on the paths that rebuild units (the same-count path kept them by place).
-            if (autoFillNewWords || tokens.Length != line.Units.Count || hitObject.Granularity == TimingGranularity.Line)
-                units = carryWordObjects(line.Units, units, autoFillNewWords);
+            if (tokens.Length != line.Units.Count || hitObject.Granularity == TimingGranularity.Line)
+                units = carryWordObjects(line.Units, units);
 
             units = HoldTickMarkers.Apply(units, tickCounts, out bool ticksWereTrimmed);
 
@@ -1168,59 +1167,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             return true;
         }
 
-        /// <summary>Marks or clears auto-fill on the given words of one line, as one undo. Returns whether any word changed.</summary>
-        public static bool SetAutoFill(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, IReadOnlyList<int> unitIndices, bool autoFill)
-        {
-            var line = hitObject.Line;
-            var units = line.Units.ToArray();
-            bool changed = false;
-
-            foreach (int i in unitIndices.Distinct())
-            {
-                if (i < 0 || i >= units.Length)
-                    continue;
-
-                var objects = units[i].Objects;
-
-                // Picks exist only on an auto-fill word, so toggling the flag drops any.
-                if (objects.AutoFill == autoFill && (autoFill || objects.TypedLetters.Count == 0))
-                    continue;
-
-                units[i] = units[i].WithObjects(objects with { AutoFill = autoFill, TypedLetters = Array.Empty<int>() });
-                changed = true;
-            }
-
-            if (changed)
-                commitUnits(editorBeatmap, hitObject, units);
-
-            return changed;
-        }
-
-        /// <summary>
-        /// Replaces a word's typed letters with the pickable, distinct, ascending <paramref name="picks"/>, as
-        /// one undo. Any pick marks the word auto-fill. Returns whether anything changed.
-        /// </summary>
-        public static bool SetTypedLetters(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, IReadOnlyList<int> picks)
-        {
-            var line = hitObject.Line;
-
-            if (unitIndex < 0 || unitIndex >= line.Units.Count)
-                return false;
-
-            var units = line.Units.ToArray();
-            var unit = units[unitIndex];
-            string text = unit.Text;
-            int[] normalised = picks.Where(i => i >= 0 && i < text.Length && TypedLetters.IsPickable(text[i])).Distinct().OrderBy(i => i).ToArray();
-            bool autoFill = unit.Objects.AutoFill || normalised.Length > 0;
-
-            if (autoFill == unit.Objects.AutoFill && normalised.SequenceEqual(unit.Objects.TypedLetters))
-                return false;
-
-            units[unitIndex] = unit.WithObjects(unit.Objects with { AutoFill = autoFill, TypedLetters = normalised });
-            commitUnits(editorBeatmap, hitObject, units);
-            return true;
-        }
-
         /// <summary>
         /// Writes one line's units back as one undo, lifting the map to at least Word granularity
         /// so the word objects are saved.
@@ -1236,9 +1182,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>
         /// Carries word objects across a text commit that rebuilt the units: words are matched by the
         /// longest common subsequence of their spellings, and a matched word's holds follow its new span.
-        /// Unmatched words are marked auto-fill when <paramref name="markNew"/> is set.
         /// </summary>
-        private static IReadOnlyList<TimedUnit> carryWordObjects(IReadOnlyList<TimedUnit> before, IReadOnlyList<TimedUnit> after, bool markNew)
+        private static IReadOnlyList<TimedUnit> carryWordObjects(IReadOnlyList<TimedUnit> before, IReadOnlyList<TimedUnit> after)
         {
             int n = before.Count, m = after.Count;
             int[,] lcs = new int[n + 1, m + 1];
@@ -1273,7 +1218,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             for (int j = 0; j < m; j++)
             {
-                var objects = matched[j] ?? (markNew ? after[j].Objects with { AutoFill = true } : after[j].Objects);
+                var objects = matched[j] ?? after[j].Objects;
                 result[j] = ReferenceEquals(objects, after[j].Objects) ? after[j] : after[j].WithObjects(objects);
             }
 
@@ -2250,17 +2195,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 }
             }
 
-            // Holds and picks follow the half their character lands in; a hold straddling the boundary is dropped.
+            // Holds follow the half their character lands in; a hold straddling the boundary is dropped.
             var firstHolds = unit.Objects.Holds.Where(h => h.Char < cut && h.EndTime <= boundary).ToArray();
             var secondHolds = unit.Objects.Holds.Where(h => h.Char >= cut && h.StartTime >= boundary).Select(h => h with { Char = h.Char - cut }).ToArray();
-            var firstPicks = unit.Objects.TypedLetters.Where(i => i < cut).ToArray();
-            var secondPicks = unit.Objects.TypedLetters.Where(i => i >= cut).Select(i => i - cut).ToArray();
+
 
             var units = line.Units.ToList();
 
             units[unitIndex] = new TimedUnit
             {
-                Objects = unit.Objects with { Holds = firstHolds, TypedLetters = firstPicks },
+                Objects = unit.Objects with { Holds = firstHolds },
                 Text = firstText,
                 Original = originalCut is int firstCut ? linkedOriginal![..firstCut] : null,
                 OriginalSplits = originalCut is int firstSource ? unit.OriginalSplits
@@ -2277,7 +2221,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             units.Insert(unitIndex + 1, new TimedUnit
             {
-                Objects = unit.Objects with { Holds = secondHolds, TypedLetters = secondPicks },
+                Objects = unit.Objects with { Holds = secondHolds },
                 Text = secondText,
                 Original = originalCut is int secondCut ? linkedOriginal![secondCut..] : null,
                 OriginalSplits = originalCut is int secondSource ? unit.OriginalSplits
@@ -3865,8 +3809,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 foreach (var unit in line.Units)
                 {
-                    var objects = LyricTimingClipboard.SpanObjects(unit, line.StartTime);
-
                     entry.Units.Add(new LyricTimingClipboard.UnitSpan
                     {
                         Start = unit.StartTime - line.StartTime,
@@ -3874,9 +3816,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                         Chars = unit.Text.Length,
                         Text = unit.Text,
                         Original = unit.Original, OriginalSplits = unit.OriginalSplits.Count == 0 ? null : unit.OriginalSplits,
-                        AutoFill = objects.AutoFill,
-                        Holds = objects.Holds,
-                        TypedLetters = LyricTimingClipboard.SpanLetters(unit),
+                        Holds = LyricTimingClipboard.SpanHolds(unit, line.StartTime),
                         Boundaries = unit.SyllableBoundaries.Count == 0
                             ? null
                             : unit.SyllableBoundaries.Select(b => b - line.StartTime).ToList(),
@@ -4248,7 +4188,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             {
                 var unit = line.Units[i];
-                var objects = LyricTimingClipboard.SpanObjects(unit, anchor);
 
                 payload.Units.Add(new LyricTimingClipboard.UnitSpan
                 {
@@ -4257,9 +4196,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     Chars = unit.Text.Length,
                     Text = unit.Text,
                     Original = unit.Original, OriginalSplits = unit.OriginalSplits.Count == 0 ? null : unit.OriginalSplits,
-                    AutoFill = objects.AutoFill,
-                    Holds = objects.Holds,
-                    TypedLetters = LyricTimingClipboard.SpanLetters(unit),
+                    Holds = LyricTimingClipboard.SpanHolds(unit, anchor),
                     Boundaries = unit.SyllableBoundaries.Count == 0 ? null : unit.SyllableBoundaries.Select(b => b - anchor).ToList(),
                     Splits = unit.SyllableSplits.Count == 0 ? null : unit.SyllableSplits.ToList(),
                     Rests = unit.Pauses.Count == 0

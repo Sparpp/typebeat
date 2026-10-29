@@ -704,10 +704,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             private readonly Box body;
             private readonly Box progress;
 
-            // A selected auto-fill block is outlined rather than filled yellow.
-            private const float selection_outline_px = 2;
-            private bool selectionOutlined;
-
             // One label per SYLLABLE SEGMENT, positioned between the word's dotted lines: an
             // undivided word has exactly one (the whole word, centred, as it always was).
             private readonly Container labels;
@@ -849,22 +845,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 bool selected = activeLine && state.SelectedUnitIndices.Contains(index);
                 bool explicitTiming = unit.Source == TimingSource.Explicit;
 
-                // An auto-fill word keeps its blue fill while selected and shows the selection as an outline.
-                bool autoFill = unit.Objects.AutoFill;
-
-                body.Colour = autoFill
-                    ? TypeBeatStyle.AutoFillWord
-                    : selected ? TypeBeatStyle.Caret
+                body.Colour = selected
+                    ? TypeBeatStyle.Caret
                     : explicitTiming ? TypeBeatStyle.SungAccent.Darken(0.4f) : TypeBeatStyle.UntypedChar.Darken(0.2f);
-
-                bool outlined = selected && autoFill;
-
-                if (outlined != selectionOutlined)
-                {
-                    selectionOutlined = outlined;
-                    BorderColour = TypeBeatStyle.Caret;
-                    BorderThickness = outlined ? selection_outline_px : 0;
-                }
 
                 // Other lines' blocks stay visible but recede so the active line reads at a glance.
                 Alpha = activeLine ? 1f : 0.55f;

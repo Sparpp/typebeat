@@ -38,9 +38,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// song writes it, in its own script, written straight after <c>"text"</c> and only when it
     /// differs from it. Display and authoring data only; a word with an EMPTY text and an original is
     /// one the romaniser could not spell. See <see cref="LyricOriginals"/>.</item>
-    /// <item><c>"autofill":true</c>, <c>"autofill_letters":[1,4]</c> and
-    /// <c>"holds":[{"char":1,"start_ms":2100,"end_ms":2400,"ticks":[2200]}]</c> (format v3), on a word
-    /// object, each written only when set. See <see cref="WordObjects"/>.</item>
+    /// <item><c>"holds":[{"char":1,"start_ms":2100,"end_ms":2400,"ticks":[2200]}]</c> (format v3), on a
+    /// word object, written only when set. See <see cref="WordObjects"/>.</item>
     /// </list>
     /// </summary>
     public static class LyricOsuFormat
@@ -61,7 +60,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// (<see cref="LrcParser"/>, <see cref="TimingJsonLoader.TryParse"/> and the .osu writer's
         /// own sweep in <c>TimingJsonPostProcess.StripBackingVocalLines</c>), so a v2 file is already
         /// bracket-free unless a mapper typed the brackets in on purpose.</item>
-        /// <item><b>v3</b>: brackets as v2; word objects may carry auto-fill and holds.</item>
+        /// <item><b>v3</b>: brackets as v2; word objects may carry holds.</item>
         /// </list>
         ///
         /// <para>A v1 map re-saved from the editor comes back out as v2, and correctly so: its

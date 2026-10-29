@@ -38,18 +38,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// The mapper-authored objects a word carries beyond its timing. One record, so every unit rebuild
     /// carries them all with one assignment.
     /// </summary>
-    /// <param name="AutoFill">Only the word's onsets are typed; the rest completes itself.</param>
-    public sealed record WordObjects(bool AutoFill)
+    public sealed record WordObjects
     {
-        public static WordObjects None { get; } = new WordObjects(AutoFill: false);
+        public static WordObjects None { get; } = new WordObjects();
 
         /// <summary>The word's holds, in character order.</summary>
         public IReadOnlyList<WordHold> Holds { get; init; } = Array.Empty<WordHold>();
 
-        /// <summary>The letters of an auto-fill word the player types, as indices into the text.</summary>
-        public IReadOnlyList<int> TypedLetters { get; init; } = Array.Empty<int>();
-
-        public bool IsEmpty => !AutoFill && Holds.Count == 0 && TypedLetters.Count == 0;
+        public bool IsEmpty => Holds.Count == 0;
 
         /// <summary>These objects with each hold mapped linearly from the old word span to the new one.</summary>
         public WordObjects Retimed(double oldStart, double oldEnd, double newStart, double newEnd)
@@ -64,25 +60,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             return this with { Holds = Holds.Select(h => HoldTicks.Stretched(h, map(h.StartTime), map(h.EndTime))).ToArray() };
         }
 
-        /// <summary>These objects for a retyped word: holds and picks index characters, so a new spelling drops them.</summary>
+        /// <summary>These objects for a retyped word: holds index characters, so a new spelling drops them.</summary>
         public WordObjects ForText(string oldText, string newText)
-            => (Holds.Count == 0 && TypedLetters.Count == 0) || string.Equals(oldText, newText, StringComparison.Ordinal)
+            => Holds.Count == 0 || string.Equals(oldText, newText, StringComparison.Ordinal)
                 ? this
-                : this with { Holds = Array.Empty<WordHold>(), TypedLetters = Array.Empty<int>() };
+                : this with { Holds = Array.Empty<WordHold>() };
 
         public bool Equals(WordObjects? other)
-            => other is not null
-               && (ReferenceEquals(this, other)
-                   || (AutoFill == other.AutoFill && Holds.SequenceEqual(other.Holds) && TypedLetters.SequenceEqual(other.TypedLetters)));
+            => other is not null && (ReferenceEquals(this, other) || Holds.SequenceEqual(other.Holds));
 
-        public override int GetHashCode() => HashCode.Combine(AutoFill, Holds.Count, TypedLetters.Count);
+        public override int GetHashCode() => Holds.Count;
     }
 
     /// <summary>
     /// Submission of maps with word objects. The server rates holds as stored and cannot run
-    /// <see cref="HeldWord.UsableHolds"/> or <see cref="TypedLetters.UsablePicks"/>, so a map is submitted
-    /// only when every hold is one a play honours and every pick is one a play honours; otherwise the
-    /// rating and the play would disagree.
+    /// <see cref="HeldWord.UsableHolds"/>, so a map is submitted only when every hold is one a play
+    /// honours; otherwise the rating and the play would disagree.
     /// </summary>
     public static class WordObjectsSubmission
     {
@@ -102,21 +95,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         {
             var units = beatmap.HitObjects.OfType<TypeBeatHitObject>().SelectMany(h => h.Line.Units).Where(u => !u.Objects.IsEmpty).ToList();
             int holds = units.Sum(u => u.Objects.Holds.Count - HeldWord.UsableHolds(u).Count);
-            // Distinct authored picks, so a duplicated usable pick is not counted as unplayable.
-            int picks = units.Sum(u => u.Objects.TypedLetters.Distinct().Count() - TypedLetters.UsablePicks(u, Typeability.IsCell).Count);
 
-            if (holds == 0 && picks == 0)
+            if (holds == 0)
                 return null;
 
-            var parts = new List<string>();
-
-            if (holds > 0)
-                parts.Add($"{holds} hold{(holds == 1 ? string.Empty : "s")}");
-
-            if (picks > 0)
-                parts.Add($"{picks} picked letter{(picks == 1 ? string.Empty : "s")}");
-
-            return $"This map has {string.Join(" and ", parts)} that can't be played where {(holds + picks == 1 ? "it sits" : "they sit")}. "
+            return $"This map has {holds} hold{(holds == 1 ? string.Empty : "s")} that can't be played where {(holds == 1 ? "it sits" : "they sit")}. "
                    + "Fix or remove them in the lyric editor to submit it.";
         }
     }

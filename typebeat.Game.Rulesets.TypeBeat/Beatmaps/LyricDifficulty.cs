@@ -108,19 +108,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             public readonly bool Scored;
             public readonly double ExtraInputs;
 
-            /// <summary>
-            /// Which of the word's typed characters (in <see cref="PressIntervals"/>' order) the player
-            /// presses, or null when every one is. An auto-fill word presses only its onsets or its picks.
-            /// </summary>
-            public readonly bool[]? Pressed;
-
             /// <summary>The word's hold releases in real time, ascending, or null when it has none. Each is a press of its own.</summary>
             public readonly double[]? Releases;
 
             public double End => Start + Span;
 
             public Word(double start, double span, double cells, int lineIndex, string token, double[]? groups, double z, bool scored, double[]? groupEnds = null, double extraInputs = 0,
-                        bool[]? pressed = null, double[]? releases = null)
+                        double[]? releases = null)
             {
                 Start = start;
                 Span = span;
@@ -132,7 +126,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Z = z;
                 Scored = scored;
                 ExtraInputs = extraInputs;
-                Pressed = pressed;
                 Releases = releases;
             }
         }
@@ -470,110 +463,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 : unit.Objects.Holds.Where(h => h.Char >= 0 && h.Char < token.Length && h.EndTime > h.StartTime);
 
         /// <summary>
-        /// A character that is one keypress of its word on the rating's typed stream, the order
-        /// <see cref="PressIntervals"/> reads and <see cref="Word.Pressed"/> indexes: a fixed-key letter
-        /// or digit, a supported mark under Literate, or a freestyle slot. A space is not one (it is
-        /// untimed).
-        /// </summary>
-        internal static bool IsTypedChar(char c, bool literate)
-            => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
-               || (literate && Typeability.IsPunctuation(c)) || Typeability.IsFreestyle(c);
-
-        /// <summary>
-        /// Which typed characters of an AUTO-FILL word are pressed, null for any other word. The engine's
-        /// onsets-only rule read on the rating's own grouping: the first letter of the word and of each
-        /// authored group is pressed (a word with no authored groups presses its first letter only), or,
-        /// when the word has picks, exactly its picks. Freestyle slots and held characters are always
-        /// pressed; punctuation is completed.
-        ///
-        /// <para>The groups are cut by INDEX, as <see cref="PressIntervals"/> cuts them, not by the
-        /// authored syllables' text: "ri|ver" presses r and e here where the engine presses r and v.
-        /// The count is exact; the positions are approximate.</para>
-        /// </summary>
-        internal static bool[]? PressedMask(TimedUnit unit, string token, double[]? groups, bool literate)
-        {
-            if (!unit.Objects.AutoFill)
-                return null;
-
-            var typedAt = new List<int>(token.Length);
-
-            for (int k = 0; k < token.Length; k++)
-            {
-                if (IsTypedChar(token[k], literate))
-                    typedAt.Add(k);
-            }
-
-            int count = typedAt.Count;
-            var pressed = new bool[count];
-            var held = new HashSet<int>(RatedHolds(unit, token).Select(h => h.Char));
-            var picks = new HashSet<int>(unit.Objects.TypedLetters.Where(p => p >= 0 && p < token.Length && char.IsLetterOrDigit(token[p])));
-            bool authored = groups != null && groups.Length >= 2;
-            int segments = authored ? groups!.Length : 1;
-            int lastGroup = -1;
-
-            for (int j = 0; j < count; j++)
-            {
-                int k = typedAt[j];
-                bool freestyle = Typeability.IsFreestyle(token[k]);
-
-                if (!freestyle && !char.IsLetterOrDigit(token[k]))
-                    continue;
-
-                int group = authored ? Math.Min(segments - 1, j * segments / count) : 0;
-                bool onset = picks.Count > 0 ? picks.Contains(k) : group != lastGroup;
-                lastGroup = group;
-                pressed[j] = onset || freestyle || held.Contains(k);
-            }
-
-            return pressed;
-        }
-
-        /// <summary>
-        /// The keypresses a word asks for: <see cref="TypeableCellCount"/>, less an auto-fill word's
-        /// completed characters, plus one per hold release.
+        /// The keypresses a word asks for: <see cref="TypeableCellCount"/> plus one per hold release.
         /// </summary>
         internal static double PressCount(Word word, bool literate)
-        {
-            if (word.Pressed == null && word.Releases == null)
-                return TypeableCellCount(word.Token, literate);
-
-            double typed = word.Pressed?.Count(p => p) ?? TypeableCellCount(word.Token, literate);
-            return typed + (word.Releases?.Length ?? 0);
-        }
-
-        /// <summary>
-        /// The CHARACTER count the chunked axis's anchor reads (<c>ChunkedEndurance.CharsOf</c>: every
-        /// fixed-key character, plus the marks under Literate, never a freestyle slot) over only the
-        /// characters the player presses, so an auto-fill word's completed letters are not material.
-        /// No release is added: the anchor counts characters, not cells, and a release types none.
-        /// </summary>
-        internal static double PressedCharacters(Word word, bool literate)
-            => PressedWeight(word.Token, word.Pressed, literate, 0);
-
-        /// <summary>
-        /// The weighted sum of a token's PRESSED typed characters (<see cref="IsTypedChar"/>, indexed by
-        /// <paramref name="pressed"/>; null presses every one): one per letter, digit or mark, and
-        /// <paramref name="freestyleWeight"/> per freestyle slot. The word builder prices a slot at
-        /// <see cref="freestyle_cost_weight"/>; the chunked anchor at 0, since it counts characters only.
-        /// </summary>
-        internal static double PressedWeight(string token, bool[]? pressed, bool literate, double freestyleWeight)
-        {
-            double sum = 0;
-            int typedIndex = 0;
-
-            foreach (char c in token)
-            {
-                if (!IsTypedChar(c, literate))
-                    continue;
-
-                if (pressed == null || (typedIndex < pressed.Length && pressed[typedIndex]))
-                    sum += Typeability.IsFreestyle(c) ? freestyleWeight : 1;
-
-                typedIndex++;
-            }
-
-            return sum;
-        }
+            => TypeableCellCount(word.Token, literate) + (word.Releases?.Length ?? 0);
 
         /// <summary>
         /// The CHARACTER boundaries a map's timing actually has: every keypress's own point target on
@@ -914,24 +807,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     if (j < line.Units.Count && PolyglotDifficulty.SegmentsFor(line.Units[j]) is { Count: > 0 } segments)
                         inputSegments[words.Count] = segments;
 
-                    // WORD OBJECTS: an auto-fill word is rated on the letters typed, and each hold adds
-                    // its release as a press of its own.
+                    // WORD OBJECTS: each hold adds its release as a press of its own.
                     TimedUnit? objectsUnit = j < line.Units.Count && !line.Units[j].Objects.IsEmpty ? line.Units[j] : null;
-                    bool[]? pressed = objectsUnit == null ? null : PressedMask(objectsUnit, token, groups, literate);
                     double[]? releases = objectsUnit == null ? null : RatedHolds(objectsUnit, token).Select(h => h.EndTime / rate).OrderBy(t => t).ToArray();
 
                     if (releases is { Length: 0 })
                         releases = null;
 
-                    double cellMass = pressed == null
-                        ? chars + freestyle_cost_weight * freestyle
-                        : PressedWeight(token, pressed, literate, freestyle_cost_weight);
-
-                    cellMass += hold_release_weight * (releases?.Length ?? 0);
-
-                    // An auto-fill word's letters do not measure the typing it asks for.
-                    if (pressed != null)
-                        scored = false;
+                    double cellMass = chars + freestyle_cost_weight * freestyle + hold_release_weight * (releases?.Length ?? 0);
 
                     words.Add(new Word(
                         unitStart / rate,
@@ -943,7 +826,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         z,
                         scored,
                         groupEnds, j < line.Units.Count ? PolyglotDifficulty.ExtraInputs(line.Units[j]) : 0,
-                        pressed,
                         releases));
                 }
 
@@ -958,11 +840,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // by a line break rather than a spacebar press, so it gets none.
             for (int i = 0; i < words.Count; i++)
             {
-                // An auto-fill word's space completes itself (Pressed is set only on auto-fill words).
-                if (literate && i + 1 < words.Count && words[i + 1].LineIndex == words[i].LineIndex && words[i].Pressed == null)
+                if (literate && i + 1 < words.Count && words[i + 1].LineIndex == words[i].LineIndex)
                 {
                     Word w = words[i];
-                    words[i] = new Word(w.Start, w.Span, w.Cells + 1, w.LineIndex, w.Token, w.Groups, w.Z, w.Scored, w.GroupEnds, w.ExtraInputs, w.Pressed, w.Releases);
+                    words[i] = new Word(w.Start, w.Span, w.Cells + 1, w.LineIndex, w.Token, w.Groups, w.Z, w.Scored, w.GroupEnds, w.ExtraInputs, w.Releases);
                 }
             }
 
@@ -1030,14 +911,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 int index = wordIndices[owner >= 0 ? owner : firstWord];
 
                 Word word = words[index];
-
-                // An auto-fill word's own gaps and the space after it complete themselves (Pressed is set
-                // only on auto-fill words). A leading authored space is not after it, so it still counts.
-                if (owner >= 0 && word.Pressed != null)
-                    continue;
-
                 words[index] = new Word(word.Start, word.Span, word.Cells + 1, word.LineIndex,
-                    word.Token, word.Groups, word.Z, word.Scored, word.GroupEnds, word.ExtraInputs, word.Pressed, word.Releases);
+                    word.Token, word.Groups, word.Z, word.Scored, word.GroupEnds, word.ExtraInputs, word.Releases);
             }
         }
 
@@ -1085,7 +960,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Word timed = pause != 0
                     ? new Word(word.Start - pause, word.Span, word.Cells, word.LineIndex, word.Token,
                         word.Groups?.Select(g => g - pause).ToArray(), word.Z, word.Scored,
-                        word.GroupEnds?.Select(g => g - pause).ToArray(), word.ExtraInputs, word.Pressed,
+                        word.GroupEnds?.Select(g => g - pause).ToArray(), word.ExtraInputs,
                         word.Releases?.Select(r => r - pause).ToArray())
                     : word;
 
@@ -1126,7 +1001,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// </summary>
         private static void PressIntervals(Word word, double early, double late, bool literate, List<Interval> into, Shelter shelter)
         {
-            if (word.Pressed == null && word.Releases == null)
+            if (word.Releases == null)
             {
                 typedIntervals(word, early, late, literate, into, shelter);
                 return;
@@ -1136,13 +1011,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             typedIntervals(word, early, late, literate, all, shelter);
 
             // THE STREAM STAYS IN TIME ORDER: the complexity scan reads presses by index, so a release
-            // goes right after the last kept press whose POINT target is at or before it (ties after
+            // goes right after the last press whose POINT target is at or before it (ties after
             // the press). Placement reads the point targets, never the arm's widened intervals, so every
             // reading of the same word puts its releases at the same indices.
             var points = new List<Interval>();
             typedIntervals(word, 0, 0, literate, points, Shelter.Point);
 
-            double[] releases = word.Releases ?? Array.Empty<double>();
+            double[] releases = word.Releases;
             int[] after = new int[releases.Length];
 
             for (int r = 0; r < releases.Length; r++)
@@ -1151,7 +1026,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 for (int j = 0; j < all.Count; j++)
                 {
-                    if (isKept(j) && points[j].Lo <= releases[r])
+                    if (points[j].Lo <= releases[r])
                         after[r] = j;
                 }
             }
@@ -1170,24 +1045,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             for (int j = 0; j < all.Count; j++)
             {
-                if (!isKept(j))
-                    continue;
-
                 into.Add(all[j]);
                 addReleasesAfter(j);
             }
-
-            bool isKept(int j) => word.Pressed == null || (j < word.Pressed.Length && word.Pressed[j]);
         }
 
-        /// <summary>Every typed character's interval, masked or not.</summary>
+        /// <summary>Every typed character's interval.</summary>
         private static void typedIntervals(Word word, double early, double late, bool literate, List<Interval> into, Shelter shelter)
         {
             var typed = new List<char>(word.Token.Length);
 
             foreach (char c in word.Token)
             {
-                if (IsTypedChar(c, literate))
+                if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
+                    typed.Add(c);
+                else if (literate && Typeability.IsPunctuation(c))
+                    typed.Add(c);
+                else if (Typeability.IsFreestyle(c))
                     typed.Add(c);
             }
 

@@ -24,16 +24,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>Which lyric script the compose editor displays. This is a view choice, not a map edit.</summary>
         public readonly BindableBool ShowOriginalLyrics = new BindableBool();
 
-        /// <summary>While on, every word a line box commit adds or retypes is marked auto-fill.</summary>
-        public readonly BindableBool AutoFillTyping = new BindableBool();
-
         /// <summary>
-        /// The line box's last highlight, kept past the box losing focus to a button click. Dropped when
-        /// the word selection or the active line changes.
+        /// The character after the line box's last caret (or a one-character highlight), kept past the box
+        /// losing focus to a button click. Dropped when the word selection or the active line changes.
         /// </summary>
-        public TextWordSelection? TextWordSelection;
-
-        /// <summary>The character after the line box's last caret, kept and dropped like <see cref="TextWordSelection"/>.</summary>
         public TextCaretPosition? TextCaret;
 
         public LyricEditState()
@@ -44,7 +38,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         private void dropTextMarks()
         {
-            TextWordSelection = null;
             TextCaret = null;
         }
 
@@ -54,7 +47,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// </summary>
         private void dropTextHighlightUnlessSelectionIs(int primary, int lo, int hi)
         {
-            if (TextWordSelection == null && TextCaret == null)
+            if (TextCaret == null)
                 return;
 
             bool same = SelectedUnitIndex.Value == primary && SelectedUnitIndices.Count == System.Math.Max(0, hi - lo + 1);
@@ -409,10 +402,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         public bool HiddenByTapScope(TypeBeatHitObject line, int unitIndex)
             => TapScope != null && !TapScope.Covers(line, unitIndex);
     }
-
-    /// <summary>A line box highlight: the words it covered as spelled then, and its range of the box's text.</summary>
-    public sealed record TextWordSelection(TypeBeatHitObject Line, int FirstWord, int LastWord, string[] Words,
-                                           int StartOffset = 0, int Length = 0, string BoxText = "", bool[]? TickStars = null);
 
     /// <summary>A line box caret: the character after it and its word as spelled then.</summary>
     public sealed record TextCaretPosition(TypeBeatHitObject Line, int Word, int Char, string WordText);

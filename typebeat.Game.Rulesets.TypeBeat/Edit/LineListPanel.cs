@@ -563,17 +563,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     recordCaret(range is (int s, int l)
                         ? l == 1 && s < textBox.Text.Length && textBox.Text[s] != Typeability.SPLIT_MARKER && !stars[s] ? s : null
                         : TextBoxSelection.CaretOf(textBox), stars);
-
-                    if (state.ShowOriginalLyrics.Value || range is not (int start, int length)
-                                                       || AutoFillToggle.WordsInRange(textBox.Text, start, length) is not (int first, int last))
-                    {
-                        if (state.TextWordSelection?.Line == HitObject)
-                            state.TextWordSelection = null;
-                        return;
-                    }
-
-                    string[] words = HoldTickMarkers.PlainWords(textBox.Text, stars);
-                    state.TextWordSelection = new TextWordSelection(HitObject, first, last, words.Skip(first).Take(last - first + 1).ToArray(), start, length, textBox.Text, stars);
                 };
 
                 textBox.CaretChanged = caret => recordCaret(caret, HoldTickMarkers.TickStarMask(textBox.Text, HitObject.Line.Units));
@@ -614,7 +603,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 var (main, backing) = TypeBeatEditorOperations.SplitBackingSuffix(textBox.Text, lineText, HitObject.Line.BackingVocals.Count > 0);
 
                 editorBeatmap.BeginChange();
-                bool committed = main == lineText || TypeBeatEditorOperations.SetLineText(editorBeatmap, HitObject, main, state.AutoFillTyping.Value,
+                bool committed = main == lineText || TypeBeatEditorOperations.SetLineText(editorBeatmap, HitObject, main,
                     () => background.FlashColour(TypeBeatStyle.ErrorChar, 400, Easing.OutQuint));
 
                 if (committed && backing != null)
@@ -699,9 +688,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     restText = RestTextOf(restSource);
                     restGaps = RestGapsOf(restSource);
                     textBox.SetRestGaps(restGaps);
-                    textBox.AutoFillWords = originalView ? Array.Empty<bool>() : line.Units.Select(u => u.Objects.AutoFill).ToArray();
                     textBox.HeldChars = originalView ? Array.Empty<bool[]>() : line.Units.Select(u => charMask(u, HeldWord.UsableHolds(u).Select(h => h.Char))).ToArray();
-                    textBox.PickedLetters = originalView ? Array.Empty<bool[]>() : line.Units.Select(u => charMask(u, TypedLetters.UsablePicks(u, Typeability.IsCell))).ToArray();
                     textBox.Units = originalView ? Array.Empty<TimedUnit>() : line.Units;
 
                     builtLine = line;
@@ -911,11 +898,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 /// <summary>Raised with the caret's index when a caret move or click places it while the box has focus.</summary>
                 public Action<int?>? CaretChanged;
 
-                // Set by the row: per word, whether it is auto-fill; per word and character (pipes skipped),
-                // whether it is held or a picked letter; and the line's words, for finding tick marks.
-                public bool[] AutoFillWords = Array.Empty<bool>();
+                // Set by the row: per word and character (pipes skipped), whether it is held; and the line's
+                // words, for finding tick marks.
                 public bool[][] HeldChars = Array.Empty<bool[]>();
-                public bool[][] PickedLetters = Array.Empty<bool[]>();
                 public IReadOnlyList<TimedUnit> Units = Array.Empty<TimedUnit>();
 
                 private bool[] tickStars = Array.Empty<bool>();
@@ -947,7 +932,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 {
                     base.UpdateAfterChildren();
 
-                    // Colour auto-fill words, held letters and their tick marks, and picked letters.
+                    // Colour held letters and their tick marks.
                     // The tick mask is re-read only when the text or line changes.
                     if (!ReferenceEquals(tickStarsText, Text) || !ReferenceEquals(tickStarsUnits, Units))
                     {
@@ -963,7 +948,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     for (int i = 0; i < glyphs.Count && i < Text.Length; i++)
                     {
                         bool held = false;
-                        bool picked = false;
 
                         char ch = Text[i];
 
@@ -977,13 +961,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                         else if (ch != Typeability.SPLIT_MARKER)
                         {
                             held = word < HeldChars.Length && charInWord < HeldChars[word].Length && HeldChars[word][charInWord];
-                            picked = word < PickedLetters.Length && charInWord < PickedLetters[word].Length && PickedLetters[word][charInWord];
                             charInWord++;
                         }
 
-                        ColourInfo glyphColour = held ? TypeBeatStyle.HoldChar
-                            : picked ? TypeBeatStyle.AutoFillPickedLetter
-                            : word < AutoFillWords.Length && AutoFillWords[word] ? TypeBeatStyle.AutoFillWord : Color4.White;
+                        ColourInfo glyphColour = held ? TypeBeatStyle.HoldChar : Color4.White;
 
                         if (!glyphs[i].Colour.Equals(glyphColour))
                             glyphs[i].Colour = glyphColour;

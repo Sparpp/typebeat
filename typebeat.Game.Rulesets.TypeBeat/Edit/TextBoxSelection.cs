@@ -8,7 +8,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
     /// <summary>
     /// A <see cref="TextBox"/>'s highlighted range, which the framework keeps private, so it is read by
-    /// reflection (pinned by <c>AutoFillToggleTest</c>). An unreadable box reports no selection.
+    /// reflection. An unreadable box reports no selection.
     /// </summary>
     public static class TextBoxSelection
     {

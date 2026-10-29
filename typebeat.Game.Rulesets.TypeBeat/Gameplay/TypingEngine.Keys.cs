@@ -73,12 +73,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (tryPressOnAFinishedLine(ref press, out bool consumed))
                 return consumed;
 
-            // A space where spaces are completed (Shorthand, or just past an auto-fill word) is habit, so inert.
-            // After the finished-line branch, so the spacebar still works as the manual newline there.
+            // Shorthand completes every space, so a pressed one is habit, and inert. After the
+            // finished-line branch, so the spacebar still works as the manual newline there.
             if (Shorthand && press.Char == ' ')
-                return false;
-
-            if (press.Char == ' ' && caretIndex > 0 && press.Line.Cells[caretIndex - 1] is { IsAutoCompleted: true, Expected: ' ' })
                 return false;
 
             // The press is going to do something, so the player is typing on this line; if the song

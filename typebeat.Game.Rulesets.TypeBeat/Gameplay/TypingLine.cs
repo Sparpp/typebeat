@@ -60,7 +60,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public bool IsCountable => IsTypeable && Expected != ' ';
 
-        /// <summary>A character completed for the player (Shorthand, auto-fill): built non-typeable, drawn darker.</summary>
+        /// <summary>A character completed for the player (Shorthand): built non-typeable, drawn darker.</summary>
         public bool IsAutoCompleted { get; }
 
         /// <summary>A letter the player types in an onsets-only word, drawn a step brighter.</summary>
@@ -792,7 +792,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// lazy aligned build the engine's setter uses, so the result is cell for cell what a live
         /// engine holds.</para>
         ///
-        /// <para>Word objects (auto-fill, holds) apply here; a line without them flattens as before.</para>
+        /// <para>Word objects (holds) apply here; a line without them flattens as before.</para>
         /// </summary>
         public static TypingLine FromLyricLine(LyricLine line, bool literate = false, bool alignSubdivisionTargets = false, bool shorthand = false)
             => withTargetEra(build(line, literate, CellRules.Default, null, null, shorthand: shorthand, wordObjects: true), alignSubdivisionTargets);
@@ -815,7 +815,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// are cells (<see cref="Typeability.IsPolyglotCell"/>), any script's punctuation is a
         /// Literate cell, and the default stream drops every other character. On a line with no
         /// original anywhere the cells are the romanised ones, byte for byte.
-        /// Word objects are ignored here: auto-fill words are typed in full and holds are plain presses.
+        /// Word objects are ignored here: holds are plain presses.
         /// </summary>
         /// <param name="line">The authored line.</param>
         /// <param name="literate">The Literate mod: case and punctuation of whichever text is played.</param>
@@ -1049,24 +1049,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             // Word objects. A hold adds no cut, so the groupings above are unchanged by them.
             Dictionary<int, WordHold>? heldCells = null;
-            (HashSet<int> Picked, HashSet<int> Words)? picked = null;
-            (int Token, int Offset)[]? positions = null;
 
             if (wordObjects && units.Any(u => !u.Objects.IsEmpty))
-            {
-                positions = cellPositions(tokens, n, cells.Length, defaultSources);
-                heldCells = heldCellsOf(units, positions, cells, rules.IsCell);
-                picked = pickedCellsOf(units, positions, cells, rules.IsCell);
-            }
+                heldCells = heldCellsOf(units, cellPositions(tokens, n, cells.Length, defaultSources), cells, rules.IsCell);
 
             // Last, so the groupings were cut from the full cell list: this only decides which cells are pressed.
             if (shorthand)
-                cells = applyOnsetsOnly(cells, authored, _ => true, completeSpaces: true, heldCells, picked?.Picked, picked?.Words);
-            else if (positions is { } cellPos && units.Any(u => u.Objects.AutoFill))
-            {
-                cells = applyOnsetsOnly(cells, authored, i => cellPos[i].Token >= 0 && cellPos[i].Token < units.Count && units[cellPos[i].Token].Objects.AutoFill,
-                    completeSpaces: false, heldCells, picked?.Picked, picked?.Words);
-            }
+                cells = applyOnsetsOnly(cells, authored, heldCells);
 
             if (heldCells != null)
             {
@@ -1090,22 +1079,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         }
 
         /// <summary>
-        /// Onsets only: of the cells <paramref name="applies"/> to, only the first letter of each word and of
-        /// each <paramref name="authored"/> syllable stays typed ("This is a li|ne" is typed "tialn"); the rest
-        /// is completed. Freestyle slots and held cells stay typed; a word with picks types only its picks.
-        /// Shorthand completes every space (<paramref name="completeSpaces"/>); an auto-fill word completes
-        /// the space after it. Targets do not move, so no era bit is needed.
+        /// SHORTHAND, onsets only: only the first letter of each word and of each <paramref name="authored"/>
+        /// syllable stays typed ("This is a li|ne" is typed "tialn"); the rest, every space included, is
+        /// completed. Freestyle slots and held cells stay typed. Targets do not move, so no era bit is needed.
         /// </summary>
-        private static TypingCell[] applyOnsetsOnly(TypingCell[] cells, SyllableGrouping authored, Func<int, bool> applies, bool completeSpaces,
-                                                    IReadOnlyDictionary<int, WordHold>? heldCells, ISet<int>? pickedCells, ISet<int>? pickedWordCells)
+        private static TypingCell[] applyOnsetsOnly(TypingCell[] cells, SyllableGrouping authored, IReadOnlyDictionary<int, WordHold>? heldCells)
         {
             var result = new TypingCell[cells.Length];
 
             // The group of the last letter in the current word; null at a word start.
             int? lastGroup = null;
-
-            // Whether the last non-space cell was in an applied word, whose following space is completed.
-            bool afterAppliedWord = false;
 
             for (int i = 0; i < cells.Length; i++)
             {
@@ -1114,13 +1097,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 if (cell.Expected == ' ')
                 {
                     lastGroup = null;
-                    result[i] = (completeSpaces || afterAppliedWord) && cell.IsTypeable ? TypingCell.AutoCompleted(cell) : cell;
+                    result[i] = cell.IsTypeable ? TypingCell.AutoCompleted(cell) : cell;
                     continue;
                 }
 
-                afterAppliedWord = applies(i);
-
-                if (!cell.IsTypeable || !afterAppliedWord)
+                if (!cell.IsTypeable)
                 {
                     result[i] = cell;
                     continue;
@@ -1133,11 +1114,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 }
 
                 int group = authored.IndexOf(i);
-
-                // A word with picks types only its picks.
-                bool onset = pickedWordCells?.Contains(i) == true
-                    ? pickedCells!.Contains(i)
-                    : lastGroup == null || (group >= 0 && group != lastGroup);
+                bool onset = lastGroup == null || (group >= 0 && group != lastGroup);
 
                 lastGroup = group;
 
@@ -1205,33 +1182,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             }
 
             return result;
-        }
-
-        /// <summary>
-        /// The typeable cells usable picks land on, and every cell of a word with at least one such pick;
-        /// null when there are none.
-        /// </summary>
-        private static (HashSet<int> Picked, HashSet<int> Words)? pickedCellsOf(IReadOnlyList<TimedUnit> units, (int Token, int Offset)[] positions, TypingCell[] cells, Func<char, bool> isCell)
-        {
-            HashSet<int>? picked = null;
-            var picks = new IReadOnlyList<int>?[units.Count];
-
-            for (int i = 0; i < cells.Length; i++)
-            {
-                var (m, offset) = positions[i];
-
-                if (!cells[i].IsTypeable || m < 0 || m >= units.Count || units[m].Objects.TypedLetters.Count == 0)
-                    continue;
-
-                if ((picks[m] ??= TypedLetters.UsablePicks(units[m], isCell)).Contains(offset))
-                    (picked ??= new HashSet<int>()).Add(i);
-            }
-
-            if (picked == null)
-                return null;
-
-            var pickedWords = picked.Select(i => positions[i].Token).ToHashSet();
-            return (picked, Enumerable.Range(0, cells.Length).Where(i => pickedWords.Contains(positions[i].Token)).ToHashSet());
         }
 
         /// <summary>Per cell, its whitespace token (an index into the line's units) and offset in it; (-1, -1) for an inter-word space.</summary>

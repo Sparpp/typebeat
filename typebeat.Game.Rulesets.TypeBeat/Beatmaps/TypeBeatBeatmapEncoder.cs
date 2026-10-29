@@ -213,19 +213,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                             }
 
                             // Word objects, written as authored and only when set, so existing maps keep their bytes.
-                            if (unit.Objects.AutoFill)
-                                json.WriteBoolean("autofill", true);
-
-                            if (unit.Objects.TypedLetters.Count > 0)
-                            {
-                                json.WriteStartArray("autofill_letters");
-
-                                foreach (int pick in unit.Objects.TypedLetters)
-                                    json.WriteNumberValue(pick);
-
-                                json.WriteEndArray();
-                            }
-
                             if (unit.Objects.Holds.Count > 0)
                             {
                                 json.WriteStartArray("holds");

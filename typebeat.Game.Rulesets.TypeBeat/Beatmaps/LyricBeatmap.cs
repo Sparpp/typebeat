@@ -667,7 +667,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>Explicit cut links override inferred readings, including custom romanizations.</summary>
         public IReadOnlyList<OriginalLyricSplit> OriginalSplits { get; init; } = Array.Empty<OriginalLyricSplit>();
 
-        /// <summary>The word's mapper-authored objects (auto-fill, holds).</summary>
+        /// <summary>The word's mapper-authored objects (holds).</summary>
         public WordObjects Objects { get; init; } = WordObjects.None;
 
         /// <summary>This word with <paramref name="objects"/> in place of its own.</summary>

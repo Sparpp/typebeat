@@ -79,9 +79,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         public override double ScoreMultiplier => 1.0;
 #pragma warning restore CS0672
 
-        public override LocalisableString UnavailableReason => "This map uses auto-fill words or holds";
+        public override LocalisableString UnavailableReason => "This map uses holds";
 
-        /// <summary>Unavailable on maps with word objects: letters in any order have no onset to complete or letter to hold.</summary>
+        /// <summary>Unavailable on maps with word objects: letters in any order have no letter to hold.</summary>
         public override bool IsAvailableFor(IWorkingBeatmap? beatmap)
         {
             if (beatmap == null)

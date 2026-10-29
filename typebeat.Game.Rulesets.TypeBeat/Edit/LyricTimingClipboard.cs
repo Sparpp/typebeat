@@ -137,17 +137,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             [JsonProperty("rests", NullValueHandling = NullValueHandling.Ignore)]
             public List<RestSpan>? Rests;
 
-            /// <summary><see cref="WordObjects.AutoFill"/>, or null when unset. Only word pastes read it.</summary>
-            [JsonProperty("autofill", NullValueHandling = NullValueHandling.Ignore)]
-            public bool? AutoFill;
-
             /// <summary><see cref="WordObjects.Holds"/> as offsets from the payload's reference point, or null.</summary>
             [JsonProperty("holds", NullValueHandling = NullValueHandling.Ignore)]
             public List<HoldSpan>? Holds;
-
-            /// <summary><see cref="WordObjects.TypedLetters"/>, or null.</summary>
-            [JsonProperty("autofill_letters", NullValueHandling = NullValueHandling.Ignore)]
-            public List<int>? TypedLetters;
         }
 
         public class HoldSpan
@@ -165,36 +157,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             public List<double>? Ticks;
         }
 
-        /// <summary>A word's auto-fill flag and holds (as offsets from <paramref name="origin"/>) in copied form.</summary>
-        public static (bool? AutoFill, List<HoldSpan>? Holds) SpanObjects(TimedUnit unit, double origin)
-            => (unit.Objects.AutoFill ? true : null,
-                unit.Objects.Holds.Count == 0 ? null : unit.Objects.Holds.Select(h => new HoldSpan
+        /// <summary>A word's holds, as offsets from <paramref name="origin"/>, in copied form; null when it has none.</summary>
+        public static List<HoldSpan>? SpanHolds(TimedUnit unit, double origin)
+            => unit.Objects.Holds.Count == 0
+                ? null
+                : unit.Objects.Holds.Select(h => new HoldSpan
                 {
                     Char = h.Char,
                     Start = h.StartTime - origin,
                     End = h.EndTime - origin,
                     Ticks = h.Ticks.Count == 0 ? null : h.Ticks.Select(t => t - origin).ToList(),
-                }).ToList());
-
-        public static List<int>? SpanLetters(TimedUnit unit)
-            => unit.Objects.TypedLetters.Count == 0 ? null : unit.Objects.TypedLetters.ToList();
+                }).ToList();
 
         /// <summary>The word objects a pasted <paramref name="span"/> brings, its holds placed relative to <paramref name="origin"/>.</summary>
         public static WordObjects ObjectsOf(UnitSpan span, double origin)
         {
-            var objects = span.AutoFill == true ? new WordObjects(AutoFill: true) : WordObjects.None;
-
-            // Picks exist only on auto-fill words.
-            if (span.AutoFill == true && span.TypedLetters is { Count: > 0 })
-                objects = objects with { TypedLetters = span.TypedLetters.ToArray() };
-
             if (span.Holds == null || span.Holds.Count == 0)
-                return objects;
+                return WordObjects.None;
 
-            return objects with { Holds = span.Holds.Select(h => new WordHold(h.Char, origin + h.Start, origin + h.End)
+            return new WordObjects
             {
-                Ticks = h.Ticks?.Select(t => origin + t).ToArray() ?? Array.Empty<double>(),
-            }).ToArray() };
+                Holds = span.Holds.Select(h => new WordHold(h.Char, origin + h.Start, origin + h.End)
+                {
+                    Ticks = h.Ticks?.Select(t => origin + t).ToArray() ?? Array.Empty<double>(),
+                }).ToArray(),
+            };
         }
 
         /// <summary>One copied backing vocal (backlog 445), its times relative to its line's start.</summary>

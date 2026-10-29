@@ -104,13 +104,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             int cut = left.Text.Length;
             var merged = new TimedUnit
             {
-                Objects = new WordObjects(left.Objects.AutoFill || right.Objects.AutoFill)
+                Objects = new WordObjects
                 {
                     Holds = left.Objects.Holds.Concat(right.Objects.Holds.Select(h => h with { Char = h.Char + cut })).ToArray(),
-                    // Picks survive only when both sides have them, so the joined word is never half-picked.
-                    TypedLetters = left.Objects.AutoFill && right.Objects.AutoFill && left.Objects.TypedLetters.Count > 0 && right.Objects.TypedLetters.Count > 0
-                        ? left.Objects.TypedLetters.Concat(right.Objects.TypedLetters.Select(i => i + cut)).ToArray()
-                        : Array.Empty<int>(),
                 },
                 Text = left.Text + right.Text,
                 Original = left.Original == null && right.Original == null ? null : (left.Original ?? left.Text) + (right.Original ?? right.Text),
