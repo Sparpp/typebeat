@@ -121,8 +121,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         // (positions are re-polled, but a HANDLE appearing or vanishing needs a rebuild). The LyricLine
         // the signature was last checked against rides along: a line is immutable, so while the
         // reference is unchanged the counts cannot have moved and the frame skips recounting them.
-        private readonly List<(TypeBeatHitObject hitObject, LyricLine line, string rawText, int unitCount, int[] syllableCount, int[] pauseCount, int backingCount)> displayed
-            = new List<(TypeBeatHitObject, LyricLine, string, int, int[], int[], int)>();
+        private readonly List<(TypeBeatHitObject hitObject, LyricLine line, string rawText, int unitCount, int[] syllableCount, int[] pauseCount, int backingCount, int[][] heldChars)> displayed
+            = new List<(TypeBeatHitObject, LyricLine, string, int, int[], int[], int, int[][])>();
 
         // The idle editor re-polls every child each frame, so nothing on that path may allocate: the
         // sort is cached, and each layer's children are held in typed lists filled by rebuild()
@@ -133,6 +133,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private readonly List<BoundaryHandle> boundaryHandles = new List<BoundaryHandle>();
         private readonly List<SyllableHandle> syllableHandles = new List<SyllableHandle>();
         private readonly List<PauseRegion> pauseRegions = new List<PauseRegion>();
+        private readonly List<HoldRegion> holdRegions = new List<HoldRegion>();
         private readonly Func<double, float> positionOf;
 
         private bool edgeHovered;
@@ -311,8 +312,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             updateBackingVocalLayout();
             updateTrackDim();
 
+            for (int i = 0; i < holdRegions.Count; i++)
+                holdRegions[i].UpdateLayout(this);
+
             // A live tap-timing pass has committed nothing yet; its taps show as ghosts on top.
             ghostLayer.UpdateGhosts(state.TapSession?.Taps, positionOf);
+            ghostLayer.UpdateHold(state.TapHoldStart, editorClock.CurrentTime, positionOf);
 
             double now = editorClock.CurrentTime;
             bool playheadVisible = now >= windowStart && now <= windowStart + windowLength;
@@ -328,7 +333,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             for (int i = 0; i < ordered.Count; i++)
             {
-                var (hitObject, line, rawText, unitCount, syllableCount, pauseCount, backingCount) = displayed[i];
+                var (hitObject, line, rawText, unitCount, syllableCount, pauseCount, backingCount, heldChars) = displayed[i];
 
                 if (ordered[i] != hitObject)
                     return true;
@@ -344,14 +349,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 for (int unit = 0; unit < unitCount; unit++)
                 {
                     if (ordered[i].Line.Units[unit].SyllableBoundaries.Count != syllableCount[unit]
-                        || ordered[i].Line.Units[unit].Pauses.Count != pauseCount[unit])
+                        || ordered[i].Line.Units[unit].Pauses.Count != pauseCount[unit]
+                        || !SameHeldChars(ordered[i].Line.Units[unit], heldChars[unit]))
                     {
                         return true;
                     }
                 }
 
                 // Retimed in place (a drag): the same handles, so no rebuild; remember the new line.
-                displayed[i] = (hitObject, current, rawText, unitCount, syllableCount, pauseCount, backingCount);
+                displayed[i] = (hitObject, current, rawText, unitCount, syllableCount, pauseCount, backingCount, heldChars);
             }
 
             return false;
@@ -371,6 +377,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             boundaryHandles.Clear();
             syllableHandles.Clear();
             pauseRegions.Clear();
+            holdRegions.Clear();
 
             for (int i = 0; i < ordered.Count; i++)
             {
@@ -378,7 +385,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 displayed.Add((hitObject, hitObject.Line, hitObject.Line.RawText, hitObject.Line.Units.Count,
                     hitObject.Line.Units.Select(unit => unit.SyllableBoundaries.Count).ToArray(),
                     hitObject.Line.Units.Select(unit => unit.Pauses.Count).ToArray(),
-                    hitObject.Line.BackingVocals.Count));
+                    hitObject.Line.BackingVocals.Count,
+                    hitObject.Line.Units.Select(HeldCharsOf).ToArray()));
 
                 bandLayer.Add(add(bands, new LineBand(this, hitObject, i)));
 
@@ -398,6 +406,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     // reason: a rest is adjusted in place, not as a word move.
                     for (int p = 0; p < hitObject.Line.Units[j].Pauses.Count; p++)
                         handleLayer.Add(add(pauseRegions, new PauseRegion(this, hitObject, j, p)));
+
+                    foreach (var hold in HeldWord.UsableHolds(hitObject.Line.Units[j]))
+                        handleLayer.Add(add(holdRegions, new HoldRegion(this, hitObject, j, hold.Char, HoldTicks.UsableTicks(hold).Length)));
                 }
 
                 // ONE boundary per line start: dragging it moves this line's start and the

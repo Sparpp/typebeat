@@ -798,7 +798,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 // The TYPEABLE count is read on the stream the play is typed in, so a Literate play
                 // counts the punctuation marks its cells do, exactly as judgementWindows does in the
                 // sandbox; the judgement windows themselves follow the arm.
-                double cells = LyricDifficulty.TypeableCellCount(word.Token, literate);
+                double cells = LyricDifficulty.PressCount(word, literate);
                 wordWindows[i] = JudgementWindows(word, cells, Arm(settings).Shelter);
                 wordTypeable[i] = Math.Max(1, cells);
             }

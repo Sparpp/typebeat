@@ -200,6 +200,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         private double judgedDeltaFor(TypingLine line, int cellIndex, double time)
         {
+            // The letter after a held one, pressed inside its hold's release slack, is on time.
+            if (inHandoffWindow(line, cellIndex, time))
+                return 0;
+
             var (start, end) = JudgedSpanOf(line, cellIndex);
 
             if (time < start)

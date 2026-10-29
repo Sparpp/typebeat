@@ -25,6 +25,41 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         public readonly BindableBool ShowOriginalLyrics = new BindableBool();
 
         /// <summary>
+        /// The character after the line box's last caret (or a one-character highlight), kept past the box
+        /// losing focus to a button click. Dropped when the word selection or the active line changes.
+        /// </summary>
+        public TextCaretPosition? TextCaret;
+
+        public LyricEditState()
+        {
+            ActiveLine.BindValueChanged(_ => dropTextMarks());
+            SelectedUnitIndex.BindValueChanged(_ => dropTextMarks());
+        }
+
+        private void dropTextMarks()
+        {
+            TextCaret = null;
+        }
+
+        /// <summary>
+        /// Drops the text marks unless the word selection is already the run [<paramref name="lo"/>,
+        /// <paramref name="hi"/>] with <paramref name="primary"/> as its primary word.
+        /// </summary>
+        private void dropTextHighlightUnlessSelectionIs(int primary, int lo, int hi)
+        {
+            if (TextCaret == null)
+                return;
+
+            bool same = SelectedUnitIndex.Value == primary && SelectedUnitIndices.Count == System.Math.Max(0, hi - lo + 1);
+
+            for (int i = lo; same && i <= hi; i++)
+                same = SelectedUnitIndices.Contains(i);
+
+            if (!same)
+                dropTextMarks();
+        }
+
+        /// <summary>
         /// All multi-selected lines (Ctrl/Shift+click in the line list). Contains
         /// <see cref="SelectedLine"/> whenever a multi-selection exists; empty when only the
         /// single primary selection (or playhead follow) is in effect. Polled by the line list.
@@ -179,6 +214,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>Selects a single unit, replacing any multi-selection.</summary>
         public void SelectUnit(int index)
         {
+            dropTextHighlightUnlessSelectionIs(index, System.Math.Max(index, 0), index);
             SelectedUnitIndices.Clear();
 
             if (index >= 0)
@@ -193,6 +229,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>Selects every word unit in the active line, or clears the selection for an empty line.</summary>
         public void SelectAllUnits(int unitCount)
         {
+            dropTextHighlightUnlessSelectionIs(unitCount > 0 ? unitCount - 1 : -1, 0, unitCount - 1);
             SelectedUnitIndices.Clear();
             SelectMainTrack();
 
@@ -210,6 +247,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             SelectMainTrack();
 
+            // Always a change: the word's membership flips.
+            dropTextMarks();
+
             if (!SelectedUnitIndices.Add(index))
                 SelectedUnitIndices.Remove(index);
 
@@ -221,11 +261,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>Selects the contiguous run between the anchor and <paramref name="index"/> (Shift+click).</summary>
         public void SelectUnitRange(int anchor, int index)
         {
-            SelectedUnitIndices.Clear();
-            SelectMainTrack();
-
             int lo = System.Math.Min(anchor, index);
             int hi = System.Math.Max(anchor, index);
+
+            dropTextHighlightUnlessSelectionIs(index, System.Math.Max(lo, 0), hi);
+            SelectedUnitIndices.Clear();
+            SelectMainTrack();
 
             for (int i = lo; i <= hi; i++)
             {
@@ -255,6 +296,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>Clears the word-unit selection (e.g. when the active line changes).</summary>
         public void ClearUnitSelection()
         {
+            dropTextHighlightUnlessSelectionIs(-1, 0, -1);
             SelectedUnitIndices.Clear();
             SelectedUnitIndex.Value = -1;
         }
@@ -338,6 +380,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// </summary>
         public TapTimingSession? TapSession;
 
+        /// <summary>The time of a tap whose key is held past the hold threshold, drawn as a growing ghost bar.</summary>
+        public double? TapHoldStart;
+
         /// <summary>
         /// The section the live pass is timing, or null when not recording. Set and cleared by
         /// <see cref="TapTimingOverlay"/> alongside <see cref="TapSession"/>; read by every surface
@@ -357,4 +402,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         public bool HiddenByTapScope(TypeBeatHitObject line, int unitIndex)
             => TapScope != null && !TapScope.Covers(line, unitIndex);
     }
+
+    /// <summary>A line box caret: the character after it and its word as spelled then.</summary>
+    public sealed record TextCaretPosition(TypeBeatHitObject Line, int Word, int Char, string WordText);
 }

@@ -107,6 +107,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 Text = unit.Text, Original = original, StartTime = unit.StartTime, EndTime = unit.EndTime,
                 Source = changed.Source, Confidence = changed.Confidence,
                 SyllableSplits = combined.Select(c => c.Cut).ToArray(), SyllableBoundaries = combined.Select(c => c.Time).ToArray(), Pauses = pauses,
+                Objects = unit.Objects,
             };
             // A moved shared cut retains its time unless it crosses a hidden cut. New cuts, or
             // crossed cuts, divide the gaps between the surviving romanized timing anchors.
@@ -118,6 +119,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 Text = unit.Text, Original = original, StartTime = unit.StartTime, EndTime = unit.EndTime,
                 Source = unit.Source, Confidence = unit.Confidence,
                 SyllableSplits = unit.SyllableSplits, SyllableBoundaries = unit.SyllableBoundaries, Pauses = pauses,
+                Objects = unit.Objects,
             };
             var allCuts = combined.Select(c => c.Cut).Concat(pauses.Select(p => p.SplitChar)).Distinct().OrderBy(c => c).ToArray();
             return withChangedPipeCount(anchors, allCuts) ?? unit;

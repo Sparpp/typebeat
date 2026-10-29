@@ -91,6 +91,7 @@ namespace typebeat.Game.Rulesets.TypeBeat
                 new TypeBeatModNoFail(),
                 new TypeBeatModHalfTime(),
                 new TypeBeatModDaycore(),
+                new TypeBeatModShorthand(),
             },
             ModType.DifficultyIncrease => new Mod[]
             {
@@ -172,9 +173,11 @@ namespace typebeat.Game.Rulesets.TypeBeat
 
         /// <summary>
         /// A map holding words the romaniser could not spell (backlog 330) is saved and played
-        /// locally but not submitted: see <see cref="LyricOriginals.SubmissionRefusal"/>.
+        /// locally but not submitted: see <see cref="LyricOriginals.SubmissionRefusal"/>, or words
+        /// carrying objects a play would not honour: see <see cref="WordObjectsSubmission"/>.
         /// </summary>
-        public override string? GetSubmissionRefusal(IBeatmap beatmap) => LyricOriginals.SubmissionRefusal(beatmap);
+        public override string? GetSubmissionRefusal(IBeatmap beatmap)
+            => LyricOriginals.SubmissionRefusal(beatmap) ?? WordObjectsSubmission.Refusal(beatmap);
 
         /// <summary>
         /// Drain counts gameplay only (backlog 423): the lyric span minus every instrumental stretch

@@ -68,6 +68,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// </summary>
         private const double freestyle_cost_weight = 0.25;
 
+        /// <summary>
+        /// What one hold's RELEASE is worth, as a fraction of an ordinary cell: a keypress with a real
+        /// deadline and no letter to find, which is how freestyle is priced too.
+        /// </summary>
+        private const double hold_release_weight = 0.5;
+
         private const double density_epsilon = 1e-9;
 
         /// <summary>Maps longer than this (at the selected rate) are refused rather than rated.</summary>
@@ -102,9 +108,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             public readonly bool Scored;
             public readonly double ExtraInputs;
 
+            /// <summary>The word's hold releases in real time, ascending, or null when it has none. Each is a press of its own.</summary>
+            public readonly double[]? Releases;
+
             public double End => Start + Span;
 
-            public Word(double start, double span, double cells, int lineIndex, string token, double[]? groups, double z, bool scored, double[]? groupEnds = null, double extraInputs = 0)
+            public Word(double start, double span, double cells, int lineIndex, string token, double[]? groups, double z, bool scored, double[]? groupEnds = null, double extraInputs = 0,
+                        double[]? releases = null)
             {
                 Start = start;
                 Span = span;
@@ -116,6 +126,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Z = z;
                 Scored = scored;
                 ExtraInputs = extraInputs;
+                Releases = releases;
             }
         }
 
@@ -440,6 +451,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             return cells;
         }
+
+        /// <summary>
+        /// The holds the rating credits: on a character of the word, ending after they start, on a word
+        /// without pauses (which honours none). Submission refuses any hold a play would not honour, so
+        /// for a submitted map these are exactly the played holds.
+        /// </summary>
+        internal static IEnumerable<WordHold> RatedHolds(TimedUnit unit, string token)
+            => unit.Pauses.Count > 0
+                ? Enumerable.Empty<WordHold>()
+                : unit.Objects.Holds.Where(h => h.Char >= 0 && h.Char < token.Length && h.EndTime > h.StartTime);
+
+        /// <summary>
+        /// The keypresses a word asks for: <see cref="TypeableCellCount"/> plus one per hold release.
+        /// </summary>
+        internal static double PressCount(Word word, bool literate)
+            => TypeableCellCount(word.Token, literate) + (word.Releases?.Length ?? 0);
 
         /// <summary>
         /// The CHARACTER boundaries a map's timing actually has: every keypress's own point target on
@@ -779,16 +806,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     wordIndices[j] = words.Count;
                     if (j < line.Units.Count && PolyglotDifficulty.SegmentsFor(line.Units[j]) is { Count: > 0 } segments)
                         inputSegments[words.Count] = segments;
+
+                    // WORD OBJECTS: each hold adds its release as a press of its own.
+                    TimedUnit? objectsUnit = j < line.Units.Count && !line.Units[j].Objects.IsEmpty ? line.Units[j] : null;
+                    double[]? releases = objectsUnit == null ? null : RatedHolds(objectsUnit, token).Select(h => h.EndTime / rate).OrderBy(t => t).ToArray();
+
+                    if (releases is { Length: 0 })
+                        releases = null;
+
+                    double cellMass = chars + freestyle_cost_weight * freestyle + hold_release_weight * (releases?.Length ?? 0);
+
                     words.Add(new Word(
                         unitStart / rate,
                         Math.Max(unitEnd - unitStart, spanFloorMs) / rate,
-                        chars + freestyle_cost_weight * freestyle,
+                        cellMass,
                         li,
                         token,
                         groups,
                         z,
                         scored,
-                        groupEnds, j < line.Units.Count ? PolyglotDifficulty.ExtraInputs(line.Units[j]) : 0));
+                        groupEnds, j < line.Units.Count ? PolyglotDifficulty.ExtraInputs(line.Units[j]) : 0,
+                        releases));
                 }
 
                 if (!literate)
@@ -805,7 +843,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 if (literate && i + 1 < words.Count && words[i + 1].LineIndex == words[i].LineIndex)
                 {
                     Word w = words[i];
-                    words[i] = new Word(w.Start, w.Span, w.Cells + 1, w.LineIndex, w.Token, w.Groups, w.Z, w.Scored, w.GroupEnds, w.ExtraInputs);
+                    words[i] = new Word(w.Start, w.Span, w.Cells + 1, w.LineIndex, w.Token, w.Groups, w.Z, w.Scored, w.GroupEnds, w.ExtraInputs, w.Releases);
                 }
             }
 
@@ -874,7 +912,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 Word word = words[index];
                 words[index] = new Word(word.Start, word.Span, word.Cells + 1, word.LineIndex,
-                    word.Token, word.Groups, word.Z, word.Scored, word.GroupEnds, word.ExtraInputs);
+                    word.Token, word.Groups, word.Z, word.Scored, word.GroupEnds, word.ExtraInputs, word.Releases);
             }
         }
 
@@ -922,7 +960,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Word timed = pause != 0
                     ? new Word(word.Start - pause, word.Span, word.Cells, word.LineIndex, word.Token,
                         word.Groups?.Select(g => g - pause).ToArray(), word.Z, word.Scored,
-                        word.GroupEnds?.Select(g => g - pause).ToArray(), word.ExtraInputs)
+                        word.GroupEnds?.Select(g => g - pause).ToArray(), word.ExtraInputs,
+                        word.Releases?.Select(r => r - pause).ToArray())
                     : word;
 
                 // Each keypress carries its OWN weight, fixed BEFORE the search: an easy keypress
@@ -961,6 +1000,58 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// space is untimed, so it appears in no interval.</para>
         /// </summary>
         private static void PressIntervals(Word word, double early, double late, bool literate, List<Interval> into, Shelter shelter)
+        {
+            if (word.Releases == null)
+            {
+                typedIntervals(word, early, late, literate, into, shelter);
+                return;
+            }
+
+            var all = new List<Interval>();
+            typedIntervals(word, early, late, literate, all, shelter);
+
+            // THE STREAM STAYS IN TIME ORDER: the complexity scan reads presses by index, so a release
+            // goes right after the last press whose POINT target is at or before it (ties after
+            // the press). Placement reads the point targets, never the arm's widened intervals, so every
+            // reading of the same word puts its releases at the same indices.
+            var points = new List<Interval>();
+            typedIntervals(word, 0, 0, literate, points, Shelter.Point);
+
+            double[] releases = word.Releases;
+            int[] after = new int[releases.Length];
+
+            for (int r = 0; r < releases.Length; r++)
+            {
+                after[r] = -1;
+
+                for (int j = 0; j < all.Count; j++)
+                {
+                    if (points[j].Lo <= releases[r])
+                        after[r] = j;
+                }
+            }
+
+            // A release is point-judged under every arm: no shelter moves it.
+            void addReleasesAfter(int j)
+            {
+                for (int r = 0; r < releases.Length; r++)
+                {
+                    if (after[r] == j)
+                        into.Add(new Interval(releases[r] - early, releases[r] + late));
+                }
+            }
+
+            addReleasesAfter(-1);
+
+            for (int j = 0; j < all.Count; j++)
+            {
+                into.Add(all[j]);
+                addReleasesAfter(j);
+            }
+        }
+
+        /// <summary>Every typed character's interval.</summary>
+        private static void typedIntervals(Word word, double early, double late, bool literate, List<Interval> into, Shelter shelter)
         {
             var typed = new List<char>(word.Token.Length);
 

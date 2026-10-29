@@ -330,6 +330,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             base.LoadComplete();
 
             Engine.Rewound += onRewound;
+            Engine.HoldTickJudged += onHoldTickJudged;
+            Engine.HoldTailJudged += onHoldTailJudged;
 
             // The cell RESULTS and COMBO's result-less writes (the typo, rush-cap, word-skip and
             // back-dated seal breaks, the restore, the mistype count and the combo-neutral marks) go
@@ -416,6 +418,50 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // TypeBeatHealthFeed's (attached in LoadComplete, on this same event), which is what keeps
             // a FIXED typo costing exactly what it did before: nothing beyond what the corrected
             // retype earns.
+        }
+
+        /// <summary>A hold tick takes its own result; a never-opened hold's are marked neutral first (see <see cref="onHoldTailJudged"/>).</summary>
+        private void onHoldTickJudged(HoldTickJudgement judgement)
+        {
+            lineDrawables.TryGetValue(judgement.LineIndex, out var line);
+
+            if (judgement.Neutral && line != null && cellWasDueBeforeThePlayStarted(judgement.LineIndex, line, judgement.CellIndex))
+            {
+                line.ApplyHoldTickResult(judgement.CellIndex, judgement.TickIndex, HitResult.LargeTickHit);
+                return;
+            }
+
+            if (judgement.Neutral)
+            {
+                (scoreProcessor as TypeBeatScoreProcessor)?.MarkTickComboNeutral(judgement.LineIndex, judgement.CellIndex, judgement.TickIndex);
+                TypeBeatHealthFeed.OnHoldTickJudged(healthProcessor as TypeBeatHealthProcessor, judgement);
+            }
+
+            line?.ApplyHoldTickJudgement(judgement);
+        }
+
+        /// <summary>
+        /// A hold tail takes its own result, which moves combo by itself. A seal Miss (head never pressed) is
+        /// marked combo- and HP-neutral first, since the head took the break. In a test play started past the
+        /// head, it is granted instead, as <see cref="applySealResults"/> grants the head.
+        /// </summary>
+        private void onHoldTailJudged(HoldTailJudgement judgement)
+        {
+            lineDrawables.TryGetValue(judgement.LineIndex, out var line);
+
+            if (judgement.AtSeal && line != null && cellWasDueBeforeThePlayStarted(judgement.LineIndex, line, judgement.CellIndex))
+            {
+                line.ApplyHoldTailResult(judgement.CellIndex, HitResult.Great);
+                return;
+            }
+
+            if (judgement.AtSeal)
+            {
+                (scoreProcessor as TypeBeatScoreProcessor)?.MarkTailComboNeutral(judgement.LineIndex, judgement.CellIndex);
+                TypeBeatHealthFeed.OnHoldTailJudged(healthProcessor as TypeBeatHealthProcessor, judgement);
+            }
+
+            line?.ApplyHoldTailJudgement(judgement);
         }
 
         // A backspace taking a wrong character back out of its cell (TypingEngine.TypoErased, backlog
@@ -532,13 +578,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// forward.
         /// Health is not re-derived here because, unlike the mistype count, the engine does not hold
         /// an authoritative total to copy: HP is the health processor's own running account.</para>
+        ///
+        /// <para>The health processor's HP-neutral hold marks are dropped for the same reason.</para>
         /// </summary>
-        private void onRewound() => (scoreProcessor as TypeBeatScoreProcessor)?.ResyncAfterRewind(Engine.Mistypes, Engine);
+        private void onRewound()
+        {
+            (scoreProcessor as TypeBeatScoreProcessor)?.ResyncAfterRewind(Engine.Mistypes, Engine);
+            (healthProcessor as TypeBeatHealthProcessor)?.ClearNeutralLedgersAfterRewind();
+        }
 
         protected override void Dispose(bool isDisposing)
         {
             Engine.Rewound -= onRewound;
             comboFeed?.Dispose();
+            Engine.HoldTickJudged -= onHoldTickJudged;
+            Engine.HoldTailJudged -= onHoldTailJudged;
             healthFeed?.Dispose();
             base.Dispose(isDisposing);
         }

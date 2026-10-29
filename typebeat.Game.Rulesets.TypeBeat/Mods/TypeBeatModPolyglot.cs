@@ -76,6 +76,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         public override bool IsLocalOnlyFor(BeatmapInfo? beatmap)
             => beatmap?.Metadata.Language is BeatmapLanguage.Chinese or BeatmapLanguage.Korean;
 
+        /// <summary>See <see cref="TypeBeatModShorthand.IncompatibleMods"/>.</summary>
+        public override Type[] IncompatibleMods => new[] { typeof(TypeBeatModShorthand) };
+
         public override bool ValidForMultiplayer => false;
 
         public override bool ValidForMultiplayerAsFreeMod => false;

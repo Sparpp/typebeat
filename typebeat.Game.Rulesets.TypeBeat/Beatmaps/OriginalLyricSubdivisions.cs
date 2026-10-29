@@ -59,6 +59,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Source = unit.Source, Confidence = unit.Confidence,
                 SyllableBoundaries = unit.SyllableBoundaries, SyllableSplits = unit.SyllableSplits, Pauses = unit.Pauses,
                 OriginalSplits = kept.ToArray(),
+                Objects = unit.Objects,
             };
         }
 
@@ -129,6 +130,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Text = text, Original = unit.Original, OriginalSplits = unit.OriginalSplits, StartTime = unit.StartTime, EndTime = unit.EndTime,
                 Source = unit.Source, Confidence = unit.Confidence,
                 SyllableBoundaries = boundaries, SyllableSplits = splits, Pauses = pauses,
+                Objects = unit.Objects.ForText(unit.Text, text),
             };
     }
 }

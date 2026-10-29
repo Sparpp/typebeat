@@ -212,6 +212,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         IReadOnlyList<JapaneseInputJudgement>? Inputs = null, bool Upgraded = false);
 
     /// <summary>
+    /// One hold's release. <paramref name="AtSeal"/> marks the seal's Miss for a head never pressed, which
+    /// is combo- and HP-neutral since the head already took the break.
+    /// </summary>
+    public readonly record struct HoldTailJudgement(int LineIndex, int CellIndex, JudgementType Type, double ReleaseTime, int ComboAfter, bool AtSeal);
+
+    /// <summary>
+    /// One hold tick. <paramref name="Hit"/>: the hold was down at <paramref name="Time"/>.
+    /// <paramref name="Neutral"/> marks the misses of a hold that never opened, neutral like <see cref="HoldTailJudgement.AtSeal"/>.
+    /// </summary>
+    public readonly record struct HoldTickJudgement(int LineIndex, int CellIndex, int TickIndex, bool Hit, double Time, int ComboAfter, bool Neutral);
+
+    /// <summary>
     /// One sealed line. <paramref name="ComboBroken"/> says the line ran out of time on at least one
     /// cell nobody typed, which is the seal's one combo break;
     /// <paramref name="SurvivingCombo"/> is the run the engine is left holding AFTER that break, i.e.

@@ -233,6 +233,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             var wordPauses = new List<List<(double Start, double End, int Split)>>();
             var wordOriginals = new List<string?>();
             var wordOriginalSplits = new List<List<OriginalLyricSplit>>();
+            var wordObjects = new List<WordObjects>();
 
             if (lineElement.TryGetProperty("words", out JsonElement wordsElement)
                 && wordsElement.ValueKind == JsonValueKind.Array)
@@ -333,6 +334,40 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     }
 
                     wordPauses.Add(pauses);
+
+                    // Word objects, read as written (holds are validated at play time).
+                    var holds = new List<WordHold>();
+
+                    if (wordElement.TryGetProperty("holds", out JsonElement holdsEl) && holdsEl.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (JsonElement holdEl in holdsEl.EnumerateArray())
+                        {
+                            if (holdEl.ValueKind == JsonValueKind.Object
+                                && holdEl.TryGetProperty("char", out JsonElement hc) && tryGetInt(hc, out int holdChar)
+                                && holdEl.TryGetProperty("start_ms", out JsonElement hs) && tryGetDouble(hs, out double holdStart)
+                                && holdEl.TryGetProperty("end_ms", out JsonElement he) && tryGetDouble(he, out double holdEnd))
+                            {
+                                var hold = new WordHold(holdChar, holdStart, holdEnd);
+
+                                if (holdEl.TryGetProperty("ticks", out JsonElement ticksEl) && ticksEl.ValueKind == JsonValueKind.Array)
+                                {
+                                    var ticks = new List<double>();
+
+                                    foreach (JsonElement tickEl in ticksEl.EnumerateArray())
+                                    {
+                                        if (tryGetDouble(tickEl, out double tick))
+                                            ticks.Add(tick);
+                                    }
+
+                                    hold = hold with { Ticks = ticks.ToArray() };
+                                }
+
+                                holds.Add(hold);
+                            }
+                        }
+                    }
+
+                    wordObjects.Add(holds.Count == 0 ? WordObjects.None : new WordObjects { Holds = holds.ToArray() });
                 }
             }
 
@@ -355,7 +390,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 wordOriginalSplits.Exists(o => o.Count > 0) ? wordOriginalSplits : null,
                 // THE BACKING VOCALS (backlog 445): display-only words, read raw here and fitted into
                 // the line's window by BuildLines, the only place that knows the window.
-                Beatmaps.BackingVocals.Read(lineElement));
+                Beatmaps.BackingVocals.Read(lineElement),
+                wordObjects.Exists(o => !o.IsEmpty) ? wordObjects : null);
             return true;
         }
 
@@ -459,7 +495,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 if (tokens.Length == paired.Words.Count && tokens.Length > 0)
                 {
-                    units = buildExplicitUnits(tokens, paired.Words, paired.WordSplits, paired.WordPauses, pipes, start, end, paired.WordOriginals);
+                    units = buildExplicitUnits(tokens, paired.Words, paired.WordSplits, paired.WordPauses, pipes, start, end, paired.WordOriginals, paired.WordObjects);
                     if (line.WordOriginalSplits != null)
                     {
                         var links = line.WordOriginalSplits.Where((_, index) => !IsUnromanisedWord(line, index)).ToArray();
@@ -505,7 +541,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// such word comes back with its own lists, untouched.
         /// </summary>
         private static (List<(string Text, double Start, double End, double Score, List<double> Syllables)> Words,
-            List<List<int>>? WordSplits, List<List<(double Start, double End, int Split)>>? WordPauses, List<string?>? WordOriginals)
+            List<List<int>>? WordSplits, List<List<(double Start, double End, int Split)>>? WordPauses, List<string?>? WordOriginals,
+            List<WordObjects>? WordObjects)
             pairedWords(RawLine line, List<(int Before, int Index)> unromanised)
         {
             bool any = false;
@@ -514,12 +551,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 any = IsUnromanisedWord(line, i);
 
             if (!any)
-                return (line.Words, line.WordSplits, line.WordPauses, line.WordOriginals);
+                return (line.Words, line.WordSplits, line.WordPauses, line.WordOriginals, line.WordObjects);
 
             var words = new List<(string Text, double Start, double End, double Score, List<double> Syllables)>();
             var splits = line.WordSplits == null ? null : new List<List<int>>();
             var pauses = line.WordPauses == null ? null : new List<List<(double Start, double End, int Split)>>();
             var originals = new List<string?>();
+            var objects = line.WordObjects == null ? null : new List<WordObjects>();
 
             for (int i = 0; i < line.Words.Count; i++)
             {
@@ -533,9 +571,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 splits?.Add(i < line.WordSplits!.Count ? line.WordSplits[i] : new List<int>());
                 pauses?.Add(i < line.WordPauses!.Count ? line.WordPauses[i] : new List<(double, double, int)>());
                 originals.Add(line.WordOriginals![i]);
+                objects?.Add(i < line.WordObjects!.Count ? line.WordObjects[i] : WordObjects.None);
             }
 
-            return (words, splits, pauses, originals);
+            return (words, splits, pauses, originals, objects);
         }
 
         /// <summary>
@@ -564,6 +603,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     SyllableBoundaries = u.SyllableBoundaries,
                     SyllableSplits = u.SyllableSplits,
                     Pauses = u.Pauses,
+                    Objects = u.Objects,
                     Original = original,
                 }
                 : u).ToArray();
@@ -597,7 +637,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             IReadOnlyList<IReadOnlyList<int>> pipes,
             double lineStart,
             double lineEnd,
-            List<string?>? wordOriginals = null)
+            List<string?>? wordOriginals = null,
+            List<WordObjects>? wordObjects = null)
         {
             var units = new List<TimedUnit>(tokens.Length);
             double prevEnd = lineStart;
@@ -673,6 +714,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     Pauses = keptPauses,
                     // Display data only (backlog 330); kept exactly as written.
                     Original = wordOriginals != null && m < wordOriginals.Count ? wordOriginals[m] : null,
+                    Objects = wordObjects != null && m < wordObjects.Count ? wordObjects[m] : WordObjects.None,
                 });
 
                 prevEnd = we;
@@ -716,6 +758,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// derived word) and is null when the line authored none, which is every line of every map
         /// written before backlog 181. It rides beside the word tuple rather than inside it so the
         /// tuple's shape, and therefore every existing construction of this struct, is unchanged.
+        /// <paramref name="WordObjects"/> is parallel to <paramref name="Words"/> like the splits, and null when no word carries an object.
         /// </summary>
         public readonly record struct RawLine(
             string Text,
@@ -729,6 +772,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             string? Original = null,
             List<string?>? WordOriginals = null,
             List<List<OriginalLyricSplit>>? WordOriginalSplits = null,
-            List<BackingVocal>? BackingVocals = null);
+            List<BackingVocal>? BackingVocals = null,
+            List<WordObjects>? WordObjects = null);
     }
 }

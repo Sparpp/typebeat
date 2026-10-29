@@ -136,6 +136,52 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             /// <summary><see cref="TimedUnit.Pauses"/>, or null for a word with no authored rest.</summary>
             [JsonProperty("rests", NullValueHandling = NullValueHandling.Ignore)]
             public List<RestSpan>? Rests;
+
+            /// <summary><see cref="WordObjects.Holds"/> as offsets from the payload's reference point, or null.</summary>
+            [JsonProperty("holds", NullValueHandling = NullValueHandling.Ignore)]
+            public List<HoldSpan>? Holds;
+        }
+
+        public class HoldSpan
+        {
+            [JsonProperty("char")]
+            public int Char;
+
+            [JsonProperty("start")]
+            public double Start;
+
+            [JsonProperty("end")]
+            public double End;
+
+            [JsonProperty("ticks", NullValueHandling = NullValueHandling.Ignore)]
+            public List<double>? Ticks;
+        }
+
+        /// <summary>A word's holds, as offsets from <paramref name="origin"/>, in copied form; null when it has none.</summary>
+        public static List<HoldSpan>? SpanHolds(TimedUnit unit, double origin)
+            => unit.Objects.Holds.Count == 0
+                ? null
+                : unit.Objects.Holds.Select(h => new HoldSpan
+                {
+                    Char = h.Char,
+                    Start = h.StartTime - origin,
+                    End = h.EndTime - origin,
+                    Ticks = h.Ticks.Count == 0 ? null : h.Ticks.Select(t => t - origin).ToList(),
+                }).ToList();
+
+        /// <summary>The word objects a pasted <paramref name="span"/> brings, its holds placed relative to <paramref name="origin"/>.</summary>
+        public static WordObjects ObjectsOf(UnitSpan span, double origin)
+        {
+            if (span.Holds == null || span.Holds.Count == 0)
+                return WordObjects.None;
+
+            return new WordObjects
+            {
+                Holds = span.Holds.Select(h => new WordHold(h.Char, origin + h.Start, origin + h.End)
+                {
+                    Ticks = h.Ticks?.Select(t => origin + t).ToArray() ?? Array.Empty<double>(),
+                }).ToArray(),
+            };
         }
 
         /// <summary>One copied backing vocal (backlog 445), its times relative to its line's start.</summary>

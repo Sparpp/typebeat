@@ -23,6 +23,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Judgements
         public override HitResult MaxResult => HitResult.Great;
     }
 
+    /// <summary>A hold's release, weighted like a cell.</summary>
+    public class TypeBeatHoldTailJudgement : Rulesets.Judgements.Judgement
+    {
+        public override HitResult MaxResult => HitResult.Great;
+    }
+
+    /// <summary>A hold tick: lazer's slider-tick pair.</summary>
+    public class TypeBeatHoldTickJudgement : Rulesets.Judgements.Judgement
+    {
+        public override HitResult MaxResult => HitResult.LargeTickHit;
+    }
+
     /// <summary>
     /// Scoring info for the line container object itself: scoring-inert (the nested cells carry
     /// all score/accuracy weight); applied on seal so osu sees the line resolve.

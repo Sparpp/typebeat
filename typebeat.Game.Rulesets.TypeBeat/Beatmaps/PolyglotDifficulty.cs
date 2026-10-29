@@ -35,12 +35,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         internal static IReadOnlyList<LyricLine> LinesFor(IEnumerable<LyricLine> source, IReadOnlyList<Mod>? mods, string? language = null, bool forPace = false)
         {
             var lines = source as IReadOnlyList<LyricLine> ?? source.ToArray();
-            if (!PolyglotRatingSupport.Enabled(mods) || !PolyglotRatingSupport.Supports(lines, mods, language))
+            if (!PolyglotRatingSupport.Enabled(mods))
+                return lines;
+            // Polyglot plays no word object (TypingLine.ForMods), so its rating reads none.
+            lines = withoutWordObjects(lines);
+            if (!PolyglotRatingSupport.Supports(lines, mods, language))
                 return lines;
             language = PolyglotRatingSupport.LanguageFor(lines, language);
             bool japanese = JapaneseReading.IsJapanese(language);
             bool literate = Scoring.PerformancePoints.IsLiterate(mods);
             return lines.Select(line => project(line, language, literate, japanese, forPace)).ToArray();
+        }
+
+        /// <summary><paramref name="lines"/> with every word's objects dropped; the same list when no word has any.</summary>
+        private static IReadOnlyList<LyricLine> withoutWordObjects(IReadOnlyList<LyricLine> lines)
+        {
+            if (lines.All(line => line.Units.All(u => u.Objects.IsEmpty)))
+                return lines;
+            return lines.Select(line => line.Units.All(u => u.Objects.IsEmpty) ? line : new LyricLine
+            {
+                RawText = line.RawText, Original = line.Original, Units = line.Units.Select(u => u.Objects.IsEmpty ? u : u.WithObjects(WordObjects.None)).ToArray(),
+                UnromanisedWords = line.UnromanisedWords, StartTime = line.StartTime, EndTime = line.EndTime, SingEndTime = line.SingEndTime,
+                SealGraceMs = line.SealGraceMs, Estimated = line.Estimated, BackingVocals = line.BackingVocals,
+            }).ToArray();
         }
 
         private static LyricLine project(LyricLine line, string? language, bool literate, bool japanese, bool forPace)

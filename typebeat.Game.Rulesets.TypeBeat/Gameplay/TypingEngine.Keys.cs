@@ -73,6 +73,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (tryPressOnAFinishedLine(ref press, out bool consumed))
                 return consumed;
 
+            // Shorthand completes every space, so a pressed one is habit, and inert. After the
+            // finished-line branch, so the spacebar still works as the manual newline there.
+            if (Shorthand && press.Char == ' ')
+                return false;
+
             // The press is going to do something, so the player is typing on this line; if the song
             // has not reached it yet, that is the instant the WPM clock starts counting (backlog 222,
             // see clockRunsFrom). Placed here, above every branch below, so it is one site and no
@@ -539,6 +544,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private bool judgeACorrectKey(ref KeyPress press)
         {
             consecutiveWrongKeys = 0;
+            closeHoldHandedOff(activeLineIndex, press.TargetIndex, press.Time);
+
             resumeStreakIfThisRedeemsTheBreak(press.TargetIndex);
 
             // A retype keeps the existing award unless its timing earns a higher tier.
@@ -740,6 +747,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             advanceCaretToFrontier();
 
             raise(CharJudged, new CharJudgement(activeLineIndex, judgedCellIndex, type, press.Delta, combo, Upgraded: upgraded));
+            openHoldIfHeld(activeLineIndex, judgedCellIndex, press.Time);
             if (JapaneseCharacterTiming && press.Cell.EndTargetTime is double endTarget && press.Cell.FirstEndDelta == null)
             {
                 double endTime = japaneseCommitEndTime ?? press.Time;

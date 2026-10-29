@@ -178,7 +178,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         internal osu.Framework.Graphics.Primitives.Quad JudgementBarScreenQuad(int index) => judgementColourBars[index].ScreenSpaceDrawQuad;
 
         internal JudgementIndicatorMode JudgementIndicator => judgementIndicator;
-        internal float FloatingBarAlpha(int index) => index >= 0 && index < floatingBars.Length ? floatingBars[index].Alpha : 0;
+        internal float FloatingBarAlpha(int index) => index >= 0 && index < floatingBars.Length ? floatingBars[index].BarAlpha : 0;
         internal ColourInfo FloatingBarColour(int index) => floatingBars[index].Colour;
         internal osu.Framework.Graphics.Primitives.Quad FloatingBarScreenQuad(int index) => floatingBars[index].ScreenSpaceDrawQuad;
         internal float PaceBlendWidth(int index) => sweepBlends[index].Width;

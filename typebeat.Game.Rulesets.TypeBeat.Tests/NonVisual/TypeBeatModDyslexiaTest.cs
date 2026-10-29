@@ -195,14 +195,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// mashing rewrites the press into the CARET cell's expected character before the word is
         /// ever searched, so on an ordinary word the scan can only ever return the caret and the mod
         /// does nothing at all. (A freestyle slot is exempt from that rewrite, which is the one place
-        /// the pair would not even be inert, and the same declaration covers it.)
+        /// the pair would not even be inert, and the same declaration covers it.) Shorthand is the other:
+        /// with every space completed, letters in any order would turn the whole line into one word.
         /// </summary>
         [Test]
-        public void IsIncompatibleWithMashingAndNothingElse()
+        public void IsIncompatibleWithMashingAndShorthandOnly()
         {
             var mod = new TypeBeatModDyslexia();
 
-            Assert.AreEqual(new[] { typeof(TypeBeatModMashing) }, mod.IncompatibleMods);
+            Assert.AreEqual(new[] { typeof(TypeBeatModMashing), typeof(TypeBeatModShorthand) }, mod.IncompatibleMods);
             Assert.IsFalse(ModUtils.CheckCompatibleSet(new Mod[] { new TypeBeatModDyslexia(), new TypeBeatModMashing() }));
 
             Assert.IsTrue(ModUtils.CheckCompatibleSet(new Mod[] { new TypeBeatModDyslexia(), new TypeBeatModGatekeeper() }));
@@ -213,7 +214,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             foreach (var other in ruleset.AllMods.OfType<Mod>())
             {
-                if (other is TypeBeatModMashing)
+                if (other is TypeBeatModMashing or TypeBeatModShorthand)
                     continue;
 
                 Assert.IsFalse(other.IncompatibleMods.Any(t => t.IsAssignableFrom(typeof(TypeBeatModDyslexia))),

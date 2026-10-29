@@ -1,9 +1,11 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System.Collections.Generic;
 using osu.Framework.Utils;
 using typebeat.Game.Rulesets.Judgements;
 using typebeat.Game.Rulesets.Scoring;
+using typebeat.Game.Rulesets.TypeBeat.Objects;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 {
@@ -72,6 +74,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// back one miss and a player who resumes typing climbs back to full.
         /// </summary>
         public const double MISS_HEALTH_DRAIN = 0.0225;
+
+        // Hold ticks follow lazer's slider-tick ratios: a hit heals like a Great, a miss drains half a Miss.
+        public const double TICK_HEALTH_INCREASE = GREAT_HEALTH_INCREASE;
+        public const double TICK_MISS_HEALTH_DRAIN = MISS_HEALTH_DRAIN / 2;
 
         /// <summary>
         /// HP drained by a single rejected wrong key. Sized so an uninterrupted mash from full empties
@@ -203,8 +209,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             Health.Value += MISS_HEALTH_DRAIN * cells;
         }
 
+        /// <summary>
+        /// Hold tails (tick -1) and ticks whose result moves nothing on the bar: those of a hold that never
+        /// opened, whose head already drained. Marked before the result is applied.
+        /// </summary>
+        private readonly HashSet<(int Line, int Cell, int Tick)> healthNeutralHoldParts = new HashSet<(int, int, int)>();
+
+        public void MarkTickHealthNeutral(int lineIndex, int cellIndex, int tickIndex) => healthNeutralHoldParts.Add((lineIndex, cellIndex, tickIndex));
+
+        public void MarkTailHealthNeutral(int lineIndex, int cellIndex) => healthNeutralHoldParts.Add((lineIndex, cellIndex, -1));
+
+        /// <summary>Drops the neutral marks after a rewind; each is made again when re-judged.</summary>
+        public void ClearNeutralLedgersAfterRewind() => healthNeutralHoldParts.Clear();
+
+        protected override void Reset(bool storeResults)
+        {
+            base.Reset(storeResults);
+            healthNeutralHoldParts.Clear();
+        }
+
         protected override double GetHealthIncreaseFor(JudgementResult result)
         {
+            if (TypeBeatResultMapping.HoldPartKey(result.HitObject) is { } holdPart && healthNeutralHoldParts.Contains(holdPart))
+                return 0;
+
             switch (result.Type)
             {
                 case HitResult.Great:
@@ -218,6 +246,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
                 case HitResult.Miss:
                     return -MISS_HEALTH_DRAIN;
+
+                case HitResult.LargeTickHit:
+                    return TICK_HEALTH_INCREASE;
+
+                case HitResult.LargeTickMiss:
+                    return -TICK_MISS_HEALTH_DRAIN;
 
                 // An uncorrected typo, which is an osu HIT and would therefore RECOVER health on the
                 // stock table (backlog 125: between 124 and 126 it did, so a player who typed

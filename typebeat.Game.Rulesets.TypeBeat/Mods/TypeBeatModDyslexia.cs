@@ -3,7 +3,9 @@
 
 using System;
 using osu.Framework.Localisation;
+using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.Mods;
+using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Mods
@@ -68,7 +70,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// FREESTYLE slot is exempt from mashing's rewrite, so the pair would not even be reliably
         /// inert.
         /// </summary>
-        public override Type[] IncompatibleMods => new[] { typeof(TypeBeatModMashing) };
+        public override Type[] IncompatibleMods => new[] { typeof(TypeBeatModMashing), typeof(TypeBeatModShorthand) };
 
         // Legacy self-report only; the authoritative multiplier lives in the non-obsolete
         // TypeBeatScoreMultiplierCalculator, which leaves this mod unlisted (i.e. 1.0x) on purpose.
@@ -76,6 +78,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 #pragma warning disable CS0672 // Member overrides obsolete member
         public override double ScoreMultiplier => 1.0;
 #pragma warning restore CS0672
+
+        public override LocalisableString UnavailableReason => "This map uses holds";
+
+        /// <summary>Unavailable on maps with word objects: letters in any order have no letter to hold.</summary>
+        public override bool IsAvailableFor(IWorkingBeatmap? beatmap)
+        {
+            if (beatmap == null)
+                return true;
+
+            try
+            {
+                return !WordObjectsSubmission.UsesWordObjects(beatmap.Beatmap);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
 
         public void ApplyToEngine(TypingEngine engine) => engine.AnyOrderWithinWord = true;
     }

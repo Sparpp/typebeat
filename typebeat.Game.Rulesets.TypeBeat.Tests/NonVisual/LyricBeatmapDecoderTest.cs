@@ -141,8 +141,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             string osuText = LyricOsuFormat.GenerateOsu("An Artist", "A Title", "audio.mp3", "tester", bracket_timing_json);
 
             // The writer stamps the current version, and it is the version that decides this.
-            Assert.That(osuText, Does.StartWith($"{LyricBeatmapDecoder.MAGIC}2"));
-            Assert.That(LyricOsuFormat.FORMAT_VERSION, Is.EqualTo(2));
+            Assert.That(osuText, Does.StartWith($"{LyricBeatmapDecoder.MAGIC}3"));
+            Assert.That(LyricOsuFormat.FORMAT_VERSION, Is.EqualTo(3));
 
             var hitObjects = decode(osuText).HitObjects.OfType<TypeBeatHitObject>().ToList();
 
@@ -198,14 +198,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The migration, stated as a pin: opening a v1 map and saving it writes a v2 file that is
+        /// The migration, stated as a pin: opening a v1 map and saving it writes a current-version file that is
         /// bracket-free, because the brackets were stripped when it was decoded. So the version
         /// number a map carries only ever moves forward, and it moves together with the reading its
         /// text was already given. Saving does not resurrect a backing vocal, and it does not leave
-        /// a v2 file that would have to be read as v1.
+        /// a current-version file that would have to be read as v1.
         /// </summary>
         [Test]
-        public void AResavedV1MapComesOutAsBracketFreeV2()
+        public void AResavedV1MapComesOutAsBracketFreeV3()
         {
             string v1 = atFormatVersion(LyricOsuFormat.GenerateOsu("An Artist", "A Title", "audio.mp3", "tester", bracket_timing_json), 1);
 
@@ -213,7 +213,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             TypeBeatBeatmapEncoder.Encode(decode(v1), writer);
             string resaved = writer.ToString();
 
-            Assert.That(resaved, Does.StartWith($"{LyricBeatmapDecoder.MAGIC}2"));
+            Assert.That(resaved, Does.StartWith($"{LyricBeatmapDecoder.MAGIC}3"));
 
             // No round bracket anywhere in the file (the square ones are the section headers).
             Assert.That(resaved, Does.Not.Contain("("), "no bracket survives into the re-saved map");
