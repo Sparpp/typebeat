@@ -76,7 +76,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private RoundedButton subdivideButton = null!;
         private RoundedButton unsubdivideButton = null!;
         private RoundedButton insertPauseButton = null!;
-        private RoundedButton holdButton = null!;
         private Box background = null!;
         private readonly EditorLyricFontResolutionCache lyricFontResolution = new EditorLyricFontResolutionCache();
         private string? resolvedLyricFont;
@@ -211,7 +210,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                 // edit, so it lives beside the subdivision buttons that it is clamped
                                 // and dragged like. Also gated on a word being selected (backlog 390).
                                 insertPauseButton = actionButton("insert pause (P)", InsertPauseOnSelectedWords, inertWhenDisabled: true),
-                                holdButton = actionButton("hold", toggleHold, tooltip: "The letter must be held down for its duration"),
                             })),
                         },
                     },
@@ -358,10 +356,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             subdivideButton.Enabled.Value = wordSelected && !backing;
             unsubdivideButton.Enabled.Value = wordSelected && !backing;
             insertPauseButton.Enabled.Value = wordSelected && !backing;
-            // This also acts on a caret left in another line's box. A backing word takes no word
-            // object, so on the backing track only that text arm is live.
-            bool noPass = state.TapSession == null;
-            holdButton.Enabled.Value = (editable && !backing) || (noPass && HoldToggle.UsableCaret(editorBeatmap, state) != null);
 
             if (line == null || !live)
             {
@@ -576,25 +570,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             editorBeatmap.EndChange();
         }
-
-        /// <summary>The "hold" button: see <see cref="HoldToggle"/>.</summary>
-        private void toggleHold()
-        {
-            // Never mid tap-pass: a pass is record-then-commit.
-            if (state.TapSession == null)
-                HoldToggle.Apply(editorBeatmap, state, wordObjectLine(), gridTime);
-        }
-
-        /// <summary>
-        /// The line the hold toggle acts on through the word strip: the live active line, but none
-        /// while the strip addresses the backing track (backlog 445), whose words are never typed and so
-        /// take no hold. The toggle's text-box arm still reaches the typed words.
-        /// </summary>
-        private TypeBeatHitObject? wordObjectLine() => state.BackingTrackSelected ? null : liveActiveLine();
-
-        /// <summary>The active line when it is still in the map, else null.</summary>
-        private TypeBeatHitObject? liveActiveLine()
-            => state.ActiveLine.Value is TypeBeatHitObject line && editorBeatmap.HitObjects.Contains(line) ? line : null;
 
         /// <summary>
         /// Inserts a rest at the playhead for one selected word. Multiple selected words instead

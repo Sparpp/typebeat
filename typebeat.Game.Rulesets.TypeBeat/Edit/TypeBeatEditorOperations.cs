@@ -859,7 +859,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// re-cut it.</item>
         /// <item>a result equal to the DERIVED split is stored as derived (empty), so committing a
         /// line the mapper did not actually re-split writes no <c>split_chars</c> at all.</item>
-        /// <item>'*' straight after a held letter is that hold's tick count (see <see cref="HoldTickMarkers"/>).</item>
+        /// <item>'=' straight after a letter HOLDS it, and a run of '*' straight after the '=' is the hold's
+        /// tick count (backlog 447, see <see cref="HoldTickMarkers"/>). A marked letter already held keeps
+        /// its hold, a newly marked one takes <see cref="DefaultHold"/>'s, and a held letter whose '=' is
+        /// gone loses its hold. A '=' that cannot make a usable hold is dropped and reported.</item>
         /// </list>
         ///
         /// <para>A word count change is LOCAL (backlog 340): a word that came back spelled exactly
@@ -872,16 +875,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <param name="editorBeatmap">The beatmap being edited.</param>
         /// <param name="hitObject">The line whose text is committed.</param>
         /// <param name="rawUserText">The text as the mapper typed it.</param>
-        /// <param name="ticksTrimmed">Called when a hold was asked for more ticks than fit.</param>
-        public static bool SetLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText, Action? ticksTrimmed = null)
+        /// <param name="holdMarksRefused">Called when a hold mark could not be honoured: a '=' that makes no
+        /// usable hold, or a hold asked for more ticks than fit.</param>
+        public static bool SetLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText, Action? holdMarksRefused = null)
         {
             // THE ORIGINAL TEXT (backlog 330): text in any other script (or with any letter the typed
             // text must respell) is romanised first and kept as the line's original.
             if (LyricOriginals.CarriesOriginal(rawUserText) || Romaniser.NeedsRomanising(rawUserText))
-                return setOriginalLineText(editorBeatmap, hitObject, rawUserText, ticksTrimmed);
+                return setOriginalLineText(editorBeatmap, hitObject, rawUserText, holdMarksRefused);
 
-            return setLineText(editorBeatmap, hitObject, rawUserText, null, ticksTrimmed);
+            return setLineText(editorBeatmap, hitObject, rawUserText, null, holdMarksRefused);
         }
+
+        /// <summary>
+        /// Whether a commit of <paramref name="rawUserText"/> to <paramref name="line"/> has hold marks to read:
+        /// it carries a '=', or the line has a hold its absence would remove.
+        /// </summary>
+        private static bool readsHoldMarks(string rawUserText, LyricLine line)
+            => rawUserText.IndexOf(HoldTickMarkers.HOLD_MARKER) >= 0 || line.Units.Any(HoldTickMarkers.HasHolds);
 
         /// <summary>
         /// What a line box commit of text needing ROMANISATION does (backlog 330): the input becomes
@@ -896,24 +907,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// box, which keeps the originals (a same-count commit keeps every word's original by place),
         /// or per word in the word editor.
         ///
-        /// <para>Tick stars are read and stripped from the source before romanising, and their counts
-        /// ride each word's placement token into <see cref="setLineText"/>.</para>
+        /// <para>Hold marks are read and stripped from the source before romanising, and each word's held
+        /// letters ride its placement token into <see cref="setLineText"/>. A word whose romanisation
+        /// spells it differently cannot carry its marks over (its letters moved), so they are dropped
+        /// and reported.</para>
         /// </summary>
-        private static bool setOriginalLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText, Action? ticksTrimmed)
+        private static bool setOriginalLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText, Action? holdMarksRefused)
         {
             string source = rawUserText;
-            IReadOnlyList<IReadOnlyDictionary<int, int>?>? sourceCounts = null;
+            IReadOnlyList<HoldTickMarkers.MarkedWord>? sourceMarks = null;
+            bool marksRefused = false;
 
-            // Collapsed first, so the tokens Read pairs its counts with are exactly the words RomaniseLine splits.
-            if (source.IndexOf(HoldTickMarkers.TICK_MARKER) >= 0 || hitObject.Line.Units.Any(HoldTickMarkers.HasTicks))
-                (source, sourceCounts) = HoldTickMarkers.Read(LyricOriginals.CollapseWhitespace(source), hitObject.Line.Units);
+            // Read collapses the whitespace, so its words are exactly the ones RomaniseLine splits.
+            if (readsHoldMarks(source, hitObject.Line))
+                (source, sourceMarks) = HoldTickMarkers.Read(source, out marksRefused);
 
             var (sourceText, sourcePipes) = originalMarkers(source);
             string? language = LyricOriginals.RomanisationLanguage(editorBeatmap.BeatmapInfo.Metadata.Language, new[] { source });
 
             // The two re-link shortcuts keep the words and only re-link the caption, so they would drop a
-            // tick edit: they are taken only on a line where no tick is read or written.
-            if (sourceCounts == null)
+            // hold edit: they are taken only when no '=' was written.
+            if (rawUserText.IndexOf(HoldTickMarkers.HOLD_MARKER) < 0)
             {
                 if (sourceText == OriginalCaption(hitObject.Line))
                     return SetLineOriginal(editorBeatmap, hitObject, rawUserText);
@@ -929,31 +943,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             var romanised = LyricOriginals.RomaniseLine(sourceText, language, keepMarkers: true);
 
-            // Each romanised word's counts. A source word that romanises to several words carries none.
-            IReadOnlyDictionary<int, int>?[]? wordCounts = null;
+            // Each romanised word's held letters: its source word's, when romanising left that word spelled
+            // as it was, else none. A source word that romanises to several words carries none either.
+            IReadOnlyDictionary<int, int>?[]? wordMarks = null;
+            string[] sourceWords = sourceText.Split(' ');
 
-            if (sourceCounts != null)
+            if (sourceMarks != null && sourceMarks.Count == sourceWords.Length)
             {
                 var perWord = new List<IReadOnlyDictionary<int, int>?>(romanised.Words.Count);
-                int kept = 0;
+                var none = new Dictionary<int, int>();
 
                 // sourceText is source without its split markers, so a marker-only token is an empty one here.
-                foreach (string sourceWord in sourceText.Split(' '))
+                for (int t = 0; t < sourceWords.Length; t++)
                 {
-                    bool isKept = sourceWord.Any(ch => ch != Typeability.SPLIT_MARKER);
+                    string sourceWord = sourceWords[t];
 
-                    if (!isKept)
+                    if (sourceWord.Length == 0)
                         continue;
 
-                    int n = LyricOriginals.RomaniseLine(sourceWord, language, keepMarkers: true).Words.Count;
-                    var counts = n == 1 && kept < sourceCounts.Count ? sourceCounts[kept] : null;
+                    var words = LyricOriginals.RomaniseLine(sourceWord, language, keepMarkers: true).Words;
+                    var holds = sourceMarks[t].Holds;
+                    bool carried = words.Count == 1
+                                   && words[0].Text.Replace(Typeability.SPLIT_MARKER.ToString(), string.Empty) == Typeability.Normalize(sourceWord, keepFreestyleMarkers: true);
 
-                    perWord.AddRange(Enumerable.Repeat(counts, n));
-                    kept++;
+                    marksRefused |= holds.Count > 0 && !carried;
+                    perWord.AddRange(Enumerable.Repeat(carried ? holds : none, words.Count));
                 }
 
                 if (perWord.Count == romanised.Words.Count)
-                    wordCounts = perWord.ToArray();
+                    wordMarks = perWord.ToArray();
+                else
+                    marksRefused |= sourceMarks.Any(w => w.Holds.Count > 0);
             }
 
             // The words the placement sees: each romanised word as it will be typed, and each word the
@@ -962,7 +982,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             var sources = new List<LyricOriginals.RomanisedWord>();
             var placeholders = new Dictionary<string, LyricOriginals.RomanisedWord>();
             var tokens = new List<string>();
-            var tokenCounts = new List<IReadOnlyDictionary<int, int>?>();
+            var tokenMarks = new List<IReadOnlyDictionary<int, int>?>();
 
             for (int w = 0; w < romanised.Words.Count; w++)
             {
@@ -974,13 +994,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     placeholders[placeholder] = word;
                     tokens.Add(placeholder);
                     sources.Add(word);
-                    tokenCounts.Add(null);
+                    tokenMarks.Add(null);
                 }
                 else if (word.Text.Length > 0)
                 {
                     tokens.Add(word.Text);
                     sources.Add(word);
-                    tokenCounts.Add(wordCounts?[w]);
+                    tokenMarks.Add(wordMarks?[w]);
                 }
             }
 
@@ -1010,30 +1030,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 }
 
                 return (string.Join(' ', kept.Select(u => u.Text)), kept, (romanised.Original, pending));
-            }, ticksTrimmed, wordCounts == null ? null : tokenCounts);
+            }, holdMarksRefused, wordMarks == null ? null : tokenMarks, marksRefused);
         }
 
         /// <summary>
         /// The body of <see cref="SetLineText"/>. For a commit that romanised its input
         /// (<see cref="setOriginalLineText"/>), the finishing step turns the placed units into the
         /// line's final text, units and originals; it is null for plain text, which keeps the line's
-        /// originals as they are. Such a commit passes its tick counts as <paramref name="readTickCounts"/>.
+        /// originals as they are. Such a commit has already read its hold marks: it passes each token's
+        /// held letters as <paramref name="readHoldMarks"/>, and whether any mark was refused.
         /// </summary>
         private static bool setLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText,
                                         Func<IReadOnlyList<TimedUnit>, (string Text, IReadOnlyList<TimedUnit> Units, (string? Original, IReadOnlyList<UnromanisedWord> Pending) Originals)>? finish,
-                                        Action? ticksTrimmed = null, IReadOnlyList<IReadOnlyDictionary<int, int>?>? readTickCounts = null)
+                                        Action? holdMarksRefused = null, IReadOnlyList<IReadOnlyDictionary<int, int>?>? readHoldMarks = null,
+                                        bool marksRefused = false)
         {
+            // Hold marks are read and stripped BEFORE normalising, which would drop the '=' (a romanising
+            // commit already read them).
+            var holdMarks = readHoldMarks;
+
+            if (finish == null && readsHoldMarks(rawUserText, hitObject.Line))
+            {
+                var (unmarked, words) = HoldTickMarkers.Read(rawUserText, out marksRefused);
+                rawUserText = unmarked;
+                holdMarks = HoldTickMarkers.KeptWords(words, ref marksRefused);
+            }
+
             // Both authoring seams survive Normalize here; every other untypeable char is stripped.
             // No backing-vocal strip (backlog 255): what the mapper typed is what the line stores,
             // so "hello (oh) now" commits verbatim and the brackets are ordinary lyric marks.
             string withMarkers = Typeability.Normalize(rawUserText,
                 keepFreestyleMarkers: true, keepSplitMarkers: true);
-
-            // Hold tick stars are read and stripped before the pipes (a romanising commit already did).
-            var tickCounts = readTickCounts;
-
-            if (finish == null && (withMarkers.IndexOf(HoldTickMarkers.TICK_MARKER) >= 0 || hitObject.Line.Units.Any(HoldTickMarkers.HasTicks)))
-                (withMarkers, tickCounts) = HoldTickMarkers.Read(withMarkers, hitObject.Line.Units);
 
             var (normalized, pipes) = SplitMarkers.Strip(withMarkers);
 
@@ -1061,8 +1088,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             if (hitObject.Granularity == TimingGranularity.Line)
             {
-                if (textUnchanged && !anyPipes && !anyRemoval && finish == null)
-                    return true;
+                if (textUnchanged && !anyPipes && !anyRemoval && finish == null && !editsHolds(line.Units))
+                    return unchanged();
 
                 // Line-granularity maps persist no word data; units are always the loader's
                 // interpolation, which is text-weight-dependent, so re-derive with the new text.
@@ -1083,17 +1110,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 // subdivision from where its pipes now sit (or remove it, where they no longer do).
                 units = applyPipes(line.Units, tokens, pipes, out authoredSubdivision);
 
-                bool ticksChanged = !ReferenceEquals(HoldTickMarkers.Apply(units, tickCounts, out _), units);
-
                 // A commit that moved neither the text nor a single pipe is a no-op, so a map with
                 // no authored splits does not start carrying them just because a box lost focus.
                 // A pipe that moved a word's REST is a change like any other, so the comparison is
                 // over every cut the box can author, not only the syllable splits.
-                if (textUnchanged && !authoredSubdivision && !anyRemoval && !ticksChanged && finish == null
+                if (textUnchanged && !authoredSubdivision && !anyRemoval && finish == null && !editsHolds(units)
                     && !units.Where((u, i) => !sameSplits(u.SyllableSplits, line.Units[i].SyllableSplits)
                                               || !u.Pauses.SequenceEqual(line.Units[i].Pauses)).Any())
                 {
-                    return true;
+                    return unchanged();
                 }
             }
             else
@@ -1113,8 +1138,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (tokens.Length != line.Units.Count || hitObject.Granularity == TimingGranularity.Line)
                 units = carryWordObjects(line.Units, units);
 
-            units = HoldTickMarkers.Apply(units, tickCounts, out bool ticksWereTrimmed);
-
             if (hitObject.Granularity != TimingGranularity.Line && !textUnchanged
                 && units.Any(u => u.EndTime - u.StartTime < MIN_WORD_SPAN_MS))
             {
@@ -1127,6 +1150,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 units = clampUnits(units, line.StartTime, windowEnd);
             }
+
+            // The hold marks last, on the words as they will be stored.
+            units = HoldTickMarkers.Apply(units, holdMarks, markedHold, out bool holdsRefused);
+            marksRefused |= holdsRefused;
 
             bool wordCountChanged = hitObject.Granularity != TimingGranularity.Line && tokens.Length != line.Units.Count;
 
@@ -1161,11 +1188,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             editorBeatmap.EndChange();
 
-            if (ticksWereTrimmed)
-                ticksTrimmed?.Invoke();
+            if (marksRefused)
+                holdMarksRefused?.Invoke();
 
             return true;
+
+            // Whether the hold marks change the holds of these words.
+            bool editsHolds(IReadOnlyList<TimedUnit> before)
+            {
+                bool edited = !ReferenceEquals(HoldTickMarkers.Apply(before, holdMarks, markedHold, out bool refused), before);
+                marksRefused |= refused;
+                return edited;
+            }
+
+            // A no-op commit; a refused mark is still reported.
+            bool unchanged()
+            {
+                if (marksRefused)
+                    holdMarksRefused?.Invoke();
+
+                return true;
+            }
         }
+
+        /// <summary>The hold a line box '=' puts on letter <paramref name="c"/> of <paramref name="unit"/> (see <see cref="DefaultHold"/>).</summary>
+        private static WordHold? markedHold(TimedUnit unit, int c) => DefaultHold(unit, c, double.NaN);
 
         /// <summary>
         /// Writes one line's units back as one undo, lifting the map to at least Word granularity
@@ -1660,15 +1707,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// the stored text for a line with no subdivisions and no rests at all, and for a line whose
         /// tokens and units have drifted apart (nothing there can be paired safely).</para>
         ///
-        /// <para>With <paramref name="withTicks"/>, a held letter is followed by a '*' per tick.</para>
+        /// <para>With <paramref name="withHolds"/>, a held letter is followed by a '=' and a '*' per tick
+        /// (see <see cref="HoldTickMarkers"/>).</para>
         /// </summary>
-        public static string PipeDisplayText(LyricLine line, string? language = null, bool withTicks = true)
+        public static string PipeDisplayText(LyricLine line, string? language = null, bool withHolds = true)
         {
             string[] tokens = line.RawText.Split(' ');
             bool pipesShown = line.Units.Any(u => u.SyllableBoundaries.Count > 0 || u.Pauses.Count > 0);
-            bool ticksShown = withTicks && line.Units.Any(HoldTickMarkers.HasTicks);
+            bool holdsShown = withHolds && line.Units.Any(HoldTickMarkers.HasHolds);
 
-            if (tokens.Length != line.Units.Count || (!pipesShown && !ticksShown))
+            if (tokens.Length != line.Units.Count || (!pipesShown && !holdsShown))
                 return line.RawText;
 
             var pieces = new string[tokens.Length];
@@ -1682,7 +1730,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     ? tokens[i]
                     : string.Join(Typeability.SPLIT_MARKER, SyllableSegments.SegmentTexts(tokens[i], cuts));
 
-                pieces[i] = ticksShown ? HoldTickMarkers.WithTicks(piece, unit) : piece;
+                pieces[i] = holdsShown ? HoldTickMarkers.WithMarks(piece, unit) : piece;
             }
 
             return string.Join(' ', pieces);
@@ -3419,6 +3467,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             var unit = line.Units[unitIndex];
 
+            if (DefaultHold(unit, charIndex, playheadTime) is not WordHold hold)
+                return null;
+
+            replaceUnitHolds(editorBeatmap, hitObject, unitIndex, unit.Objects.Holds.Append(hold).OrderBy(h => h.Char).ToArray());
+            return hold;
+        }
+
+        /// <summary>
+        /// The hold <see cref="AddHold"/> adds to <paramref name="unit"/>, or null; a line box '=' on a letter
+        /// adds the same one (see <see cref="HoldTickMarkers"/>).
+        /// </summary>
+        public static WordHold? DefaultHold(TimedUnit unit, int? charIndex, double playheadTime)
+        {
             if (unit.Pauses.Count > 0)
                 return null;
 
@@ -3487,11 +3548,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             var hold = new WordHold(c, start, end);
             var holds = unit.Objects.Holds.Append(hold).OrderBy(h => h.Char).ToArray();
 
-            if (!allUsable(unit, holds))
-                return null;
-
-            replaceUnitHolds(editorBeatmap, hitObject, unitIndex, holds);
-            return hold;
+            return allUsable(unit, holds) ? hold : null;
         }
 
         /// <summary>Removes hold <paramref name="holdIndex"/> from a word. One undo step.</summary>
@@ -3509,30 +3566,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             replaceUnitHolds(editorBeatmap, hitObject, unitIndex, unit.Objects.Holds.Where((_, i) => i != holdIndex).ToArray());
             return true;
-        }
-
-        /// <summary>
-        /// Removes the hold on <paramref name="charIndex"/> (or, when null, under the playhead) if there is one,
-        /// otherwise adds one (<see cref="AddHold"/>). Returns whether the word changed.
-        /// </summary>
-        public static bool ToggleHold(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, int? charIndex, double playheadTime)
-        {
-            var line = hitObject.Line;
-
-            if (unitIndex < 0 || unitIndex >= line.Units.Count)
-                return false;
-
-            var holds = line.Units[unitIndex].Objects.Holds;
-
-            for (int i = 0; i < holds.Count; i++)
-            {
-                bool meant = charIndex is int c ? holds[i].Char == c : playheadTime >= holds[i].StartTime && playheadTime <= holds[i].EndTime;
-
-                if (meant)
-                    return RemoveHold(editorBeatmap, hitObject, unitIndex, i);
-            }
-
-            return AddHold(editorBeatmap, hitObject, unitIndex, charIndex, playheadTime) != null;
         }
 
         /// <summary>Drags a hold's start edge, clamped inside the word and clear of its neighbours. One undo step.</summary>

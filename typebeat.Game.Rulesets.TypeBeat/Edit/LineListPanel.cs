@@ -12,7 +12,6 @@ using osu.Framework.Graphics.Colour;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Cursor;
 using osu.Framework.Graphics.Shapes;
-using osu.Framework.Graphics.UserInterface;
 using osu.Framework.Input;
 using osu.Framework.Input.Events;
 using osu.Framework.Localisation;
@@ -291,13 +290,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// Re-maps a caret position in the REST text to the pipe form the focused box shows, so a
         /// click lands where it was made: the caret stays in front of the same character, and a
         /// caret sitting in a marked gap lands in FRONT of that gap's pipe(s), never past them.
-        /// Clamped to the text.
+        /// Hold marks ('=' and its tick stars, which the rest text does not show) are skipped the
+        /// same way. Clamped to the text.
         /// </summary>
         public static int PipeCaretFor(string pipeText, int restCaret)
         {
             if (restCaret <= 0)
                 return 0;
 
+            bool[] marks = HoldTickMarkers.MarkMask(pipeText);
             int plain = 0;
 
             for (int i = 0; i < pipeText.Length; i++)
@@ -306,7 +307,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 if (plain == restCaret)
                     return i;
 
-                if (pipeText[i] != Typeability.SPLIT_MARKER)
+                if (pipeText[i] != Typeability.SPLIT_MARKER && !marks[i])
                     plain++;
             }
 
@@ -554,32 +555,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 });
 
                 textBox.OnCommit += (_, _) => commitText();
-
-                textBox.HighlightChanged = range =>
-                {
-                    bool[] stars = HoldTickMarkers.TickStarMask(textBox.Text, HitObject.Line.Units);
-
-                    // A one-character highlight names that character for the "hold" button, as a caret would.
-                    recordCaret(range is (int s, int l)
-                        ? l == 1 && s < textBox.Text.Length && textBox.Text[s] != Typeability.SPLIT_MARKER && !stars[s] ? s : null
-                        : TextBoxSelection.CaretOf(textBox), stars);
-                };
-
-                textBox.CaretChanged = caret => recordCaret(caret, HoldTickMarkers.TickStarMask(textBox.Text, HitObject.Line.Units));
-            }
-
-            /// <summary>Stores the character after the box's caret for the "hold" button, or drops this line's stored caret.</summary>
-            private void recordCaret(int? caret, bool[] stars)
-            {
-                if (state.ShowOriginalLyrics.Value || caret is not int index || HoldToggle.CharAt(textBox.Text, index, stars) is not (int word, int c))
-                {
-                    if (state.TextCaret?.Line == HitObject)
-                        state.TextCaret = null;
-                    return;
-                }
-
-                string[] words = HoldTickMarkers.PlainWords(textBox.Text, stars);
-                state.TextCaret = new TextCaretPosition(HitObject, word, c, words[word]);
             }
 
             private void commitText()
@@ -682,14 +657,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                     // At rest the box spells the words as gameplay does and marks each split with
                     // gameplay's triangle in the gap; the pipe form comes back only on focus.
-                    // The rest view shows no tick stars (the held letters are drawn instead).
+                    // The rest view shows no hold marks (the held letters are drawn instead).
                     string restSource = originalView ? original!
-                        : TypeBeatEditorOperations.PipeDisplayText(line, language, withTicks: false) + (showOriginal ? string.Empty : TypeBeatEditorOperations.BackingSuffix(line));
+                        : TypeBeatEditorOperations.PipeDisplayText(line, language, withHolds: false) + (showOriginal ? string.Empty : TypeBeatEditorOperations.BackingSuffix(line));
                     restText = RestTextOf(restSource);
                     restGaps = RestGapsOf(restSource);
                     textBox.SetRestGaps(restGaps);
                     textBox.HeldChars = originalView ? Array.Empty<bool[]>() : line.Units.Select(u => charMask(u, HeldWord.UsableHolds(u).Select(h => h.Char))).ToArray();
-                    textBox.Units = originalView ? Array.Empty<TimedUnit>() : line.Units;
 
                     builtLine = line;
                     builtShowOriginal = showOriginal;
@@ -892,35 +866,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 public FillFlowContainer TextFlowDrawable => TextFlow;
 
-                /// <summary>Raised with the highlighted range (null when it is gone) while the box has focus.</summary>
-                public Action<(int Start, int Length)?>? HighlightChanged;
-
-                /// <summary>Raised with the caret's index when a caret move or click places it while the box has focus.</summary>
-                public Action<int?>? CaretChanged;
-
-                // Set by the row: per word and character (pipes skipped), whether it is held; and the line's
-                // words, for finding tick marks.
+                // Set by the row: per word and character (pipes skipped), whether it is held.
                 public bool[][] HeldChars = Array.Empty<bool[]>();
-                public IReadOnlyList<TimedUnit> Units = Array.Empty<TimedUnit>();
 
-                private bool[] tickStars = Array.Empty<bool>();
-                private string? tickStarsText;
-                private IReadOnlyList<TimedUnit>? tickStarsUnits;
-
-                protected override void OnTextSelectionChanged(TextSelectionType selectionType)
-                {
-                    base.OnTextSelectionChanged(selectionType);
-                    HighlightChanged?.Invoke(TextBoxSelection.Of(this));
-                }
-
-                protected override void OnTextDeselected()
-                {
-                    base.OnTextDeselected();
-
-                    // Losing focus to a button click must keep the highlight for the button to read.
-                    if (HasFocus)
-                        HighlightChanged?.Invoke(null);
-                }
+                private bool[] holdMarks = Array.Empty<bool>();
+                private string? holdMarksText;
 
                 private void applyRestMarkerAlpha()
                 {
@@ -932,13 +882,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 {
                     base.UpdateAfterChildren();
 
-                    // Colour held letters and their tick marks.
-                    // The tick mask is re-read only when the text or line changes.
-                    if (!ReferenceEquals(tickStarsText, Text) || !ReferenceEquals(tickStarsUnits, Units))
+                    // Colour held letters and their hold marks ('=' and its tick stars).
+                    // The mark mask is re-read only when the text changes.
+                    if (!ReferenceEquals(holdMarksText, Text))
                     {
-                        tickStars = HoldTickMarkers.TickStarMask(Text, Units);
-                        tickStarsText = Text;
-                        tickStarsUnits = Units;
+                        holdMarks = HoldTickMarkers.MarkMask(Text);
+                        holdMarksText = Text;
                     }
 
                     int word = 0;
@@ -956,8 +905,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                             word++;
                             charInWord = 0;
                         }
-                        else if (i < tickStars.Length && tickStars[i])
-                            held = true; // a tick mark, not a character of the word
+                        else if (i < holdMarks.Length && holdMarks[i])
+                            held = true; // a hold mark, not a character of the word
                         else if (ch != Typeability.SPLIT_MARKER)
                         {
                             held = word < HeldChars.Length && charInWord < HeldChars[word].Length && HeldChars[word][charInWord];
@@ -1035,14 +984,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                         pendingRestCaret = index;
                     }
 
-                    bool wasFocused = HasFocus;
-                    bool handled = base.OnMouseDown(e);
-
-                    // A click in a focused box moves the caret without a callback; a first click is recorded by OnFocus.
-                    if (wasFocused && HasFocus)
-                        CaretChanged?.Invoke(TextBoxSelection.CaretOf(this));
-
-                    return handled;
+                    return base.OnMouseDown(e);
                 }
 
                 protected override void OnFocus(FocusEvent e)
@@ -1055,14 +997,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     string edit = CommittedText();
 
                     if (Text == edit)
-                    {
-                        CaretChanged?.Invoke(TextBoxSelection.CaretOf(this));
                         return;
-                    }
 
                     // A click re-maps onto the pipe form only when the box really was showing that
                     // form's rest text; anything else (a tab focus) leaves the caret at the end.
-                    bool remap = restCaret != null && RestTextOf(edit) == Text;
+                    // The rest text shows no hold marks, so they are set aside for the comparison.
+                    bool remap = restCaret != null && RestTextOf(HoldTickMarkers.WithoutMarks(edit)) == Text;
 
                     Text = edit;
 
@@ -1072,9 +1012,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                         MoveCursorBy(-Text.Length);
                         MoveCursorBy(PipeCaretFor(edit, restCaret!.Value));
                         placingCaret = false;
-
-                        // The re-map is silent, so report where it left the caret.
-                        CaretChanged?.Invoke(TextBoxSelection.CaretOf(this));
                     }
                 }
 
@@ -1082,13 +1019,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 {
                     // The re-map is part of the click, which already gave its feedback.
                     if (!placingCaret)
-                    {
                         base.OnCaretMoved(selecting);
-
-                        // A plain caret move drops the highlight (only while focused, see OnTextDeselected).
-                        if (!selecting && HasFocus)
-                            HighlightChanged?.Invoke(null);
-                    }
                 }
 
                 public override bool OnPressed(KeyBindingPressEvent<PlatformAction> e)
