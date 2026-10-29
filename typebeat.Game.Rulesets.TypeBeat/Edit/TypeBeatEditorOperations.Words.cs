@@ -127,8 +127,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                              .Concat(right.Pauses.Select(p => p with { SplitChar = p.SplitChar + cut })).ToArray(),
             };
 
-            // A word carries pauses or holds, never both.
-            if (merged.Objects.Holds.Count > 0 && merged.Pauses.Count > 0)
+            // A held word may carry rests, but a hold never crosses one: when the join carries rests, every hold
+            // either word played has to survive it (the gap between them becomes a rest of its own).
+            if (merged.Objects.Holds.Count > 0 && merged.Pauses.Count > 0
+                && HeldWord.UsableHolds(merged).Count < HeldWord.UsableHolds(left).Count + HeldWord.UsableHolds(right).Count)
                 return false;
 
             var units = line.Units.ToList();

@@ -1049,9 +1049,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             // Word objects. A hold adds no cut, so the groupings above are unchanged by them.
             Dictionary<int, WordHold>? heldCells = null;
+            HashSet<int>? restsAfter = null;
 
             if (wordObjects && units.Any(u => !u.Objects.IsEmpty))
-                heldCells = heldCellsOf(units, cellPositions(tokens, n, cells.Length, defaultSources), cells, rules.IsCell);
+                heldCells = heldCellsOf(units, cellPositions(tokens, n, cells.Length, defaultSources), cells, rules.IsCell, out restsAfter);
 
             // Last, so the groupings were cut from the full cell list: this only decides which cells are pressed.
             if (shorthand)
@@ -1066,7 +1067,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     cells[i].HoldTickTimes = HoldTicks.UsableTicks(hold);
                 }
 
-                assignHandoffs(cells, cellWord);
+                assignHandoffs(cells, cellWord, restsAfter);
             }
 
             var result = new TypingLine(line, cells, Math.Min(sealGrace, max_seal_grace_ms), authored, natural, words, cellWord, lastUnitEnd,
@@ -1134,12 +1135,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// The hand-off: the next typeable cell of each held cell's word follows the hold
         /// (<see cref="TypingCell.HandsOffFrom"/>), due no earlier than its end, and later cells of the word
         /// no earlier than it. Only targets move. Never run on a line without holds.
+        ///
+        /// <para>A held letter that ends its stretch (<paramref name="restsAfter"/>: a rest of the word cuts
+        /// straight after it) hands off to nothing: the next letter opens the stretch after the rest, timed from
+        /// the rest's end, which a usable hold is let go before (<see cref="HeldWord.ClearOfRest"/>).</para>
         /// </summary>
-        private static void assignHandoffs(TypingCell[] cells, int[] cellWord)
+        private static void assignHandoffs(TypingCell[] cells, int[] cellWord, IReadOnlySet<int>? restsAfter)
         {
             for (int i = 0; i < cells.Length; i++)
             {
-                if (cells[i].HoldEnd is not double end || cellWord[i] < 0)
+                if (cells[i].HoldEnd is not double end || cellWord[i] < 0 || restsAfter?.Contains(i) == true)
                     continue;
 
                 double? floor = null;
@@ -1160,9 +1165,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             }
         }
 
-        /// <summary>Per cell, the usable hold on the first typeable cell of its character; null when there are none.</summary>
-        private static Dictionary<int, WordHold>? heldCellsOf(IReadOnlyList<TimedUnit> units, (int Token, int Offset)[] positions, TypingCell[] cells, Func<char, bool> isCell)
+        /// <summary>
+        /// Per cell, the usable hold on the first typeable cell of its character; null when there are none.
+        /// <paramref name="restsAfter"/> collects the held cells a rest of their word follows (<see cref="HeldWord.RestFollows"/>).
+        /// </summary>
+        private static Dictionary<int, WordHold>? heldCellsOf(IReadOnlyList<TimedUnit> units, (int Token, int Offset)[] positions, TypingCell[] cells, Func<char, bool> isCell,
+                                                             out HashSet<int>? restsAfter)
         {
+            restsAfter = null;
             Dictionary<int, WordHold>? result = null;
             var usable = new IReadOnlyList<WordHold>?[units.Count];
             var claimed = new HashSet<(int, int)>();
@@ -1177,7 +1187,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 foreach (var hold in usable[m] ??= HeldWord.UsableHolds(units[m], isCell))
                 {
                     if (hold.Char == offset && claimed.Add((m, offset)))
+                    {
                         (result ??= new Dictionary<int, WordHold>())[i] = hold;
+
+                        if (HeldWord.RestFollows(units[m], hold.Char, isCell))
+                            (restsAfter ??= new HashSet<int>()).Add(i);
+                    }
                 }
             }
 

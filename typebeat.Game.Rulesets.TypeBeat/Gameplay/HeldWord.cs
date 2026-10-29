@@ -20,19 +20,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>
         /// The usable holds of <paramref name="unit"/>, in character order: on a cell, at least
         /// <see cref="MIN_HOLD_MS"/> long, inside the word (a first-letter hold starts with it), not
-        /// overlapping, between the word's cuts, and ending after its letter is due. None on a word with pauses.
+        /// overlapping, between the word's cuts, clear of its rests (<see cref="ClearOfRest"/>), and ending
+        /// after its letter is due.
         /// </summary>
         internal static IReadOnlyList<WordHold> UsableHolds(TimedUnit unit, Func<char, bool>? isCell = null)
         {
             var holds = unit.Objects.Holds;
 
-            if (holds.Count == 0 || unit.Pauses.Count > 0)
+            if (holds.Count == 0)
                 return Array.Empty<WordHold>();
 
             isCell ??= Typeability.IsCell;
 
             string text = unit.Text;
-            var cuts = cutsOf(unit).ToArray();
+            var rests = RestsOf(unit, isCell);
+            var cuts = cutsOf(unit, rests.Count > 0, isCell).ToArray();
             var kept = new List<WordHold>();
             int lastChar = -1;
             double lastEnd = unit.StartTime;
@@ -60,7 +62,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 bool cutsOk = cuts.All(cut => cut.Char < c ? cut.Time < hold.StartTime
                     : cut.Char == c || (cut.Char == c + 1 ? cut.Time >= hold.EndTime : cut.Time > hold.EndTime));
 
-                if (!cutsOk || !EndsAfterItsLetter(hold.EndTime, LetterDueAt(unit, c, isCell)))
+                if (!cutsOk || !rests.All(rest => ClearOfRest(hold, rest)) || !EndsAfterItsLetter(hold.EndTime, LetterDueAt(unit, c, isCell)))
                     continue;
 
                 kept.Add(hold);
@@ -69,6 +71,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             }
 
             return kept;
+        }
+
+        /// <summary>The rests a play honours on <paramref name="unit"/> (<see cref="PausedWord.UsableRests"/>), in time order.</summary>
+        internal static IReadOnlyList<WordPause> RestsOf(TimedUnit unit, Func<char, bool>? isCell = null)
+            => unit.Pauses.Count == 0
+                ? Array.Empty<WordPause>()
+                : PausedWord.UsableRests(unit.Text, unit.StartTime, unit.EndTime, unit.Pauses, isCell ?? Typeability.IsCell);
+
+        /// <summary>
+        /// A hold sits wholly inside one sung stretch of its word: a letter before the rest's cut is let go by
+        /// the rest's start, a letter after it is held from the rest's end. A hold never spans or overlaps a rest.
+        /// </summary>
+        internal static bool ClearOfRest(WordHold hold, WordPause rest)
+            => hold.Char < rest.SplitChar ? hold.EndTime <= rest.StartTime : hold.StartTime >= rest.EndTime;
+
+        /// <summary>
+        /// Whether one of the word's rests cuts between letter <paramref name="charIndex"/> and the word's next
+        /// cell: that cell opens a new stretch, so it is not handed off from a hold on this letter.
+        /// </summary>
+        internal static bool RestFollows(TimedUnit unit, int charIndex, Func<char, bool>? isCell = null)
+        {
+            isCell ??= Typeability.IsCell;
+            int next = charIndex + 1;
+
+            while (next < unit.Text.Length && !isCell(unit.Text[next]))
+                next++;
+
+            return RestsOf(unit, isCell).Any(rest => rest.SplitChar > charIndex && rest.SplitChar <= next);
         }
 
         /// <summary>A hold must end strictly after its letter is due, or the on-time press would miss its tail.</summary>
@@ -81,9 +111,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         internal static double LetterDueAt(TimedUnit unit, int charIndex, Func<char, bool>? isCell = null)
             => TypingLine.HoldFreeCellTarget(unit, charIndex, isCell ?? Typeability.IsCell);
 
-        /// <summary>The word's cuts as (character, time).</summary>
-        private static IEnumerable<(int Char, double Time)> cutsOf(TimedUnit unit)
+        /// <summary>
+        /// The word's cuts as (character, time). On a paused word, each stretch's own cuts against its own
+        /// boundaries (<see cref="PausedWord.Of"/>); the rests themselves are <see cref="ClearOfRest"/>'s.
+        /// </summary>
+        private static IEnumerable<(int Char, double Time)> cutsOf(TimedUnit unit, bool paused, Func<char, bool> isCell)
         {
+            if (paused && PausedWord.Of(unit.Text, unit.StartTime, unit.EndTime, unit, isCell) is PausedWord.Cut cut)
+            {
+                foreach (var piece in cut.Pieces)
+                {
+                    for (int i = 0; i < piece.Cuts.Count && i < piece.Boundaries.Count; i++)
+                        yield return (piece.Cuts[i], piece.Boundaries[i]);
+                }
+
+                yield break;
+            }
+
             var splits = SyllableSegments.SplitsFor(unit);
 
             for (int i = 0; i < splits.Count && i < unit.SyllableBoundaries.Count; i++)

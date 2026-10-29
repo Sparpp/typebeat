@@ -136,21 +136,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void AMarkerOnAPausedWordIsDroppedAndReported()
+        public void AMarkerOnAPausedWordHoldsInsideItsStretch()
         {
             var beatmap = createBeatmap("please go");
             var line = lineAt(beatmap, 0);
+            var rest = TypeBeatEditorOperations.InsertWordPause(beatmap, line, 0, 1450);
 
-            Assert.That(TypeBeatEditorOperations.InsertWordPause(beatmap, line, 0, 1450), Is.Not.Null);
+            Assert.That(rest, Is.Not.Null);
+            Assert.That(rest!.Value.SplitChar, Is.EqualTo(3), "the premise: the 'l' is sung before the rest");
 
             string shown = TypeBeatEditorOperations.PipeDisplayText(line.Line);
-            var before = line.Line;
+            var expected = TypeBeatEditorOperations.DefaultHold(line.Line.Units[0], 1, double.NaN);
             bool refused = false;
 
+            Assert.That(expected, Is.Not.Null);
             Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, line, shown.Insert(shown.IndexOf('l') + 1, "="), () => refused = true), Is.True);
 
-            Assert.That(refused, Is.True);
-            Assert.That(line.Line, Is.SameAs(before), "nothing else changed");
+            // Backlog 448: a held word may carry rests, and the hold is let go before the rest starts.
+            Assert.That(refused, Is.False);
+            Assert.That(line.Line.Units[0].Pauses, Is.EqualTo(new[] { rest.Value }), "the rest is kept");
+            Assert.That(line.Line.Units[0].Objects.Holds, Is.EqualTo(new[] { expected!.Value }));
+            Assert.That(expected.Value.EndTime, Is.LessThanOrEqualTo(rest.Value.StartTime));
         }
 
         [TestCase("love = you")]

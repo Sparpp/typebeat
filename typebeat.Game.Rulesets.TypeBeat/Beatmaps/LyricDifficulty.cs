@@ -453,14 +453,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         /// <summary>
-        /// The holds the rating credits: on a character of the word, ending after they start, on a word
-        /// without pauses (which honours none). Submission refuses any hold a play would not honour, so
-        /// for a submitted map these are exactly the played holds.
+        /// The holds the rating credits: on a character of the word, ending after they start, and clear of
+        /// every rest the word has (a hold never spans or overlaps one). Submission refuses any hold a play
+        /// would not honour, so for a submitted map these are exactly the played holds.
         /// </summary>
         internal static IEnumerable<WordHold> RatedHolds(TimedUnit unit, string token)
-            => unit.Pauses.Count > 0
-                ? Enumerable.Empty<WordHold>()
-                : unit.Objects.Holds.Where(h => h.Char >= 0 && h.Char < token.Length && h.EndTime > h.StartTime);
+        {
+            var rests = HeldWord.RestsOf(unit);
+
+            return unit.Objects.Holds.Where(h => h.Char >= 0 && h.Char < token.Length && h.EndTime > h.StartTime
+                                                 && rests.All(rest => HeldWord.ClearOfRest(h, rest)));
+        }
 
         /// <summary>
         /// The keypresses a word asks for: <see cref="TypeableCellCount"/> plus one per hold release.

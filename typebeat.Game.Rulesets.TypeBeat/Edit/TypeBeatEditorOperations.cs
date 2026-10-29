@@ -3163,7 +3163,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// exact trap <see cref="AddSyllableBoundary"/> documents for a subdivision.</para>
         ///
         /// <para>No-op (null) on a word with fewer than two typeable characters - nothing to breathe
-        /// between - a word with holds, or one too short to hold a rest with a character of room either side.
+        /// between - a rest that would overlap or split one of the word's holds (a hold sits inside one sung
+        /// stretch, <see cref="HeldWord.ClearOfRest"/>), or a word too short to hold a rest with a character of
+        /// room either side.
         /// Single undo step. Inserting over a rest the word already had replaces it.</para>
         /// </summary>
         /// <param name="editorBeatmap">The map being edited.</param>
@@ -3182,8 +3184,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             var unit = line.Units[unitIndex];
             int typeable = Typeability.TypeableCount(unit.Text);
 
-            // A word carries pauses or holds, never both.
-            if (typeable < 2 || unit.Objects.Holds.Count > 0)
+            if (typeable < 2)
                 return null;
 
             // The word must hold room before the rest, the rest itself, and a character after it.
@@ -3217,6 +3218,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             // character with one) is refused rather than stored: the derivation would ignore it, and a
             // rest that does nothing is worse than a button that says so.
             if (pauses.Count != unit.Pauses.Count + 1)
+                return null;
+
+            // A rest that would overlap or split a hold the word plays is refused too.
+            if (!keepsHolds(unit, pauses))
                 return null;
 
             replaceUnitPauses(editorBeatmap, hitObject, unitIndex, pauses);
@@ -3264,10 +3269,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 return false;
 
             var unit = line.Units[unitIndex];
-
-            // A word carries pauses or holds, never both.
-            if (unit.Objects.Holds.Count > 0)
-                return false;
 
             if (boundaryIndex < 0 || boundaryIndex >= unit.SyllableBoundaries.Count)
                 return false;
@@ -3324,9 +3325,46 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 ? unit.SyllableSplits.Where((_, i) => i != boundaryIndex).ToArray()
                 : Array.Empty<int>();
 
+            // A rest that would overlap or split a hold the word plays is refused.
+            if (!keepsHolds(unit, withShape(unit, boundaries, kept, added)))
+                return false;
+
             replaceUnitShape(editorBeatmap, hitObject, unitIndex, boundaries, kept, added);
             return true;
         }
+
+        /// <summary>
+        /// Whether every hold <paramref name="before"/> plays is still played on <paramref name="after"/>: a rest
+        /// edit may not overlap or split a hold (<see cref="HeldWord.ClearOfRest"/>), nor leave one ending before
+        /// its letter is now due.
+        /// </summary>
+        private static bool keepsHolds(TimedUnit before, TimedUnit after)
+        {
+            var played = HeldWord.UsableHolds(before);
+
+            if (played.Count == 0)
+                return true;
+
+            var still = HeldWord.UsableHolds(after);
+            return played.All(still.Contains);
+        }
+
+        /// <inheritdoc cref="keepsHolds(TimedUnit, TimedUnit)"/>
+        private static bool keepsHolds(TimedUnit unit, IReadOnlyList<WordPause> pauses)
+            => keepsHolds(unit, withShape(unit, unit.SyllableBoundaries, unit.SyllableSplits, pauses));
+
+        /// <summary><paramref name="unit"/> with other subdivisions and rests, for asking what a play would make of it.</summary>
+        private static TimedUnit withShape(TimedUnit unit, IReadOnlyList<double> boundaries, IReadOnlyList<int> splits, IReadOnlyList<WordPause> pauses)
+            => new TimedUnit
+            {
+                Objects = unit.Objects,
+                Text = unit.Text,
+                StartTime = unit.StartTime,
+                EndTime = unit.EndTime,
+                SyllableBoundaries = boundaries.ToArray(),
+                SyllableSplits = splits.ToArray(),
+                Pauses = pauses.ToArray(),
+            };
 
         /// <summary>
         /// Drags the START edge of rest <paramref name="pauseIndex"/> of a word (its
@@ -3392,6 +3430,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (!moveStart && pauseIndex < unit.Pauses.Count - 1)
                 upper = Math.Min(upper, unit.Pauses[pauseIndex + 1].StartTime - MIN_SYLLABLE_MS);
 
+            // Nor into a hold: a held letter before the rest's cut is let go by its start, one after it is
+            // held from its end (HeldWord.ClearOfRest).
+            foreach (var hold in HeldWord.UsableHolds(unit))
+            {
+                if (moveStart && hold.Char < pause.SplitChar)
+                    lower = Math.Max(lower, hold.EndTime);
+                else if (!moveStart && hold.Char >= pause.SplitChar)
+                    upper = Math.Min(upper, hold.StartTime);
+            }
+
             // The word (or the rest's other edge, or its neighbour) leaves no valid slot; no-op rather
             // than clamp into an inverted range.
             if (upper < lower)
@@ -3403,6 +3451,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             pauses[pauseIndex] = moveStart
                 ? new WordPause(newTime, pause.EndTime, pause.SplitChar)
                 : new WordPause(pause.StartTime, newTime, pause.SplitChar);
+
+            if (!keepsHolds(unit, pauses))
+                return;
 
             replaceUnitPauses(editorBeatmap, hitObject, unitIndex, pauses);
         }
@@ -3455,8 +3506,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>
         /// Adds a hold on <paramref name="charIndex"/>, or when null on the first character due at or after
         /// <paramref name="playheadTime"/>. It starts at the letter's target and ends at its syllable's end
-        /// (halfway there when more letters follow in the syllable). Null when the hold would be unusable,
-        /// or the word has pauses. One undo step.
+        /// (halfway there when more letters follow in the syllable), and never past the start of a rest that
+        /// follows the letter. Null when the hold would be unusable. One undo step.
         /// </summary>
         public static WordHold? AddHold(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, int? charIndex, double playheadTime)
         {
@@ -3480,9 +3531,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// </summary>
         public static WordHold? DefaultHold(TimedUnit unit, int? charIndex, double playheadTime)
         {
-            if (unit.Pauses.Count > 0)
-                return null;
-
             var flat = flattenedWithoutHolds(unit);
             var cellChars = new List<int>();
 
@@ -3532,6 +3580,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             double end = c == g.EndCellExclusive - 1 ? g.EndTime : start + (g.EndTime - start) / 2;
 
             double cap = c + 1 < unit.Text.Length ? unit.EndTime - MIN_SYLLABLE_MS : unit.EndTime;
+
+            // A hold stays inside its stretch: held from the end of the rest before it, let go by the start of
+            // the rest after it.
+            foreach (var rest in HeldWord.RestsOf(unit))
+            {
+                if (rest.SplitChar > c)
+                    cap = Math.Min(cap, rest.StartTime);
+                else
+                    start = Math.Max(start, rest.EndTime);
+            }
+
             end = Math.Min(end, cap);
 
             double due = HeldWord.LetterDueAt(unit, c);
@@ -3709,6 +3768,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             if (!moveStart && holdIndex < holds.Length - 1)
                 upper = Math.Min(upper, holds[holdIndex + 1].StartTime);
+
+            // A rest is a wall: the hold stays inside its own stretch (HeldWord.ClearOfRest).
+            foreach (var rest in HeldWord.RestsOf(unit))
+            {
+                if (moveStart && rest.SplitChar <= hold.Char)
+                    lower = Math.Max(lower, rest.EndTime);
+                else if (!moveStart && rest.SplitChar > hold.Char)
+                    upper = Math.Min(upper, rest.StartTime);
+            }
 
             if (!moveStart)
                 lower = Math.Max(lower, HeldWord.LetterDueAt(unit, hold.Char) + hold_end_past_due_ms);
