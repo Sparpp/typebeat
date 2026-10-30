@@ -527,7 +527,7 @@ namespace typebeat.Game.Online.API
         /// nothing to connect to and nothing to retry. Every hub client already treats a null connector
         /// as permanently disconnected.
         /// </summary>
-        public IHubClientConnector? GetHubConnector(string clientName, string endpoint) =>
+        public IHubClientConnector GetHubConnector(string clientName, string endpoint) =>
             string.IsNullOrEmpty(endpoint) ? null : new HubClientConnector(clientName, endpoint, this, versionHash);
 
         public IChatClient GetChatClient() => new WebSocketChatClient(this);

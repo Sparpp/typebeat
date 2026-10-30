@@ -27,14 +27,15 @@ namespace typebeat.Game.Online
             this.inner = inner;
         }
 
-        public byte[]? Get(string name) => inner.GetLoopbackUrl(name) is { } url ? fetch(url, CancellationToken.None) : inner.Get(name);
+        // A missed lookup returns null, as the framework's own stores do, behind the interface's non-null signature.
+        public byte[] Get(string name) => (inner.GetLoopbackUrl(name) is { } url ? fetch(url, CancellationToken.None) : inner.Get(name))!;
 
-        public Task<byte[]?> GetAsync(string name, CancellationToken cancellationToken = default)
+        public Task<byte[]> GetAsync(string name, CancellationToken cancellationToken = default)
         {
             if (inner.GetLoopbackUrl(name) is not { } url)
                 return inner.GetAsync(name, cancellationToken);
 
-            return Task.Run(() => fetch(url, cancellationToken), cancellationToken);
+            return Task.Run(() => fetch(url, cancellationToken)!, cancellationToken);
         }
 
         public Stream? GetStream(string name)
