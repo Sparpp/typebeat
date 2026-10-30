@@ -76,10 +76,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             importer.ProcessBeatmap = (set, scope) =>
             {
                 using var lookup = new BeatmapUpdaterMetadataLookup(online, new UnavailableSource());
-                lookup.Update(set, scope is MetadataLookupScope.OnlineFirst or MetadataLookupScope.UpdateApplied);
-
-                if (scope == MetadataLookupScope.UpdateApplied)
-                    set.MarkUpdatedToOnlineVersion();
+                lookup.Update(set, scope == MetadataLookupScope.OnlineFirst);
             };
 
             // 1. Install the stem-less version.

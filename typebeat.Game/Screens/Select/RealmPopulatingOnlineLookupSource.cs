@@ -170,11 +170,6 @@ namespace typebeat.Game.Screens.Select
                 if (dbBeatmapSet.Status != onlineBeatmapSet.Status && dbBeatmapSet.Status != BeatmapOnlineStatus.LocallyModified)
                     dbBeatmapSet.Status = onlineBeatmapSet.Status;
 
-                // The set's update identity, exactly as BeatmapUpdaterMetadataLookup records it. The set fetch
-                // carries the version on the set itself; adopting it clears "behind" once the local copy is at
-                // the online version without manufacturing an offer for a set never versioned before.
-                dbBeatmapSet.AdoptOnlineVersion(onlineBeatmapSet.LastUpdated);
-
                 // The online version's tracked-file manifest (backlog 396), the same value the metadata
                 // lookup records. Song select's set fetch is the other refresh point, so the UPDATE offer
                 // is correct whichever lookup ran last.

@@ -15,10 +15,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// <summary>
     /// Backlog 396: the UPDATE offer must fire for a stem-only version cut, which changes no <c>.osu</c>
     /// bytes. The signal is stem PRESENCE (<see cref="BeatmapSetInfo.OnlineFilesMissingLocally"/>): the
-    /// online version carries a vocals stem and the local copy has none. Time comparison (394) alone cannot
-    /// see this against a client that already had the map, whose version baseline may have adopted the
-    /// already-bumped version on its first lookup. Since realm schema 65 the presence travels as one
-    /// tracked-file manifest per side (<see cref="SetFileManifest"/>) rather than a pair of stem flags.
+    /// online version carries a vocals stem and the local copy has none. The per-difficulty MD5 cannot see
+    /// such a cut, and the set's online timestamp is no signal either, since a status change on the server
+    /// moves it too (backlog 449). Since realm schema 65 the presence travels as one tracked-file manifest
+    /// per side (<see cref="SetFileManifest"/>) rather than a pair of stem flags.
     /// </summary>
     [TestFixture]
     public class StemUpdateSignalTest
@@ -89,7 +89,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             set.RecordOnlineFileManifest(SetFileManifest.VOCALS_STEM);
 
             // Emulate the detach: the copy carries the scalar but no file list.
-            var detached = new BeatmapSetInfo { OnlineVersionLastUpdated = set.OnlineVersionLastUpdated, OnlineFileManifest = SetFileManifest.VOCALS_STEM, LocalFileManifest = set.LocalFileManifest };
+            var detached = new BeatmapSetInfo { OnlineFileManifest = SetFileManifest.VOCALS_STEM, LocalFileManifest = set.LocalFileManifest };
             detached.Beatmaps.Add(new BeatmapInfo { MD5Hash = md5, OnlineMD5Hash = md5, OnlineID = 11, BeatmapSet = detached });
 
             Assert.Multiple(() =>
@@ -147,7 +147,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void ALocallyModifiedMapStillFiresItsOwnArm()
         {
-            // A local edit never enters the version/stem path: its MD5 differs, so the MD5 arm offers as
+            // A local edit never enters the stem path: its MD5 differs, so the MD5 arm offers as
             // before, and a reported online stem must not cancel that.
             var beatmap = upToDate(other_md5);
             var set = beatmap.BeatmapSet!;
@@ -212,28 +212,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             });
         }
 
-        // ---- the fresh-import baseline (394's null-baseline hole) ----
+        // ---- a stem-only cut, seen by lookups alone ----
 
         [Test]
-        public void TheImportLookupSeedsTheVersionBaseline()
+        public void AStemOnlyCutIsOfferedThroughTheManifestAlone()
         {
-            // A fresh import runs the metadata lookup with a null baseline (MetadataLookupScope.OnlineFirst ->
-            // BeatmapUpdaterMetadataLookup.Update -> AdoptOnlineVersion), so it records the version it saw
-            // there and then. Without this, a fresh import would be permanently immune to a newer online
-            // version; with it, 394's version arm is meaningful going forward.
+            // The import's lookup sees a stem-less version; a later lookup sees a newer version that only added
+            // vocals.ogg. Every MD5 still matches, so the offer stands on the manifest arm alone, and recording the
+            // stem locally (what the accepted update does) clears it.
             var beatmap = upToDate();
             var set = beatmap.BeatmapSet!;
-            Assert.That(set.OnlineVersionLastUpdated, Is.Null, "the fixture starts with no baseline");
 
             lookUp(set, v1, hasVocalsStem: false);
+            Assert.That(set.AllBeatmapsUpToDate, Is.True, "the stem-less version offers nothing");
 
-            Assert.That(set.OnlineVersionLastUpdated, Is.EqualTo(v1), "the import's lookup seeds the baseline");
+            lookUp(set, v2, hasVocalsStem: true);
 
-            // A later cut (any version bump, stem-only included) is then offered via the version arm even
-            // after no further import.
-            beatmap.LastOnlineUpdate = v2;
-            Assert.That(set.OnlineVersionIsNewer, Is.True);
-            Assert.That(set.AllBeatmapsUpToDate, Is.False);
+            Assert.Multiple(() =>
+            {
+                Assert.That(beatmap.LastOnlineUpdate, Is.EqualTo(v2), "the lookup really saw the newer version");
+                Assert.That(beatmap.MatchesOnlineVersion, Is.True, "the MD5 arm is quiet");
+                Assert.That(set.OnlineFilesMissingLocally, Is.True);
+                Assert.That(set.AllBeatmapsUpToDate, Is.False, "so the manifest arm alone offers UPDATE");
+            });
+
+            set.RecordLocalFileManifest(SetFileManifest.VOCALS_STEM);
+
+            Assert.That(set.AllBeatmapsUpToDate, Is.True, "having the stem clears the offer");
         }
 
         // ---- the manifest itself ----

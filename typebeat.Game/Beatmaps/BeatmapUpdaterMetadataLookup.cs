@@ -90,18 +90,11 @@ namespace typebeat.Game.Beatmaps
                 }
             }
 
-            // The set's own update identity (see BeatmapSetInfo.OnlineVersionLastUpdated). The server reports
-            // the set version on every difficulty, so any successful result carries it; adopting it here is
-            // what clears the "behind" state once the local copy is genuinely at the online version, and what
-            // a first-ever lookup of an unversioned set records without manufacturing an offer.
-            DateTimeOffset? onlineVersion = lookupResults.Where(r => r != null).Select(r => (DateTimeOffset?)r!.LastUpdated).Max();
-            beatmapSet.AdoptOnlineVersion(onlineVersion);
-
             // What files the online version offers (backlog 396), reported on every difficulty of the set.
             // Only recorded when a lookup actually reported a manifest: a failed or absent one (or a source
-            // that does not carry it) must not blank a value that is holding the UPDATE offer open. Same
-            // source as the version baseline, so a fresh import (which runs this lookup) seeds it too, and a
-            // plain lookup of an already-installed set refreshes it on first sight.
+            // that does not carry it) must not blank a value that is holding the UPDATE offer open. A fresh
+            // import (which runs this lookup) seeds it too, and a plain lookup of an already-installed set
+            // refreshes it on first sight.
             if (SetFileManifest.Union(lookupResults.Select(r => r?.FileManifest)) is string onlineManifest)
                 beatmapSet.RecordOnlineFileManifest(onlineManifest);
 

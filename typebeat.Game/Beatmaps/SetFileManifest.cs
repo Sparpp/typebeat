@@ -26,8 +26,10 @@ namespace typebeat.Game.Beatmaps
     /// The comparison is coverage, not equality (<see cref="Covers"/>): the local copy is up to date
     /// when it carries every kind the online version does. A file the local copy has and the online
     /// version lacks (a stem the mapper's own aligner produced) offers nothing, exactly as it never did.
-    /// Presence is the whole signal: a content change to a tracked file comes with a version cut, which
-    /// <see cref="BeatmapSetInfo.OnlineVersionIsNewer"/> already sees.
+    /// Presence is the whole signal: like osu!lazer, which offers no UPDATE for a changed audio file while
+    /// every <c>.osu</c> MD5 matches, a content change to a tracked file the local copy already carries is
+    /// not offered (the set's online timestamp is no substitute, since a status change on the server
+    /// moves it too, backlog 449).
     /// </para>
     /// <para>
     /// A new tracked kind is one more row in <c>kinds</c> here and in the server's copy. Both

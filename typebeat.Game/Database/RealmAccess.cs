@@ -162,8 +162,12 @@ namespace typebeat.Game.Database
         /// 66   2026-10-05    Add RealmOnlineAsset (the online asset disk cache). Upstream osu!'s schema 52,
         ///                    renumbered: type!beat had already used 52-65. No migration body: a new
         ///                    table only needs the version bump.
+        /// 67   2026-10-30    Removed OnlineVersionLastUpdated from BeatmapSetInfo (backlog 449: the UPDATE offer
+        ///                    is lazer's per-difficulty MD5 plus the tracked-file manifest; a status or metadata
+        ///                    change on the server no longer offers UPDATE). No migration body: realm drops the
+        ///                    column.
         /// </summary>
-        private const int schema_version = 66;
+        private const int schema_version = 67;
 
         /// <summary>
         /// Lock object which is held during <see cref="BlockAllOperations"/> sections, blocking realm retrieval during blocking periods.

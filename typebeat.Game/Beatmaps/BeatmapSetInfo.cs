@@ -106,45 +106,16 @@ namespace typebeat.Game.Beatmaps
         public int AlignerVocalModeInt { get; set; }
 
         /// <summary>
-        /// The online set version (the server's <c>beatmapsets.updated_at</c>, surfaced to the client as
-        /// <c>last_updated</c>) that THIS local copy corresponds to, or <c>null</c> when no version has been
-        /// recorded yet.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// The set's update signal for a version cut that changes no <c>.osu</c> bytes, which is exactly how a
-        /// stem-only version is attached server-side: a ranked set is re-snapshotted with its existing
-        /// content plus <c>vocals.ogg</c> and <c>updated_at</c> is bumped, left deliberately fingerprint-neutral so
-        /// the set is not demoted. Every difficulty's MD5 is then unchanged, so the MD5 path
-        /// (<see cref="BeatmapInfo.MatchesOnlineVersion"/>) cannot see the new version and the UPDATE button
-        /// would never appear, stranding the stem. Comparing the freshly-fetched online version against this
-        /// stored baseline closes that gap.
-        /// </para>
-        /// <para>
-        /// It is deliberately NOT <see cref="BeatmapInfo.LastOnlineUpdate"/>: that field is refreshed on EVERY
-        /// lookup, so it records "when I last looked", not "the version I have", and a naive comparison against
-        /// it fires once and settles. Here the baseline only advances when the local copy is genuinely brought
-        /// to a version: adopted on first sight (see <see cref="BeatmapUpdaterMetadataLookup"/> and
-        /// <see cref="Screens.Select.RealmPopulatingOnlineLookupSource"/>) and re-adopted after an accepted
-        /// update (see <see cref="BeatmapImporter.ImportAsUpdate"/>). While the online version is newer it is
-        /// left where it is, so the offer does not settle on its own.
-        /// </para>
-        /// </remarks>
-        public DateTimeOffset? OnlineVersionLastUpdated { get; set; }
-
-        /// <summary>
         /// The tracked-file manifest of the online set's CURRENT version (see <see cref="SetFileManifest"/>), as last
         /// reported by a metadata lookup (<c>file_manifest</c>, or the <c>has_vocals_stem</c> flag of a server that
         /// predates it), or <c>null</c> when no lookup has reported one yet.
         /// </summary>
         /// <remarks>
         /// <para>
-        /// The server's answer for the version currently being served, recorded on every successful lookup exactly
-        /// as <see cref="OnlineVersionLastUpdated"/> is, and compared at read time against the files the LOCAL copy
-        /// carries (<see cref="OnlineFilesMissingLocally"/>). It is deliberately not gated by
-        /// <see cref="OnlineVersionLastUpdated"/>'s "do not advance while behind" rule: it describes what the online
-        /// offers right now, and whether that is something the local copy lacks is a separate question answered by
-        /// <see cref="LocalFileManifest"/>.
+        /// The server's answer for the version currently being served, recorded on every successful lookup, and
+        /// compared at read time against the files the LOCAL copy carries (<see cref="OnlineFilesMissingLocally"/>).
+        /// It describes what the online version offers right now, and whether that is something the local copy
+        /// lacks is a separate question answered by <see cref="LocalFileManifest"/>.
         /// </para>
         /// <para>
         /// <c>null</c> reads as nothing to offer, and the next lookup records the real value. That ordering matters:
@@ -176,75 +147,18 @@ namespace typebeat.Game.Beatmaps
         public string LocalFileManifest { get; set; } = SetFileManifest.EMPTY;
 
         /// <summary>
-        /// Whether the online set has a version strictly newer than <see cref="OnlineVersionLastUpdated"/>
-        /// that the local copy does not correspond to yet.
-        /// </summary>
-        /// <remarks>
-        /// Compared against each difficulty's <see cref="BeatmapInfo.LastOnlineUpdate"/>, which holds the
-        /// newest online version seen for this set (every difficulty of a set carries the same server-side
-        /// value). A difficulty that has never been looked up, or a locally modified map, has a null
-        /// <see cref="BeatmapInfo.LastOnlineUpdate"/> and so contributes nothing: without that, the null
-        /// baseline of a never-looked-up map would read as "behind".
-        /// </remarks>
-        public bool OnlineVersionIsNewer
-        {
-            get
-            {
-                DateTimeOffset? stored = OnlineVersionLastUpdated;
-
-                if (stored == null)
-                    return false;
-
-                foreach (var beatmap in Beatmaps)
-                {
-                    DateTimeOffset? seen = beatmap.LastOnlineUpdate;
-
-                    if (seen != null && seen.Value > stored.Value)
-                        return true;
-                }
-
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// Records the freshly-fetched online set version as the one this local copy corresponds to,
-        /// unless it is strictly newer (see <see cref="OnlineVersionLastUpdated"/>).
-        /// </summary>
-        /// <remarks>
-        /// The single write path for the baseline, so both lookup surfaces and any future one decide
-        /// identically. A strictly-newer online version is deliberately NOT adopted: that is the "my
-        /// stored set is behind" state <see cref="OnlineVersionIsNewer"/> reports, and advancing the
-        /// baseline past it here is what would make the offer flash once and settle. A first look
-        /// (<see cref="OnlineVersionLastUpdated"/> null) adopts, so a plain lookup of a set that has
-        /// never been versioned does not itself manufacture an offer.
-        /// </remarks>
-        /// <param name="onlineVersion">The version to record. <c>null</c> is ignored.</param>
-        public void AdoptOnlineVersion(DateTimeOffset? onlineVersion)
-        {
-            if (onlineVersion is not { } online)
-                return;
-
-            if (OnlineVersionLastUpdated is { } stored && online > stored)
-                return;
-
-            if (OnlineVersionLastUpdated != online)
-                OnlineVersionLastUpdated = online;
-        }
-
-        /// <summary>
         /// Whether the online version offers a tracked file the LOCAL copy lacks: the online manifest (as last
         /// looked up, <see cref="OnlineFileManifest"/>) names a kind the local one (<see cref="LocalFileManifest"/>)
         /// does not (see <see cref="SetFileManifest.Covers"/>).
         /// </summary>
         /// <remarks>
         /// This is the arm that makes a file-only version cut visible (backlog 396, a stem-only version). Such a cut
-        /// adds a file and bumps the version but leaves every <c>.osu</c> MD5 byte-identical, so neither the MD5 path
-        /// nor <see cref="OnlineVersionIsNewer"/> can see it against a client that already had the map (whose baseline
-        /// may have adopted the already-bumped version), and a client that already holds the audio never re-fetches a
-        /// version that only added a file. Presence, not time, is what the client can actually tell apart here. Once
-        /// the update lands <see cref="LocalFileManifest"/> names the kind, so this reads false and the offer clears
-        /// on its own.
+        /// adds a file but leaves every <c>.osu</c> MD5 byte-identical, so the MD5 path cannot see it, and a client
+        /// that already holds the audio never re-fetches a version that only added a file. Presence, not time, is
+        /// what the client can tell apart here: the set's online timestamp also moves for a status or metadata change
+        /// on the server (ranking a pending set), so comparing it offered UPDATE for files that never changed
+        /// (backlog 449). Once the update lands <see cref="LocalFileManifest"/> names the kind, so this reads false
+        /// and the offer clears on its own.
         /// </remarks>
         public bool OnlineFilesMissingLocally => !SetFileManifest.Covers(LocalFileManifest, OnlineFileManifest);
 
@@ -271,32 +185,6 @@ namespace typebeat.Game.Beatmaps
         {
             if (OnlineFileManifest != manifest)
                 OnlineFileManifest = manifest;
-        }
-
-        /// <summary>
-        /// Records that an accepted UPDATE brought this local copy to the online version. Call after the
-        /// update's lookup has run (it reads the version off <see cref="BeatmapInfo.LastOnlineUpdate"/>, the
-        /// same field the lookup itself refreshes) and raises the baseline to it.
-        /// </summary>
-        /// <remarks>
-        /// The baseline is exactly the one that lagged (that is why an update was offered), so it is
-        /// deliberately moved forward here: this is the one place the local copy is genuinely brought to a
-        /// version, and without the move the freshly-imported set would still read as behind the very version
-        /// it was downloaded for and the offer would never clear. Everywhere else the baseline only advances
-        /// to a version it has not fallen behind (see <see cref="AdoptOnlineVersion"/>).
-        /// </remarks>
-        public void MarkUpdatedToOnlineVersion()
-        {
-            DateTimeOffset? seen = null;
-
-            foreach (var beatmap in Beatmaps)
-            {
-                if (beatmap.LastOnlineUpdate is { } t && (seen == null || t > seen.Value))
-                    seen = t;
-            }
-
-            if (seen != null)
-                OnlineVersionLastUpdated = seen;
         }
 
         public double MaxStarDifficulty => Beatmaps.Count == 0 ? 0 : Beatmaps.Max(b => b.StarRating);
@@ -341,17 +229,17 @@ namespace typebeat.Game.Beatmaps
         IEnumerable<INamedFileUsage> IHasNamedFiles.Files => Files;
 
         /// <summary>
-        /// Whether every difficulty is at the online version, the set itself is at the online version, and
-        /// the local copy carries no file the online version offers but it lacks.
+        /// Whether every difficulty is at the online version and the local copy carries no file the online
+        /// version offers but it lacks.
         /// </summary>
         /// <remarks>
-        /// Three arms: the per-difficulty MD5 (<see cref="BeatmapInfo.MatchesOnlineVersion"/>), the set
-        /// version baseline (<see cref="OnlineVersionIsNewer"/>), and the tracked-file manifest
-        /// (<see cref="OnlineFilesMissingLocally"/>, against the recorded <see cref="LocalFileManifest"/>).
-        /// The manifest arm is what makes a file-only version cut visible (backlog 396): the version baseline
-        /// cannot see it once it has adopted the already-bumped version, and the MD5 path cannot see it at
-        /// all, so presence is the only signal that holds.
+        /// Two arms. The first is osu!lazer's rule unchanged: the per-difficulty MD5
+        /// (<see cref="BeatmapInfo.MatchesOnlineVersion"/>), so a status or metadata change on the server (ranking
+        /// a pending set bumps its online timestamp) offers no UPDATE while the files are the same. The second is
+        /// the tracked-file manifest (<see cref="OnlineFilesMissingLocally"/>, against the recorded
+        /// <see cref="LocalFileManifest"/>), which makes a file-only version cut visible (backlog 396): the MD5
+        /// path cannot see a cut that only adds a stem, so presence is the signal for it.
         /// </remarks>
-        public bool AllBeatmapsUpToDate => Beatmaps.All(b => b.MatchesOnlineVersion) && !OnlineVersionIsNewer && !OnlineFilesMissingLocally;
+        public bool AllBeatmapsUpToDate => Beatmaps.All(b => b.MatchesOnlineVersion) && !OnlineFilesMissingLocally;
     }
 }
