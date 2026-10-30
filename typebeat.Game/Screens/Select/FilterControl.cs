@@ -218,10 +218,12 @@ namespace typebeat.Game.Screens.Select
             difficultyRangeSlider.UpperBound = config.GetBindable<double>(OsuSetting.DisplayStarsMaximum);
             config.BindWith(OsuSetting.ShowConvertedBeatmaps, showConvertedBeatmapsButton.Active);
             config.BindWith(OsuSetting.SeparateAllDifficulties, separateAllDifficulties);
-            var savedSort = config.GetBindable<SortMode>(OsuSetting.SongSelectSortingMode);
-            if (savedSort.Value == SortMode.BPM)
-                savedSort.Value = SortMode.Title;
-            sortDropdown.Current.BindTo(savedSort);
+            // The retired BPM sort is not in the dropdown, so it is remapped on the stored setting before
+            // binding. Bound straight to the config's own bindable: a GetBindable copy held only in a local
+            // is weakly bound and stops saving the sort once it is collected.
+            if (config.Get<SortMode>(OsuSetting.SongSelectSortingMode) == SortMode.BPM)
+                config.SetValue(OsuSetting.SongSelectSortingMode, SortMode.Title);
+            config.BindWith(OsuSetting.SongSelectSortingMode, sortDropdown.Current);
             config.BindWith(OsuSetting.SongSelectCollectionFilter, configCollectionFilter);
 
             ruleset.BindValueChanged(_ => updateCriteria());
