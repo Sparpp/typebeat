@@ -42,15 +42,15 @@
 #   3. commit the regenerated manifest
 # Order matters: the upload must land before the manifest reaches a branch CI builds from.
 
-fe3e62e20e46ede5f957ed62ae9ec1ca6e048dfdd7c93d795e8aca86158c0282  3408733  Ariana Grande - hate that i made you love me.typb
-812be192519320e02723e1b0fec6d3a682c3331e60bdc7fdf7b1ea5c36835d8f  7395278  Bruno Mars - Talking to the Moon.typb
-3709575b8cf0395442972869345baa6ce46e023ea04b1a93be61a9ae12883295  5380320  Elvis Presley - Can't Help Falling In Love.typb
-312cd3cae5010c718547b28b28e90f78ba206c60b7f3d79e33c5dd6a464b9210  9774364  Gorillaz - On Melancholy Hill.typb
-a830a7a87648a57dba81445095daa291cc4c4c7a9bcd29b24bcf21fe33b34818  6854879  Johnny Cash - Hurt.typb
-de52839508a9f87947ec1d124b88a5796ae787edeedebd81a1fecdc05c73d9be  6210205  Mage - The Words I Never Said.typb
-16e9666c998b0f338565302cfaf23df245731ac4c4717617501ff154a5062be9  10566166  Mitski - Washing Machine Heart.typb
-2badd6b7258ee87c2630aa505af9812da8b470a5b2c0399d2ba9733a9d9af7b1  11120747  Radiohead - Exit Music (For a Film).typb
-2405ebaedf8ab071b76ad8aa342931342ac391ff71d9da1684a347025e299870  9082677  Tame Impala - Loser.typb
-f4a4d043e4b87522bbb1207d61160bd990a9cc29882080f96202a73de549f89e  8645154  Tame Impala, JENNIE - Dracula (JENNIE Remix).typb
-3c6155e3463d3666a49d6c68b726d6a3d92f73a283f3e67d13fbb62a080c7542  10760870  THE KOXX - A Fool Moon Night.typb
-078ddf929d49f856b37059efc0ca30647f5d77834fedbc2943a543e66dfa2451  3574215  Vance Joy - Riptide.typb
+a70c07c70f0333d18e3bcb38ad46e338e1656ee3f2bc1e597a975cfdfb5fdab3  4304788  Ariana Grande - hate that i made you love me.typb
+55b99ee8db7b7c216044a72e8edaa244f3d6ecb5155de91cb40c01282768e7a8  8362239  Bruno Mars - Talking to the Moon.typb
+45c1552122317a0c32ea7328629abbc8f2f0bc4715ccc22d1428b5705ffac51f  6185190  Elvis Presley - Can't Help Falling In Love.typb
+ba945087a22faaafe53143e4ff2e387278068a3c5619074f12304e4dc33a5a84  10616577  Gorillaz - On Melancholy Hill.typb
+28cd82647f436ebc8331b6675b076c19a2d9f540998f5ca8f600e2f27f524793  7790846  Johnny Cash - Hurt.typb
+f335f60c3ec1801c5e8632bc96f8e884791c7522eb44a376d253f466c0d2eeec  7593560  Mage - The Words I Never Said.typb
+acd708600ad34531e3bd9bf00646ef4cd242378ecfe2cac1d6d5725e806314aa  11137864  Mitski - Washing Machine Heart.typb
+66cb74adb2aeecb01495d51d02687a84bb3d95d0341d187ab7f1c7ca708dd1a1  12177744  Radiohead - Exit Music (For a Film).typb
+a07941e0091397d9de97bb6cb958e652454a6e67cdb9e55927c4237fc3e2ecab  11920325  THE KOXX - A Fool Moon Night.typb
+4652835272264229d63d23e1ca9cfa4ca0f091681d073e71f5244a01f913630f  10115594  Tame Impala - Loser.typb
+f23539b147239ac67f17859d3a7e5fafd0aee77660ee8d420ab6551e4b6ecf4e  9664626  Tame Impala, JENNIE - Dracula (JENNIE Remix).typb
+a2a44aa004c18afe9abfe975e30b3b15bdf7eb85d451d81ad920a48dd848e56a  4483756  Vance Joy - Riptide.typb
