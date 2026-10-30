@@ -38,7 +38,6 @@ namespace typebeat.Game.Overlays
         {
             AddStep<ScreenWelcome>();
             AddStep<ScreenUIScale>();
-            AddStep<ScreenBehaviour>();
             AddStep<ScreenLocalAligner>();
 
             Header.Title = FirstRunSetupOverlayStrings.FirstRunSetupTitle;

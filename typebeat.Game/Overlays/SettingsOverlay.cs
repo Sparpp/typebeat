@@ -72,7 +72,6 @@ namespace typebeat.Game.Overlays
         {
             var sections = new List<SettingsSection>
             {
-                // This list should be kept in sync with ScreenBehaviour.
                 new GeneralSection(),
                 new SkinSection(),
                 new InputSection(createSubPanel(new KeyBindingPanel())),
