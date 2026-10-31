@@ -30,10 +30,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             return units.Where((u, i) => !ReferenceEquals(u, line.Units[i])).Any() ? rebuild(line, units: units) : line;
         }
 
-        /// <summary>Reconcile older maps on editor entry, in one undoable change.</summary>
+        /// <summary>Reconcile older maps on editor entry, in one undoable change. This also clears the holds no play honours, which an older editor left invisible.</summary>
         public static void NormalizeOriginalSubdivisions(EditorBeatmap beatmap)
         {
-            var changes = OrderedLines(beatmap).Select(h => (Object: h, Line: normalizeOriginalSubdivisions(beatmap, h.Line)))
+            var changes = OrderedLines(beatmap).Select(h => (Object: h, Line: withoutUnplayableHolds(normalizeOriginalSubdivisions(beatmap, h.Line))))
                 .Where(c => !ReferenceEquals(c.Object.Line, c.Line)).ToArray();
             if (changes.Length == 0)
                 return;

@@ -106,7 +106,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 else
                 {
                     var changed = applyPipes(new[] { unit }, new[] { normalized }, wordPipes, out _)[0];
-                    if (sameOriginalWord(unit, changed))
+                    if (sameOriginalWord(unit, changed) || (unit.Text == changed.Text && !HoldPlacement.PreservesHolds(unit, changed)))
                         return false;
                     entries[slot] = (changed, null);
                 }
@@ -169,7 +169,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     : applyOriginalPipes(changed, newOriginal, originalPipes, OriginalSubdivisionLanguage(editorBeatmap, line)
                         ?? LyricOriginals.DetectLanguage(new[] { newOriginal }));
 
-                if (sameOriginalWord(unit, changed))
+                if (sameOriginalWord(unit, changed) || (unit.Text == changed.Text && !HoldPlacement.PreservesHolds(unit, changed)))
                     return false;
 
                 entries[slot] = (changed, null);
@@ -234,6 +234,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     cursor = start + word.Length;
                 }
             }
+
+            if (units.Where((u, i) => !HoldPlacement.PreservesHolds(line.Units[i], u)).Any())
+                return false;
 
             if (value == line.Original && units.Where((u, i) => !sameOriginalWord(u, line.Units[i])).Any() == false)
                 return false;

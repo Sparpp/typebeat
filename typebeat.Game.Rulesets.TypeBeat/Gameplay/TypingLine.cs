@@ -1945,7 +1945,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         internal static double[] CellTargetsFor(TimedUnit unit, int typeableCount, Func<char, bool>? isCell = null)
             => tokenCellTargets(unit.Text, unit.StartTime, unit.EndTime, unit, typeableCount, isCell, alignSubdivisions: true);
 
-        /// <summary>The target of character <paramref name="charIndex"/> as the word alone spreads it, the later of the two eras.</summary>
+        /// <summary>The target of character <paramref name="charIndex"/> as the word alone spreads it in the current, subdivision-aligned era every live play uses.</summary>
         internal static double HoldFreeCellTarget(TimedUnit unit, int charIndex, Func<char, bool> isCell)
         {
             int k = 0, j = 0;
@@ -1964,9 +1964,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (j >= k)
                 return unit.EndTime;
 
-            double legacy = tokenCellTargets(unit.Text, unit.StartTime, unit.EndTime, unit, k, isCell)[j];
-            double aligned = tokenCellTargets(unit.Text, unit.StartTime, unit.EndTime, unit, k, isCell, alignSubdivisions: true)[j];
-            return Math.Max(legacy, aligned);
+            return tokenCellTargets(unit.Text, unit.StartTime, unit.EndTime, unit, k, isCell, alignSubdivisions: true)[j];
         }
 
         private const double min_boundary_grace_ms = 250;

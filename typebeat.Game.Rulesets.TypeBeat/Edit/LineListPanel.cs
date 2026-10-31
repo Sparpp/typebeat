@@ -567,7 +567,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 if (state.ShowOriginalLyrics.Value)
                 {
-                    TypeBeatEditorOperations.SetLineOriginal(editorBeatmap, HitObject, textBox.Text);
+                    if (!TypeBeatEditorOperations.SetLineOriginal(editorBeatmap, HitObject, textBox.Text))
+                        background.FlashColour(TypeBeatStyle.ErrorChar, 400, Easing.OutQuint);
                     textBox.Text = committedText();
                     return;
                 }
