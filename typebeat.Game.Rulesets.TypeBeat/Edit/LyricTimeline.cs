@@ -1506,15 +1506,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         /// <summary>
         /// ONE of a word's AUTHORED PAUSES (the Map Editor's Insert Pause), drawn as a greyed-out band
-        /// across the word block with a draggable handle on each of its edges. The band says at a glance
-        /// that nothing is sung here; the two edges say how long the breath lasts, and the engine times
+        /// across the word block with an invisible draggable handle on each of its edges. The band says at
+        /// a glance that nothing is sung here and how long the breath lasts, and the engine times
         /// the characters after the rest from its end (see <see cref="Gameplay.TypingLine"/>). A word may
         /// carry several, one per breath (see <see cref="Beatmaps.TimedUnit.Pauses"/>), each with its own
         /// region and its own pair of edges.
         ///
-        /// <para>Both edges reuse the syllable-boundary handle idiom - a wide invisible grab zone
-        /// around a thin visual, hover widening it, drag retiming, the strip's horizontal-resize
-        /// cursor - in ONE region, because the two edges belong to one rest and their grab zones
+        /// <para>Both edges reuse the syllable-boundary handle idiom - a wide invisible grab zone, drag
+        /// retiming, the strip's horizontal-resize cursor, but no line of their own, the band's edge
+        /// being the mark - in ONE region, because the two edges belong to one rest and their grab zones
         /// therefore stay a fixed number of pixels wide however far the strip is zoomed out. When a
         /// rest is shorter on screen than those zones are wide the two overlap; the END edge is added
         /// last and so takes the press, which is the one a mapper widening a breath reaches for, and
@@ -1589,13 +1589,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         /// <summary>
         /// One draggable edge of an authored rest, and the double-click that takes the rest back out.
-        /// Deliberately the same interaction as <see cref="SyllableHandle"/>'s: a wide invisible grab
-        /// zone around a thin visual, hover widening it, drag retiming (clamped by
+        /// Deliberately the same interaction as <see cref="SyllableHandle"/>'s, with nothing drawn: the
+        /// band's own edge is the mark, so this is a wide invisible grab zone and drag retiming (clamped by
         /// <see cref="TypeBeatEditorOperations.SetWordPauseStart"/> / <c>SetWordPauseEnd</c>), and the
         /// press pulling the word's line into the detail panel so the panel's actions point at the same
         /// word. Undo/redo is one step per drag, exactly as for every other handle here.
         /// </summary>
-        private partial class PauseEdgeHandle : CompositeDrawable
+        private partial class PauseEdgeHandle : Drawable
         {
             // Wide enough to be easy to hit, invisible, and identical to the other handles' grab width.
             private const float grab_width = 16;
@@ -1605,7 +1605,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             private readonly int unitIndex;
             private readonly int pauseIndex;
             private readonly bool start;
-            private readonly Box line;
 
             [Resolved]
             private EditorBeatmap editorBeatmap { get; set; } = null!;
@@ -1625,15 +1624,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 Origin = Anchor.Centre;
                 RelativeSizeAxes = Axes.Y;
                 Width = grab_width;
-
-                InternalChild = line = new Box
-                {
-                    Anchor = Anchor.Centre,
-                    Origin = Anchor.Centre,
-                    RelativeSizeAxes = Axes.Y,
-                    Width = 2,
-                    Colour = TypeBeatStyle.TypedChar,
-                };
             }
 
             public override bool HandlePositionalInput => true;
@@ -1646,16 +1636,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             protected override bool OnMouseMove(MouseMoveEvent e)
             {
-                line.Width = 4;
                 strip.SetEdgeHovered(true);
                 return false;
             }
 
-            protected override void OnHoverLost(HoverLostEvent e)
-            {
-                line.Width = 2;
-                strip.SetEdgeHovered(false);
-            }
+            protected override void OnHoverLost(HoverLostEvent e) => strip.SetEdgeHovered(false);
 
             // The handle owns the press (so the band, the block and the strip never see the gesture);
             // claiming the single click as inert is what makes the double click reachable, exactly as
