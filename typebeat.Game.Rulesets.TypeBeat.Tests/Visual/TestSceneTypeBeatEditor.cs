@@ -1330,6 +1330,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("start the drag", () => InputManager.MoveMouseTo(stripPointAtX(edge() + 30)));
             AddUntilStep("the resize cursor while dragging", () => strip().ProvidingUserCursor);
 
+            AddAssert("the rest's right end draws a subdivision line, where the rest ends", () =>
+            {
+                var line = strip().PauseEndLines.Single();
+                float expected = strip().ToScreenSpace(new Vector2(edge(), 0)).X;
+                return line.Alpha > 0 && line.DrawWidth > 0 && Math.Abs(line.ScreenSpaceDrawQuad.Centre.X - expected) < 1;
+            });
+
             AddStep("run far past the word's end", () => InputManager.MoveMouseTo(stripPointAtX(strip().PositionOf(lineAt(0).Line.Units[0].EndTime) + 200)));
             AddWaitStep("let the edge stop", 2);
             AddAssert("still the resize cursor", () => strip().ProvidingUserCursor);

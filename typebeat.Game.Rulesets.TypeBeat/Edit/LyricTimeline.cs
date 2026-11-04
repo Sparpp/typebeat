@@ -214,6 +214,48 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// </summary>
         internal int PauseRegionCount => handleLayer.OfType<PauseRegion>().Count();
 
+        /// <summary>The dotted lines drawn at the right ends of the rests, one per rest (test support).</summary>
+        internal IReadOnlyList<Drawable> PauseEndLines => handleLayer.OfType<PauseRegion>().Select(region => region.EndLine).ToArray();
+
+        /// <summary>
+        /// A subdivision's dotted line, a column of short dashes clipped to its height by the masking
+        /// container (there is no dashed-line drawable, so it is tiled from boxes). Enough dashes to
+        /// overflow any row height; masking trims the rest.
+        /// </summary>
+        private static Container dottedLine()
+        {
+            var dashes = new FillFlowContainer
+            {
+                Anchor = Anchor.Centre,
+                Origin = Anchor.Centre,
+                RelativeSizeAxes = Axes.X,
+                AutoSizeAxes = Axes.Y,
+                Direction = FillDirection.Vertical,
+                Spacing = new Vector2(0, 3),
+            };
+
+            for (int i = 0; i < 40; i++)
+            {
+                dashes.Add(new Box
+                {
+                    RelativeSizeAxes = Axes.X,
+                    Height = 4,
+                });
+            }
+
+            return new Container
+            {
+                Anchor = Anchor.Centre,
+                Origin = Anchor.Centre,
+                RelativeSizeAxes = Axes.Y,
+                Width = 2,
+                Masking = true,
+                Colour = TypeBeatStyle.TypedChar,
+                Alpha = 0.85f,
+                Child = dashes,
+            };
+        }
+
         /// <summary>
         /// The width, in pixels, of the live rest PREVIEW a SHIFT+drag is drawing (see
         /// <see cref="SyllableHandle.updatePromotionBand"/>), or 0 when none is showing. A test seam, for
@@ -1240,28 +1282,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 Height = 0.55f;
                 Width = 16;
 
-                // Dotted line: a column of short dashes clipped to the block height by the masking
-                // container (there is no dashed-line drawable, so it is tiled from boxes). Enough
-                // dashes to overflow any row height; masking trims the rest.
-                var dashes = new FillFlowContainer
-                {
-                    Anchor = Anchor.Centre,
-                    Origin = Anchor.Centre,
-                    RelativeSizeAxes = Axes.X,
-                    AutoSizeAxes = Axes.Y,
-                    Direction = FillDirection.Vertical,
-                    Spacing = new Vector2(0, 3),
-                };
-
-                for (int i = 0; i < 40; i++)
-                {
-                    dashes.Add(new Box
-                    {
-                        RelativeSizeAxes = Axes.X,
-                        Height = 4,
-                    });
-                }
-
                 InternalChildren = new Drawable[]
                 {
                     // The live preview of the rest a SHIFT+drag is opening (see promotionBand below): the
@@ -1274,17 +1294,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                         Colour = TypeBeatStyle.Background,
                         Alpha = 0,
                     },
-                    visual = new Container
-                    {
-                        Anchor = Anchor.Centre,
-                        Origin = Anchor.Centre,
-                        RelativeSizeAxes = Axes.Y,
-                        Width = 2,
-                        Masking = true,
-                        Colour = TypeBeatStyle.TypedChar,
-                        Alpha = 0.85f,
-                        Child = dashes,
-                    },
+                    visual = dottedLine(),
                 };
             }
 
@@ -1513,15 +1523,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         /// <summary>
         /// ONE of a word's AUTHORED PAUSES (the Map Editor's Insert Pause), drawn as a greyed-out band
-        /// across the word block with an invisible draggable handle on each of its edges. The band says at
-        /// a glance that nothing is sung here and how long the breath lasts, and the engine times
+        /// across the word block with a draggable handle on each of its edges. The band says at a glance
+        /// that nothing is sung here and how long the breath lasts. Its right edge carries a subdivision's
+        /// dotted line, because that is what it is to the ear and the fingers: it ticks in playback
+        /// (see <see cref="EditorTickTimes"/>) and the engine times
         /// the characters after the rest from its end (see <see cref="Gameplay.TypingLine"/>). A word may
         /// carry several, one per breath (see <see cref="Beatmaps.TimedUnit.Pauses"/>), each with its own
         /// region and its own pair of edges.
         ///
         /// <para>Both edges reuse the syllable-boundary handle idiom - a wide invisible grab zone, drag
-        /// retiming, the strip's horizontal-resize cursor, but no line of their own, the band's edge
-        /// being the mark - in ONE region, because the two edges belong to one rest and their grab zones
+        /// retiming, the strip's horizontal-resize cursor, with the left edge drawing no line, the band's
+        /// edge being its mark - in ONE region, because the two edges belong to one rest and their grab zones
         /// therefore stay a fixed number of pixels wide however far the strip is zoomed out. When a
         /// rest is shorter on screen than those zones are wide the two overlap; the END edge is added
         /// last and so takes the press, which is the one a mapper widening a breath reaches for, and
@@ -1536,6 +1548,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             private readonly Box band;
             private readonly PauseEdgeHandle startEdge;
             private readonly PauseEdgeHandle endEdge;
+
+            /// <summary>The dotted line at the rest's right end.</summary>
+            public Drawable EndLine => endEdge.Line!;
 
             [Resolved]
             private LyricEditState state { get; set; } = null!;
@@ -1596,13 +1611,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         /// <summary>
         /// One draggable edge of an authored rest, and the double-click that takes the rest back out.
-        /// Deliberately the same interaction as <see cref="SyllableHandle"/>'s, with nothing drawn: the
-        /// band's own edge is the mark, so this is a wide invisible grab zone and drag retiming (clamped by
+        /// Deliberately the same interaction as <see cref="SyllableHandle"/>'s: a wide invisible grab zone
+        /// and drag retiming (clamped by
         /// <see cref="TypeBeatEditorOperations.SetWordPauseStart"/> / <c>SetWordPauseEnd</c>), and the
         /// press pulling the word's line into the detail panel so the panel's actions point at the same
-        /// word. Undo/redo is one step per drag, exactly as for every other handle here.
+        /// word. Undo/redo is one step per drag, exactly as for every other handle here. Only the END
+        /// edge draws a line, a subdivision's (see <see cref="PauseRegion"/>); the start edge has the
+        /// band's own edge for its mark.
         /// </summary>
-        private partial class PauseEdgeHandle : Drawable
+        private partial class PauseEdgeHandle : CompositeDrawable
         {
             // Wide enough to be easy to hit, invisible, and identical to the other handles' grab width.
             private const float grab_width = 16;
@@ -1612,6 +1629,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             private readonly int unitIndex;
             private readonly int pauseIndex;
             private readonly bool start;
+
+            /// <summary>The dotted line this edge draws: the end edge's, none on the start edge.</summary>
+            public Drawable? Line { get; }
 
             [Resolved]
             private EditorBeatmap editorBeatmap { get; set; } = null!;
@@ -1631,6 +1651,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 Origin = Anchor.Centre;
                 RelativeSizeAxes = Axes.Y;
                 Width = grab_width;
+
+                if (!start)
+                    AddInternal(Line = dottedLine());
             }
 
             public override bool HandlePositionalInput => true;
@@ -1645,11 +1668,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             // takes the resize cursor away again.
             protected override bool OnMouseMove(MouseMoveEvent e)
             {
+                if (Line != null)
+                {
+                    Line.Width = 4;
+                    Line.Alpha = 1;
+                }
+
                 strip.SetEdgeHovered(true);
                 return true;
             }
 
-            protected override void OnHoverLost(HoverLostEvent e) => strip.SetEdgeHovered(false);
+            protected override void OnHoverLost(HoverLostEvent e)
+            {
+                if (Line != null)
+                {
+                    Line.Width = 2;
+                    Line.Alpha = 0.85f;
+                }
+
+                strip.SetEdgeHovered(false);
+            }
 
             // The handle owns the press (so the band, the block and the strip never see the gesture);
             // claiming the single click as inert is what makes the double click reachable, exactly as
