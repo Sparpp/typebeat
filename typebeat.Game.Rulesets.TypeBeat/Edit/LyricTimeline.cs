@@ -137,6 +137,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private readonly Func<double, float> positionOf;
 
         private bool edgeHovered;
+        private bool edgeDragging;
 
         public LyricTimeline()
         {
@@ -195,10 +196,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         // --- IProvideCursor: swap in a horizontal-resize cursor while hovering a word edge. ---
         CursorContainer IProvideCursor.Cursor => resizeCursor;
-        public bool ProvidingUserCursor => edgeHovered;
+        public bool ProvidingUserCursor => edgeHovered || edgeDragging;
 
         /// <summary>Reported by word blocks: whether the mouse is currently over a resize edge.</summary>
         public void SetEdgeHovered(bool value) => edgeHovered = value;
+
+        /// <summary>
+        /// Reported by the handles that sit over a word block: one of them is being dragged. Holds the
+        /// cursor for the whole gesture, since a snapped or clamped handle falls behind the pointer.
+        /// </summary>
+        public void SetEdgeDragging(bool value) => edgeDragging = value;
 
         /// <summary>
         /// How many authored-pause regions the strip is drawing right now. A test seam rather than a
@@ -1634,10 +1641,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             // block's idiom is the one this strip is already built around.
             protected override bool OnHover(HoverEvent e) => false;
 
+            // Handled, or the word block under the edge reports its own body straight after and
+            // takes the resize cursor away again.
             protected override bool OnMouseMove(MouseMoveEvent e)
             {
                 strip.SetEdgeHovered(true);
-                return false;
+                return true;
             }
 
             protected override void OnHoverLost(HoverLostEvent e) => strip.SetEdgeHovered(false);
@@ -1665,6 +1674,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             protected override bool OnDragStart(DragStartEvent e)
             {
+                strip.SetEdgeDragging(true);
                 state.BeginInteraction();
                 editorBeatmap.BeginChange();
                 return true;
@@ -1682,6 +1692,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             protected override void OnDragEnd(DragEndEvent e)
             {
+                strip.SetEdgeDragging(false);
                 editorBeatmap.EndChange();
                 state.EndInteraction();
             }

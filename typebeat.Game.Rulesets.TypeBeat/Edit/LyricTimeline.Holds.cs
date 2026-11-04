@@ -182,14 +182,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             public override bool HandlePositionalInput => true;
 
-            // Hover through OnMouseMove, as PauseEdgeHandle does.
+            // Hover through OnMouseMove, as PauseEdgeHandle does, and handled for the same reason.
             protected override bool OnHover(HoverEvent e) => false;
 
             protected override bool OnMouseMove(MouseMoveEvent e)
             {
                 SetHovered(true);
                 Strip.SetEdgeHovered(true);
-                return false;
+                return true;
             }
 
             protected override void OnHoverLost(HoverLostEvent e)
@@ -213,6 +213,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             protected override bool OnDragStart(DragStartEvent e)
             {
+                Strip.SetEdgeDragging(true);
                 state.BeginInteraction();
                 EditorBeatmap.BeginChange();
                 return true;
@@ -220,6 +221,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             protected override void OnDragEnd(DragEndEvent e)
             {
+                Strip.SetEdgeDragging(false);
                 EditorBeatmap.EndChange();
                 state.EndInteraction();
             }

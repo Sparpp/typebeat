@@ -593,10 +593,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 X = parent.PositionOf(words[Index].StartTime);
             }
 
+            // Handled, or the block under the divider takes the resize cursor away again (see PauseEdgeHandle).
             protected override bool OnMouseMove(MouseMoveEvent e)
             {
                 strip.SetEdgeHovered(true);
-                return false;
+                return true;
             }
 
             protected override void OnHoverLost(HoverLostEvent e) => strip.SetEdgeHovered(false);
@@ -619,6 +620,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             protected override bool OnDragStart(DragStartEvent e)
             {
                 strip.selectBackingWord(HitObject, Index);
+                strip.SetEdgeDragging(true);
                 state.BeginInteraction();
                 editorBeatmap.BeginChange();
                 return true;
@@ -629,6 +631,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             protected override void OnDragEnd(DragEndEvent e)
             {
+                strip.SetEdgeDragging(false);
                 editorBeatmap.EndChange();
                 state.EndInteraction();
             }

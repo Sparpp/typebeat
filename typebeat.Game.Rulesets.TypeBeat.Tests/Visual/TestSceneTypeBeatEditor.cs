@@ -1292,6 +1292,53 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         /// <summary>
+        /// The resize cursor over a pause edge: the word block under the edge must not take it away
+        /// again on the same mouse move, and it stays for the whole drag, including while the pointer
+        /// runs ahead of an edge that has stopped at its limit.
+        /// </summary>
+        [Test]
+        public void TestPauseEdgesShowTheResizeCursor()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+            AddUntilStep("insert pause button present", () => panelButton("insert pause (P)").DrawWidth > 0);
+
+            AddStep("select line 1's word with the caret early in it", () =>
+            {
+                EditorClock.Stop();
+                EditorClock.Seek(1100);
+                state().SelectedLine.Value = lineAt(0);
+                state().SelectUnit(0);
+            });
+
+            AddUntilStep("caret parked", () => Math.Abs(EditorClock.CurrentTime - 1100) < 1);
+            AddUntilStep("strip sized", () => strip().IsLoaded && strip().DrawWidth > 0);
+            AddStep("click insert pause", () => clickPanelButton("insert pause (P)"));
+            AddUntilStep("the word carries a rest", () => lineAt(0).Line.Units[0].Pauses.Count > 0);
+
+            dragStripHandle(() => strip().PositionOf(1200), () => strip().PositionOf(2000));
+            AddUntilStep("the rest got longer", () => lineAt(0).Line.Units[0].Pauses[0].EndTime > 1500);
+
+            Func<float> edge = () => strip().PositionOf(lineAt(0).Line.Units[0].Pauses[0].EndTime);
+
+            AddStep("move into the word's body", () => InputManager.MoveMouseTo(stripPointAtX(edge() + 60)));
+            AddUntilStep("the normal cursor", () => !strip().ProvidingUserCursor);
+
+            AddStep("move onto the edge", () => InputManager.MoveMouseTo(stripPointAtX(edge())));
+            AddUntilStep("the resize cursor", () => strip().ProvidingUserCursor);
+
+            AddStep("press", () => InputManager.PressButton(MouseButton.Left));
+            AddStep("start the drag", () => InputManager.MoveMouseTo(stripPointAtX(edge() + 30)));
+            AddUntilStep("the resize cursor while dragging", () => strip().ProvidingUserCursor);
+
+            AddStep("run far past the word's end", () => InputManager.MoveMouseTo(stripPointAtX(strip().PositionOf(lineAt(0).Line.Units[0].EndTime) + 200)));
+            AddWaitStep("let the edge stop", 2);
+            AddAssert("still the resize cursor", () => strip().ProvidingUserCursor);
+
+            AddStep("release", () => InputManager.ReleaseButton(MouseButton.Left));
+            AddUntilStep("the normal cursor once it is over", () => !strip().ProvidingUserCursor);
+        }
+
+        /// <summary>
         /// The Insert Pause gesture end to end: with a word selected and the caret parked inside it,
         /// the panel's button authors a rest that starts AT the caret, the strip rebuilds to draw that
         /// rest's greyed region, and double-clicking one of its edges takes the rest back out - the
