@@ -16,30 +16,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// past its end, and never past the START of a neighbouring backing word (so the order the words
     /// are listed in, which is the order their default anchors spread them across the line, cannot
     /// change under a drag). Each edit is one undo step, or part of the caller's drag transaction.
+    ///
+    /// <para>The indices are entries of the line's flat list, in which a subdivided word (backlog 452) is
+    /// several consecutive entries (see <see cref="BackingVocals"/>). Edits that address a WORD (timing,
+    /// moving, removing, copying) take the whole run whichever piece they are given; only an anchor and
+    /// a divider belong to one piece.</para>
     /// </summary>
     public static partial class TypeBeatEditorOperations
     {
         /// <summary>
-        /// Sets a line's backing vocals from TEXT: one word per whitespace-separated token. The first
-        /// words keep the timing and placement of the words they replace, in order; words added beyond
-        /// the old count are spread after the last kept one across the rest of the line's sung span (the
-        /// whole sung span for a line that had none), and words removed from the end are dropped. Empty
-        /// text removes them all. Returns whether anything changed.
+        /// Sets a line's backing vocals from TEXT: one word per whitespace-separated token, "h|a" being
+        /// a word in two pieces. The first words keep the timing and placement of the words they replace,
+        /// in order; words added beyond the old count are spread after the last kept one across the rest
+        /// of the line's sung span (the whole sung span for a line that had none), and words removed from
+        /// the end are dropped. Empty text removes them all. Returns whether anything changed.
         /// </summary>
         public static bool SetBackingVocalText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string? text)
         {
             var line = hitObject.Line;
-            string[] tokens = BackingVocals.Words(text);
+            string[][] tokens = BackingVocals.Words(text).Select(BackingVocals.PiecesOf).Where(p => p.Length > 0).ToArray();
             var old = line.BackingVocals;
+            int[] heads = Enumerable.Range(0, old.Count).Where(i => !old[i].Joined).ToArray();
 
             var words = new List<BackingVocal>(tokens.Length);
 
-            for (int i = 0; i < Math.Min(tokens.Length, old.Count); i++)
-                words.Add(old[i] with { Text = tokens[i] });
+            for (int i = 0; i < Math.Min(tokens.Length, heads.Length); i++)
+                words.AddRange(respell(old, heads[i], BackingVocals.RunEnd(old, heads[i]), tokens[i]));
 
-            if (tokens.Length > old.Count)
+            if (tokens.Length > heads.Length)
             {
-                var added = tokens.Skip(old.Count).ToArray();
+                var added = tokens.Skip(heads.Length).ToArray();
                 double from = words.Count > 0 ? Math.Max(words[^1].EndTime, line.StartTime) : line.StartTime;
                 double to = Math.Max(line.SingEndTime, from);
 
@@ -51,7 +57,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 if (to - from < BackingVocals.MIN_SPAN_MS * added.Length)
                     from = Math.Max(line.StartTime, to - BackingVocals.MIN_SPAN_MS * added.Length);
 
-                words.AddRange(BackingVocals.Spread(added, from, to));
+                var spread = BackingVocals.Spread(added.Select(p => string.Concat(p)).ToArray(), from, to);
+
+                for (int i = 0; i < spread.Count; i++)
+                    words.AddRange(respell(new[] { spread[i] }, 0, 0, added[i]));
             }
 
             var fitted = BackingVocals.Fit(words, line.StartTime, line.EndTime);
@@ -77,11 +86,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (index < 0 || index >= line.BackingVocals.Count)
                 return;
 
-            var (floor, ceiling) = backingStartRange(line, index);
-            double start = Math.Clamp(newStart, floor, ceiling);
-            double end = Math.Clamp(newEnd, Math.Min(start + BackingVocals.MIN_SPAN_MS, line.EndTime), line.EndTime);
+            var words = line.BackingVocals.ToArray();
+            int head = BackingVocals.RunStart(words, index);
+            int tail = BackingVocals.RunEnd(words, index);
+            var (floor, ceiling) = backingStartRange(line, head);
 
-            replaceBacking(editorBeatmap, hitObject, index, line.BackingVocals[index] with { StartTime = start, EndTime = Math.Max(start, end) });
+            // A subdivided word's edges stop at its own pieces: the dividers stay where they are.
+            if (tail > head)
+                ceiling = Math.Max(floor, words[head + 1].StartTime - BackingVocals.MIN_SPAN_MS);
+
+            double start = Math.Clamp(newStart, floor, ceiling);
+            double lastStart = tail > head ? words[tail].StartTime : start;
+            double end = Math.Clamp(newEnd, Math.Min(lastStart + BackingVocals.MIN_SPAN_MS, line.EndTime), line.EndTime);
+
+            words[head] = words[head] with { StartTime = start };
+            words[tail] = words[tail] with { EndTime = Math.Max(lastStart, end) };
+
+            commitBacking(editorBeatmap, hitObject, words);
         }
 
         /// <summary>
@@ -95,12 +116,170 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (index < 0 || index >= line.BackingVocals.Count)
                 return;
 
-            var word = line.BackingVocals[index];
-            double length = Math.Max(BackingVocals.MIN_SPAN_MS, word.EndTime - word.StartTime);
-            var (floor, ceiling) = backingStartRange(line, index);
+            var words = line.BackingVocals.ToArray();
+            int head = BackingVocals.RunStart(words, index);
+            int tail = BackingVocals.RunEnd(words, index);
+            double length = Math.Max(BackingVocals.MIN_SPAN_MS, words[tail].EndTime - words[head].StartTime);
+            var (floor, ceiling) = backingStartRange(line, head);
             double start = Math.Clamp(Math.Min(newStart, line.EndTime - length), floor, ceiling);
+            double delta = start - words[head].StartTime;
 
-            replaceBacking(editorBeatmap, hitObject, index, word with { StartTime = start, EndTime = Math.Min(line.EndTime, start + length) });
+            for (int i = head; i <= tail; i++)
+                words[i] = words[i] with { StartTime = words[i].StartTime + delta, EndTime = words[i].EndTime + delta };
+
+            words[head] = words[head] with { StartTime = start };
+            words[tail] = words[tail] with { EndTime = Math.Min(line.EndTime, start + length) };
+
+            commitBacking(editorBeatmap, hitObject, words);
+        }
+
+        /// <summary>
+        /// "subdivide" on a backing word (backlog 452): one piece of it is cut in two, the second half
+        /// popping up at the cut with its own anchor on the default place. A caret inside a piece with
+        /// the room for it cuts there, anything else bisects the widest piece, so pressing again keeps
+        /// splitting. The letters are shared out by where the cut falls in the piece. False when no
+        /// piece can be cut: one letter long, or too short to leave both halves
+        /// <see cref="BackingVocals.MIN_SPAN_MS"/>. A cut never passes the start of the next word, which
+        /// would change the order the words are listed in.
+        /// </summary>
+        public static bool SubdivideBackingVocal(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int index, double? caretTime)
+        {
+            var line = hitObject.Line;
+
+            if (index < 0 || index >= line.BackingVocals.Count)
+                return false;
+
+            var words = line.BackingVocals.ToList();
+            int head = BackingVocals.RunStart(words, index);
+            int tail = BackingVocals.RunEnd(words, index);
+            double nextStart = tail + 1 < words.Count ? words[tail + 1].StartTime : double.PositiveInfinity;
+
+            double latestCut(int piece) => piece == tail ? Math.Min(words[piece].EndTime, nextStart) : words[piece].EndTime;
+
+            int target = -1;
+            double cut = 0;
+
+            if (caretTime is double caret)
+            {
+                for (int i = head; i <= tail && target < 0; i++)
+                {
+                    if (words[i].Text.Length >= 2 && caret - words[i].StartTime >= BackingVocals.MIN_SPAN_MS
+                                                  && words[i].EndTime - caret >= BackingVocals.MIN_SPAN_MS && caret <= latestCut(i))
+                    {
+                        target = i;
+                        cut = caret;
+                    }
+                }
+            }
+
+            if (target < 0)
+            {
+                double widest = 0;
+
+                for (int i = head; i <= tail; i++)
+                {
+                    double width = latestCut(i) - words[i].StartTime;
+
+                    if (words[i].Text.Length >= 2 && width >= BackingVocals.MIN_SPAN_MS * 2 && width > widest)
+                    {
+                        widest = width;
+                        target = i;
+                        cut = words[i].StartTime + width / 2;
+                    }
+                }
+            }
+
+            if (target < 0)
+                return false;
+
+            var piece = words[target];
+            int letters = Math.Clamp((int)Math.Round(piece.Text.Length * (cut - piece.StartTime) / (piece.EndTime - piece.StartTime), MidpointRounding.AwayFromZero), 1, piece.Text.Length - 1);
+
+            // Never between the two halves of one character.
+            if (char.IsLowSurrogate(piece.Text[letters]))
+                letters = letters + 1 < piece.Text.Length ? letters + 1 : letters - 1;
+
+            if (letters <= 0)
+                return false;
+
+            words[target] = piece with { Text = piece.Text[..letters], EndTime = cut };
+            words.Insert(target + 1, new BackingVocal(piece.Text[letters..], cut, piece.EndTime, null, true));
+
+            commitBacking(editorBeatmap, hitObject, words);
+            return true;
+        }
+
+        /// <summary>
+        /// "unsubdivide" on a backing word (backlog 452): the inverse press, merging its narrowest
+        /// adjacent pair of pieces, so a word subdivided N times comes back after N presses. False for a
+        /// word in one piece.
+        /// </summary>
+        public static bool UnsubdivideBackingVocal(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int index)
+        {
+            var words = hitObject.Line.BackingVocals;
+
+            if (index < 0 || index >= words.Count)
+                return false;
+
+            int head = BackingVocals.RunStart(words, index);
+            int tail = BackingVocals.RunEnd(words, index);
+
+            if (tail == head)
+                return false;
+
+            int narrowest = head + 1;
+
+            for (int i = head + 2; i <= tail; i++)
+            {
+                if (words[i].EndTime - words[i - 1].StartTime < words[narrowest].EndTime - words[narrowest - 1].StartTime)
+                    narrowest = i;
+            }
+
+            RemoveBackingSubdivision(editorBeatmap, hitObject, narrowest);
+            return true;
+        }
+
+        /// <summary>
+        /// Moves the divider in front of piece <paramref name="index"/> (the dotted line's drag), which
+        /// is when that piece pops up: the two pieces either side keep at least
+        /// <see cref="BackingVocals.MIN_SPAN_MS"/>, and it never passes the start of the next word.
+        /// </summary>
+        public static void SetBackingSubdivision(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int index, double time)
+        {
+            var words = hitObject.Line.BackingVocals.ToArray();
+
+            if (index <= 0 || index >= words.Length || !words[index].Joined)
+                return;
+
+            double low = words[index - 1].StartTime + BackingVocals.MIN_SPAN_MS;
+            double high = words[index].EndTime - BackingVocals.MIN_SPAN_MS;
+
+            if (index + 1 < words.Length)
+                high = words[index + 1].Joined ? words[index + 1].StartTime - BackingVocals.MIN_SPAN_MS : Math.Min(high, words[index + 1].StartTime);
+
+            if (high < low)
+                return;
+
+            double cut = Math.Clamp(time, low, high);
+
+            words[index - 1] = words[index - 1] with { EndTime = cut };
+            words[index] = words[index] with { StartTime = cut };
+
+            commitBacking(editorBeatmap, hitObject, words);
+        }
+
+        /// <summary>Takes the divider in front of piece <paramref name="index"/> back out: that piece's letters and time go to the piece before it, whose anchor stays.</summary>
+        public static void RemoveBackingSubdivision(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int index)
+        {
+            var words = hitObject.Line.BackingVocals.ToList();
+
+            if (index <= 0 || index >= words.Count || !words[index].Joined)
+                return;
+
+            words[index - 1] = words[index - 1] with { Text = words[index - 1].Text + words[index].Text, EndTime = words[index].EndTime };
+            words.RemoveAt(index);
+
+            commitBacking(editorBeatmap, hitObject, words);
         }
 
         /// <summary>
@@ -141,6 +320,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 : words.Count > 0 ? words[^1].EndTime : line.StartTime;
 
             start = Math.Clamp(start, line.StartTime, Math.Max(line.StartTime, line.EndTime - BackingVocals.MIN_SPAN_MS));
+
+            // A new word cannot land between the pieces of a subdivided one: it joins at its last piece.
+            for (int i = 1; i < words.Count; i++)
+            {
+                if (words[i].Joined && start > words[i - 1].StartTime && start < words[i].StartTime)
+                    start = words[BackingVocals.RunEnd(words, i)].StartTime;
+            }
+
             double end = Math.Min(line.EndTime, start + NEW_BACKING_WORD_MS);
 
             // Placed AFTER any word that starts at the same moment (Fit's ordering is stable), so it
@@ -162,22 +349,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         /// <summary>Removes backing word <paramref name="index"/>.</summary>
         public static void RemoveBackingVocal(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int index)
-        {
-            var line = hitObject.Line;
-
-            if (index < 0 || index >= line.BackingVocals.Count)
-                return;
-
-            editorBeatmap.BeginChange();
-            setLine(editorBeatmap, hitObject, withBacking(line, line.BackingVocals.Where((_, i) => i != index).ToArray()));
-            editorBeatmap.EndChange();
-        }
+            => RemoveBackingVocals(editorBeatmap, hitObject, new[] { index });
 
         /// <summary>Removes the backing words at <paramref name="indices"/>, as one undo step.</summary>
         public static void RemoveBackingVocals(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, IEnumerable<int> indices)
         {
             var line = hitObject.Line;
-            var gone = indices.Where(i => i >= 0 && i < line.BackingVocals.Count).ToHashSet();
+            var gone = BackingVocals.ExpandRuns(line.BackingVocals, indices).ToHashSet();
 
             if (gone.Count == 0)
                 return;
@@ -259,7 +437,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         public static LyricTimingClipboard.BackingTimingsPayload? CopyBackingVocals(TypeBeatHitObject hitObject, IEnumerable<int> indices)
         {
             var line = hitObject.Line;
-            var picked = indices.Where(i => i >= 0 && i < line.BackingVocals.Count).Distinct().OrderBy(i => i).Select(i => line.BackingVocals[i]).ToList();
+            var picked = BackingVocals.ExpandRuns(line.BackingVocals, indices).Select(i => line.BackingVocals[i]).ToList();
 
             if (picked.Count == 0)
                 return null;
@@ -275,6 +453,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     Start = w.StartTime - first,
                     End = w.EndTime - first,
                     Anchor = w.Anchor,
+                    Joined = w.Joined,
                 }).ToList(),
             };
         }
@@ -297,7 +476,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             double origin = playhead >= line.StartTime && playhead < line.EndTime ? playhead : line.StartTime + payload.LineOffset;
 
             var pasted = copied.Select(c => new BackingVocal(c.Text, origin + c.Word.Start, origin + Math.Max(c.Word.Start, c.Word.End),
-                c.Word.Anchor is double anchor ? BackingVocals.RoundAnchor(anchor) : null)).ToArray();
+                c.Word.Anchor is double anchor ? BackingVocals.RoundAnchor(anchor) : null, c.Word.Joined)).ToArray();
 
             if (pasted.Any(w => w.StartTime < line.StartTime || w.StartTime >= line.EndTime))
                 return null;
@@ -326,8 +505,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             return at.OrderBy(i => i).ToArray();
         }
 
-        /// <summary>The backing vocals of a line as the text the editor's backing field shows: the words joined by single spaces.</summary>
-        public static string BackingVocalText(LyricLine line) => string.Join(' ', line.BackingVocals.Select(w => w.Text));
+        /// <summary>The backing vocals of a line as the text the editor shows: the words joined by single spaces, a subdivided word's pieces by '|'.</summary>
+        public static string BackingVocalText(LyricLine line) => BackingVocals.SpellOut(line.BackingVocals);
 
         /// <summary>
         /// How the line list shows a line's backing vocals: in round brackets after its text
@@ -379,28 +558,65 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             return (trimmed[..open].TrimEnd(), trimmed[(open + 1)..^1]);
         }
 
-        /// <summary>Where backing word <paramref name="index"/> may start: inside the line, and between its neighbours' starts.</summary>
-        private static (double Floor, double Ceiling) backingStartRange(LyricLine line, int index)
+        /// <summary>
+        /// Where the backing word whose first piece is <paramref name="head"/> may start, moved whole:
+        /// inside the line, after the start of the word before it, and with its last piece no later than
+        /// the start of the word after it.
+        /// </summary>
+        private static (double Floor, double Ceiling) backingStartRange(LyricLine line, int head)
         {
             var words = line.BackingVocals;
-            double floor = index > 0 ? Math.Max(line.StartTime, words[index - 1].StartTime) : line.StartTime;
-            double ceiling = index + 1 < words.Count ? Math.Min(line.EndTime, words[index + 1].StartTime) : line.EndTime;
-            return (floor, Math.Max(floor, ceiling));
+            int tail = BackingVocals.RunEnd(words, head);
+            double floor = head > 0 ? Math.Max(line.StartTime, words[head - 1].StartTime) : line.StartTime;
+            double ceiling = tail + 1 < words.Count ? Math.Min(line.EndTime, words[tail + 1].StartTime) : line.EndTime;
+            return (floor, Math.Max(floor, ceiling - (words[tail].StartTime - words[head].StartTime)));
         }
 
-        private static void replaceBacking(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int index, BackingVocal word)
+        /// <summary>
+        /// A word's pieces spelled anew over the span it already has: pieces that still exist keep their
+        /// starts and anchors, the last one reaching the word's end, and pieces beyond the old count
+        /// share out what the last old piece covered by their letters.
+        /// </summary>
+        private static IEnumerable<BackingVocal> respell(IReadOnlyList<BackingVocal> words, int head, int tail, string[] pieces)
+        {
+            int kept = Math.Min(tail - head + 1, pieces.Length);
+            double end = words[tail].EndTime;
+            double[] starts = new double[pieces.Length + 1];
+
+            for (int i = 0; i < kept; i++)
+                starts[i] = words[head + i].StartTime;
+
+            int sharing = pieces.Skip(kept - 1).Sum(p => p.Length);
+
+            for (int i = kept; i < pieces.Length; i++)
+                starts[i] = starts[i - 1] + (end - starts[kept - 1]) * pieces[i - 1].Length / sharing;
+
+            starts[pieces.Length] = end;
+
+            for (int i = 0; i < pieces.Length; i++)
+            {
+                yield return new BackingVocal(pieces[i], starts[i], starts[i + 1], i < kept ? words[head + i].Anchor : null, i > 0);
+            }
+        }
+
+        private static void commitBacking(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, IReadOnlyList<BackingVocal> words)
         {
             var line = hitObject.Line;
 
-            if (line.BackingVocals[index] == word)
+            if (words.SequenceEqual(line.BackingVocals))
                 return;
-
-            var words = line.BackingVocals.ToArray();
-            words[index] = word;
 
             editorBeatmap.BeginChange();
             setLine(editorBeatmap, hitObject, withBacking(line, words));
             editorBeatmap.EndChange();
+        }
+
+        private static void replaceBacking(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int index, BackingVocal word)
+        {
+            var words = hitObject.Line.BackingVocals.ToArray();
+            words[index] = word;
+
+            commitBacking(editorBeatmap, hitObject, words);
         }
 
         private static LyricLine withBacking(LyricLine line, IReadOnlyList<BackingVocal> words) => BackingVocals.With(line, words);

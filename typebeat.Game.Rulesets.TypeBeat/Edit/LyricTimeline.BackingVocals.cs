@@ -40,6 +40,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// a click in a track, on a block, an anchor or its empty space, picks it for the word actions
     /// ("add word" adds a backing word on the backing track), and the other track is drawn dimmed.
     /// A backing word's text is edited in the line list, in brackets after the line's own.</para>
+    ///
+    /// <para>A SUBDIVIDED word (backlog 452) is drawn as one block with a dotted divider per cut, like
+    /// a word block, and selects, moves and resizes as one. The block's own draws the first piece's
+    /// letters, and each later piece a label of its own that takes no input; every piece has its own
+    /// anchor and dotted line, because each pops up on its own in gameplay.</para>
     /// </summary>
     public partial class LyricTimeline
     {
@@ -84,6 +89,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private readonly List<BackingBlock> backingBlocks = new List<BackingBlock>();
         private readonly List<BackingAnchor> backingAnchors = new List<BackingAnchor>();
         private readonly List<BackingConnector> backingConnectors = new List<BackingConnector>();
+        private readonly List<BackingDivider> backingDividers = new List<BackingDivider>();
 
         /// <summary>A container over the main track: <see cref="MAIN_TRACK_HEIGHT"/> of the strip, centred on it, so the word blocks sit in the middle of the view.</summary>
         private static Container mainTrack(Drawable content) => new Container
@@ -129,6 +135,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             {
                 backingConnectorLayer.Add(addTo(backingConnectors, new BackingConnector(hitObject, k)));
                 backingBlockLayer.Add(addTo(backingBlocks, new BackingBlock(this, hitObject, k)));
+                backingAnchorLayer.Add(addTo(backingDividers, new BackingDivider(this, hitObject, k)));
                 backingAnchorLayer.Add(addTo(backingAnchors, new BackingAnchor(this, hitObject, k)));
             }
         }
@@ -141,12 +148,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             backingBlocks.Clear();
             backingAnchors.Clear();
             backingConnectors.Clear();
+            backingDividers.Clear();
         }
 
         private void updateBackingVocalLayout()
         {
             for (int i = 0; i < backingBlocks.Count; i++)
                 backingBlocks[i].UpdateLayout(this);
+
+            for (int i = 0; i < backingDividers.Count; i++)
+                backingDividers[i].UpdateLayout(this);
 
             for (int i = 0; i < backingAnchors.Count; i++)
                 backingAnchors[i].UpdateLayout(this);
@@ -192,6 +203,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>Selects backing word <paramref name="index"/> of <paramref name="hitObject"/>'s line, making that line active first when it is not.</summary>
         private void selectBackingWord(TypeBeatHitObject hitObject, int index)
         {
+            if (index < hitObject.Line.BackingVocals.Count)
+                index = BackingVocals.RunStart(hitObject.Line.BackingVocals, index);
+
             if (state.ActiveLine.Value != hitObject)
                 state.SelectLineAtBackingWord(hitObject, index);
             else
@@ -214,10 +228,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         }
 
         /// <summary>A backing word's block on screen: its left edge and width, never narrower than a sliver.</summary>
-        private (float X, float Width) backingBlockSpan(BackingVocal word)
+        private (float X, float Width) backingBlockSpan(BackingVocal word) => backingBlockSpan(word.StartTime, word.EndTime);
+
+        private (float X, float Width) backingBlockSpan(double start, double end)
         {
-            float x = PositionOf(word.StartTime);
-            return (x, Math.Max(4, PositionOf(word.EndTime) - x));
+            float x = PositionOf(start);
+            return (x, Math.Max(4, PositionOf(end) - x));
         }
 
         /// <summary>Where backing word <paramref name="index"/>'s anchor sits on screen: its fraction of the way across the line's band.</summary>
@@ -246,10 +262,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         internal IReadOnlyList<Drawable> BoundaryHandles => boundaryHandles;
 
         /// <summary>How many backing word blocks the strip is drawing for <paramref name="hitObject"/> (test support).</summary>
-        internal int BackingBlockCount(TypeBeatHitObject hitObject) => backingBlocks.Count(b => b.HitObject == hitObject && b.Alpha > 0);
+        internal int BackingBlockCount(TypeBeatHitObject hitObject) => backingBlocks.Count(b => b.HitObject == hitObject && b.Alpha > 0 && !b.IsLaterPiece);
 
         /// <summary>Backing word <paramref name="index"/>'s block on <paramref name="hitObject"/>'s line (test support).</summary>
         internal Drawable BackingBlockOf(TypeBeatHitObject hitObject, int index) => backingBlocks.Single(b => b.HitObject == hitObject && b.Index == index);
+
+        /// <summary>The divider in front of piece <paramref name="index"/> of <paramref name="hitObject"/>'s line (test support).</summary>
+        internal Drawable BackingDividerOf(TypeBeatHitObject hitObject, int index) => backingDividers.Single(d => d.HitObject == hitObject && d.Index == index);
 
         /// <summary>Backing word <paramref name="index"/>'s anchor on <paramref name="hitObject"/>'s line (test support).</summary>
         internal Drawable BackingAnchorOf(TypeBeatHitObject hitObject, int index) => backingAnchors.Single(a => a.HitObject == hitObject && a.Index == index);
@@ -297,6 +316,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             public TypeBeatHitObject HitObject { get; }
             public int Index { get; }
 
+            /// <summary>Whether this draws a later piece of a subdivided word: only its letters show, and the word's block takes the input.</summary>
+            public bool IsLaterPiece { get; private set; }
+
+            public override bool ReceivePositionalInputAt(Vector2 screenSpacePos) => !IsLaterPiece && base.ReceivePositionalInputAt(screenSpacePos);
+
             public BackingBlock(LyricTimeline strip, TypeBeatHitObject hitObject, int index)
             {
                 this.strip = strip;
@@ -317,7 +341,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     body = new Box { RelativeSizeAxes = Axes.Both, Colour = TypeBeatStyle.TypedChar, Alpha = 0.16f },
                     label = new TruncatingSpriteText
                     {
-                        Anchor = Anchor.Centre,
+                        Anchor = Anchor.CentreLeft,
                         Origin = Anchor.Centre,
                         Font = TypeBeatStyle.Lyric(13),
                         Colour = TypeBeatStyle.TypedChar,
@@ -339,9 +363,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 bool active = state.ActiveLine.Value == HitObject;
                 Alpha = active ? 1 : 0.55f;
 
+                // The block spans the whole word, and the label its own piece: the same for a word in one piece.
+                var words = HitObject.Line.BackingVocals;
                 var (x, width) = parent.backingBlockSpan(current);
+                IsLaterPiece = current.Joined;
                 X = x;
-                Width = width;
+                Width = IsLaterPiece ? width : parent.backingBlockSpan(current.StartTime, words[BackingVocals.RunEnd(words, Index)].EndTime).Width;
 
                 if (!string.Equals(lastFontFamily, parent.lyricFontFamily, StringComparison.Ordinal))
                 {
@@ -350,8 +377,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 }
 
                 label.Text = current.Text;
+                label.X = width / 2;
                 label.MaxWidth = Math.Max(1, width - 6);
                 label.Alpha = width < 14 ? 0 : 1;
+
+                if (IsLaterPiece)
+                {
+                    BorderThickness = 0;
+                    body.Alpha = 0;
+                    return;
+                }
+
+                BorderThickness = 1.5f;
 
                 bool selected = active && state.BackingTrackSelected && state.SelectedBackingIndices.Contains(Index);
 
@@ -413,13 +450,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     return false;
 
                 grabStart = current.StartTime;
-                grabEnd = current.EndTime;
+                grabEnd = HitObject.Line.BackingVocals[BackingVocals.RunEnd(HitObject.Line.BackingVocals, Index)].EndTime;
                 grabTime = strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMouseDownPosition).X);
 
                 // The body of a block in a multi-selection drags the whole selection; anything else
                 // collapses the selection to this block, as a word block does.
                 var words = HitObject.Line.BackingVocals;
-                var selected = state.SelectedBackingInOrder(words.Count);
+                var selected = BackingVocals.ExpandRuns(words, state.SelectedBackingInOrder(words.Count));
                 bool group = grab == Grab.Move && state.ActiveLine.Value == HitObject && state.BackingTrackSelected
                              && selected.Length > 1 && selected.Contains(Index);
 
@@ -476,6 +513,122 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             protected override void OnDragEnd(DragEndEvent e)
             {
                 dragging = false;
+                editorBeatmap.EndChange();
+                state.EndInteraction();
+            }
+        }
+
+        /// <summary>
+        /// The dotted line in a subdivided backing word's block, in front of piece <see cref="Index"/>
+        /// (backlog 452): dragging it re-times when that piece pops up, and double-clicking takes it back
+        /// out. The word strip's <see cref="SyllableHandle"/> idiom: a wide invisible grab zone around a
+        /// thin dotted line. Hidden for an entry that starts a word, so it needs no rebuild when a word
+        /// is cut or joined with the entry count unchanged.
+        /// </summary>
+        private partial class BackingDivider : CompositeDrawable
+        {
+            private readonly LyricTimeline strip;
+
+            [Resolved]
+            private EditorBeatmap editorBeatmap { get; set; } = null!;
+
+            [Resolved]
+            private LyricEditState state { get; set; } = null!;
+
+            public TypeBeatHitObject HitObject { get; }
+            public int Index { get; }
+
+            public BackingDivider(LyricTimeline strip, TypeBeatHitObject hitObject, int index)
+            {
+                this.strip = strip;
+                HitObject = hitObject;
+                Index = index;
+
+                RelativePositionAxes = Axes.Y;
+                RelativeSizeAxes = Axes.Y;
+                Y = backing_block_top;
+                Height = backing_block_height;
+                Origin = Anchor.TopCentre;
+                Width = 16;
+
+                var dashes = new FillFlowContainer
+                {
+                    Anchor = Anchor.Centre,
+                    Origin = Anchor.Centre,
+                    RelativeSizeAxes = Axes.X,
+                    AutoSizeAxes = Axes.Y,
+                    Direction = FillDirection.Vertical,
+                    Spacing = new Vector2(0, 2),
+                };
+
+                for (int i = 0; i < 12; i++)
+                    dashes.Add(new Box { RelativeSizeAxes = Axes.X, Height = 3 });
+
+                InternalChild = new Container
+                {
+                    Anchor = Anchor.Centre,
+                    Origin = Anchor.Centre,
+                    RelativeSizeAxes = Axes.Y,
+                    Width = 2,
+                    Masking = true,
+                    Colour = TypeBeatStyle.TypedChar,
+                    Alpha = 0.85f,
+                    Child = dashes,
+                };
+            }
+
+            public override bool HandlePositionalInput => true;
+
+            public void UpdateLayout(LyricTimeline parent)
+            {
+                var words = HitObject.Line.BackingVocals;
+
+                if (Index >= words.Count || !words[Index].Joined || state.HiddenByTapScope(HitObject))
+                {
+                    Alpha = 0;
+                    return;
+                }
+
+                Alpha = state.ActiveLine.Value == HitObject ? 1 : 0.55f;
+                X = parent.PositionOf(words[Index].StartTime);
+            }
+
+            protected override bool OnMouseMove(MouseMoveEvent e)
+            {
+                strip.SetEdgeHovered(true);
+                return false;
+            }
+
+            protected override void OnHoverLost(HoverLostEvent e) => strip.SetEdgeHovered(false);
+
+            protected override bool OnMouseDown(MouseDownEvent e) => true;
+
+            protected override bool OnClick(ClickEvent e)
+            {
+                strip.selectBackingWord(HitObject, Index);
+                return true;
+            }
+
+            protected override bool OnDoubleClick(DoubleClickEvent e)
+            {
+                TypeBeatEditorOperations.RemoveBackingSubdivision(editorBeatmap, HitObject, Index);
+                strip.selectBackingWord(HitObject, Math.Max(0, Index - 1));
+                return true;
+            }
+
+            protected override bool OnDragStart(DragStartEvent e)
+            {
+                strip.selectBackingWord(HitObject, Index);
+                state.BeginInteraction();
+                editorBeatmap.BeginChange();
+                return true;
+            }
+
+            protected override void OnDrag(DragEvent e)
+                => TypeBeatEditorOperations.SetBackingSubdivision(editorBeatmap, HitObject, Index, strip.SnapToGrid(strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMousePosition).X)));
+
+            protected override void OnDragEnd(DragEndEvent e)
+            {
                 editorBeatmap.EndChange();
                 state.EndInteraction();
             }

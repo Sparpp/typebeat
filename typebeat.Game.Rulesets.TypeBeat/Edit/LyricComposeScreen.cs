@@ -896,6 +896,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     TypeBeatEditorOperations.MergeWithNext(EditorBeatmap, line);
                     return true;
 
+                case Key.D when line != null && state.BackingTrackSelected && state.SelectedBackingInOrder(line.Line.BackingVocals.Count).Length > 0:
+                    detailPanel.SubdivideSelectedBackingWords(line);
+                    return true;
+
                 case Key.D when line != null && (state.SelectedUnitIndices.Count > 0 || state.SelectedUnitIndex.Value >= 0):
                     subdivideSelectedWords(line);
                     return true;

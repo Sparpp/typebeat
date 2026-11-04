@@ -3905,6 +3905,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                             Start = w.StartTime - line.StartTime,
                             End = w.EndTime - line.StartTime,
                             Anchor = w.Anchor,
+                            Joined = w.Joined,
                         }).ToList(),
                 };
 
@@ -4257,7 +4258,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 // The copied line's ORIGINAL (backlog 330) comes with its words; the target's own goes.
                 Original = source.Original == source.RawText ? null : source.Original,
                 // So do its BACKING VOCALS (backlog 445), rebased onto the target's start.
-                BackingVocals = BackingVocals.Fit(source.Backing?.Select(b => new BackingVocal(BackingVocals.CleanText(b.Text), start + b.Start, start + b.End, b.Anchor)).ToArray(),
+                BackingVocals = BackingVocals.Fit(source.Backing?.Select(b => new BackingVocal(BackingVocals.CleanText(b.Text), start + b.Start, start + b.End, b.Anchor, b.Joined)).ToArray(),
                     start, end),
             });
         }

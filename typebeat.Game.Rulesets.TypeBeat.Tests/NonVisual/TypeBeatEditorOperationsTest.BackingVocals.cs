@@ -6,6 +6,7 @@ using System.Linq;
 using NUnit.Framework;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Edit;
+using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Screens.Edit;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
@@ -389,6 +390,176 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(target.Line.BackingVocals, Has.Count.EqualTo(before));
 
             assertReloadStable(editorBeatmap);
+        }
+
+        // Backlog 452: "ha" on line 1 ([3000..6000]), sung 3000..4000.
+        private static EditorBeatmap beatmapWithHa(out TypeBeatHitObject hitObject)
+        {
+            var editorBeatmap = createBeatmapWithBacking();
+            hitObject = lineAt(editorBeatmap, 1);
+            TypeBeatEditorOperations.SetBackingVocalText(editorBeatmap, hitObject, "ha");
+            TypeBeatEditorOperations.SetBackingVocalTiming(editorBeatmap, hitObject, 0, 3000, 4000);
+            return editorBeatmap;
+        }
+
+        [Test]
+        public void SubdividingCutsTheWordAtTheCaret()
+        {
+            var editorBeatmap = beatmapWithHa(out var hitObject);
+            TypeBeatEditorOperations.SetBackingVocalAnchor(editorBeatmap, hitObject, 0, 0.2);
+
+            Assert.That(TypeBeatEditorOperations.SubdivideBackingVocal(editorBeatmap, hitObject, 0, 3300), Is.True);
+
+            Assert.That(hitObject.Line.BackingVocals, Is.EqualTo(new[]
+            {
+                new BackingVocal("h", 3000, 3300, 0.2),
+                new BackingVocal("a", 3300, 4000, null, true),
+            }));
+            Assert.That(TypeBeatEditorOperations.BackingSuffix(hitObject.Line), Is.EqualTo(" (h|a)"));
+            Assert.That(hitObject.Line.RawText, Is.EqualTo("gamma delta"), "the typed line is untouched");
+            assertReloadStable(editorBeatmap);
+        }
+
+        [Test]
+        public void SubdividingWithoutACaretBisectsTheWidestPiece()
+        {
+            var editorBeatmap = beatmapWithHa(out var hitObject);
+            TypeBeatEditorOperations.SetBackingVocalText(editorBeatmap, hitObject, "abcd");
+
+            Assert.That(TypeBeatEditorOperations.SubdivideBackingVocal(editorBeatmap, hitObject, 0, null), Is.True);
+            Assert.That(hitObject.Line.BackingVocals.Select(w => (w.Text, w.StartTime)), Is.EqualTo(new[] { ("ab", 3000d), ("cd", 3500d) }));
+
+            Assert.That(TypeBeatEditorOperations.SubdivideBackingVocal(editorBeatmap, hitObject, 0, null), Is.True);
+            Assert.That(TypeBeatEditorOperations.BackingVocalText(hitObject.Line), Is.EqualTo("a|b|cd"));
+        }
+
+        [Test]
+        public void AOneLetterPieceCannotBeCut()
+        {
+            var editorBeatmap = beatmapWithHa(out var hitObject);
+            TypeBeatEditorOperations.SetBackingVocalText(editorBeatmap, hitObject, "h|a");
+            var before = hitObject.Line.BackingVocals;
+
+            Assert.That(TypeBeatEditorOperations.SubdivideBackingVocal(editorBeatmap, hitObject, 0, 3200), Is.False);
+            Assert.That(hitObject.Line.BackingVocals, Is.EqualTo(before));
+        }
+
+        [Test]
+        public void ACutNeverPassesTheNextWord()
+        {
+            var editorBeatmap = beatmapWithHa(out var hitObject);
+            TypeBeatEditorOperations.SetBackingVocalText(editorBeatmap, hitObject, "ha yo");
+            TypeBeatEditorOperations.MoveBackingVocal(editorBeatmap, hitObject, 1, 3200);
+
+            // The caret is past "yo"'s start, so the word bisects what is in front of it instead.
+            Assert.That(TypeBeatEditorOperations.SubdivideBackingVocal(editorBeatmap, hitObject, 0, 3800), Is.True);
+            Assert.That(hitObject.Line.BackingVocals.Select(w => w.Text), Is.EqualTo(new[] { "h", "a", "yo" }));
+            Assert.That(hitObject.Line.BackingVocals[1].StartTime, Is.EqualTo(3100));
+            Assert.That(hitObject.Line.BackingVocals[1].Joined, Is.True);
+        }
+
+        [Test]
+        public void TheWholeWordMovesResizesAndGoesTogether()
+        {
+            var editorBeatmap = beatmapWithHa(out var hitObject);
+            TypeBeatEditorOperations.SubdivideBackingVocal(editorBeatmap, hitObject, 0, 3300);
+
+            // Either piece addresses the word.
+            TypeBeatEditorOperations.MoveBackingVocal(editorBeatmap, hitObject, 1, 3500);
+            Assert.That(hitObject.Line.BackingVocals.Select(w => (w.StartTime, w.EndTime, w.Joined)),
+                Is.EqualTo(new[] { (3500d, 3800d, false), (3800d, 4500d, true) }));
+
+            // An edge stops short of the divider, which stays put.
+            TypeBeatEditorOperations.SetBackingVocalTiming(editorBeatmap, hitObject, 0, 3790, 3810);
+            Assert.That(hitObject.Line.BackingVocals.Select(w => (w.StartTime, w.EndTime)),
+                Is.EqualTo(new[] { (3800d - BackingVocals.MIN_SPAN_MS, 3800d), (3800d, 3800d + BackingVocals.MIN_SPAN_MS) }));
+
+            var payload = TypeBeatEditorOperations.CopyBackingVocals(hitObject, new[] { 1 })!;
+            Assert.That(payload.Words.Select(w => (w.Text, w.Joined)), Is.EqualTo(new[] { ("h", false), ("a", true) }), "copying one piece copies the word");
+
+            TypeBeatEditorOperations.RemoveBackingVocals(editorBeatmap, hitObject, new[] { 1 });
+            Assert.That(hitObject.Line.BackingVocals, Is.Empty);
+            assertReloadStable(editorBeatmap);
+        }
+
+        [Test]
+        public void CopiedPiecesPasteAsOneWord()
+        {
+            var editorBeatmap = beatmapWithHa(out var hitObject);
+            TypeBeatEditorOperations.SubdivideBackingVocal(editorBeatmap, hitObject, 0, 3300);
+
+            string text = LyricTimingClipboard.Serialize(TypeBeatEditorOperations.CopyBackingVocals(hitObject, new[] { 0 })!);
+            var target = lineAt(editorBeatmap, 0);
+            TypeBeatEditorOperations.PasteBackingVocals(editorBeatmap, target, 1200, LyricTimingClipboard.TryParseBacking(text)!);
+
+            Assert.That(target.Line.BackingVocals.Select(w => (w.Text, w.StartTime, w.Joined)), Is.EqualTo(new[] { ("h", 1200d, false), ("a", 1500d, true) }));
+            assertReloadStable(editorBeatmap);
+        }
+
+        [Test]
+        public void TheDividerMovesAndComesBackOut()
+        {
+            var editorBeatmap = beatmapWithHa(out var hitObject);
+            TypeBeatEditorOperations.SubdivideBackingVocal(editorBeatmap, hitObject, 0, 3300);
+
+            TypeBeatEditorOperations.SetBackingSubdivision(editorBeatmap, hitObject, 1, 3600);
+            Assert.That(hitObject.Line.BackingVocals.Select(w => (w.StartTime, w.EndTime)), Is.EqualTo(new[] { (3000d, 3600d), (3600d, 4000d) }));
+
+            TypeBeatEditorOperations.SetBackingSubdivision(editorBeatmap, hitObject, 1, 99999);
+            Assert.That(hitObject.Line.BackingVocals[1].StartTime, Is.EqualTo(4000 - BackingVocals.MIN_SPAN_MS));
+
+            TypeBeatEditorOperations.SetBackingVocalAnchor(editorBeatmap, hitObject, 0, 0.1);
+            TypeBeatEditorOperations.SetBackingVocalAnchor(editorBeatmap, hitObject, 1, 0.9);
+            TypeBeatEditorOperations.RemoveBackingSubdivision(editorBeatmap, hitObject, 1);
+            Assert.That(hitObject.Line.BackingVocals, Is.EqualTo(new[] { new BackingVocal("ha", 3000, 4000, 0.1) }));
+        }
+
+        [Test]
+        public void UnsubdividingMergesTheNarrowestPair()
+        {
+            var editorBeatmap = beatmapWithHa(out var hitObject);
+            TypeBeatEditorOperations.SetBackingVocalText(editorBeatmap, hitObject, "a|b|c");
+            TypeBeatEditorOperations.SetBackingSubdivision(editorBeatmap, hitObject, 1, 3100);
+            TypeBeatEditorOperations.SetBackingSubdivision(editorBeatmap, hitObject, 2, 3200);
+
+            Assert.That(TypeBeatEditorOperations.UnsubdivideBackingVocal(editorBeatmap, hitObject, 2), Is.True);
+            Assert.That(TypeBeatEditorOperations.BackingVocalText(hitObject.Line), Is.EqualTo("ab|c"));
+            Assert.That(TypeBeatEditorOperations.UnsubdivideBackingVocal(editorBeatmap, hitObject, 0), Is.True);
+            Assert.That(TypeBeatEditorOperations.UnsubdivideBackingVocal(editorBeatmap, hitObject, 0), Is.False);
+            Assert.That(TypeBeatEditorOperations.BackingVocalText(hitObject.Line), Is.EqualTo("abc"));
+        }
+
+        [Test]
+        public void ThePipeInTheLineListCutsAndJoins()
+        {
+            var editorBeatmap = beatmapWithHa(out var hitObject);
+
+            TypeBeatEditorOperations.SetBackingVocalText(editorBeatmap, hitObject, "h|a");
+            Assert.That(hitObject.Line.BackingVocals, Is.EqualTo(new[] { new BackingVocal("h", 3000, 3500), new BackingVocal("a", 3500, 4000, null, true) }));
+
+            TypeBeatEditorOperations.SetBackingSubdivision(editorBeatmap, hitObject, 1, 3200);
+            TypeBeatEditorOperations.SetBackingVocalAnchor(editorBeatmap, hitObject, 1, 0.8);
+
+            // Respelled piece for piece, the timing and the placement stay.
+            TypeBeatEditorOperations.SetBackingVocalText(editorBeatmap, hitObject, "o|h");
+            Assert.That(hitObject.Line.BackingVocals, Is.EqualTo(new[] { new BackingVocal("o", 3000, 3200), new BackingVocal("h", 3200, 4000, 0.8, true) }));
+
+            // Without the pipe it is one word again over the whole span.
+            TypeBeatEditorOperations.SetBackingVocalText(editorBeatmap, hitObject, "oh");
+            Assert.That(hitObject.Line.BackingVocals, Is.EqualTo(new[] { new BackingVocal("oh", 3000, 4000) }));
+            assertReloadStable(editorBeatmap);
+        }
+
+        [Test]
+        public void ANewWordCannotLandBetweenPieces()
+        {
+            var editorBeatmap = beatmapWithHa(out var hitObject);
+            TypeBeatEditorOperations.SubdivideBackingVocal(editorBeatmap, hitObject, 0, 3300);
+
+            TypeBeatEditorOperations.AddBackingVocal(editorBeatmap, hitObject, 3100, "yo");
+
+            Assert.That(hitObject.Line.BackingVocals.Select(w => (w.Text, w.StartTime, w.Joined)),
+                Is.EqualTo(new[] { ("h", 3000d, false), ("a", 3300d, true), ("yo", 3300d, false) }));
         }
     }
 }

@@ -21,7 +21,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// <param name="Anchor">Where across the line it pops up, as a fraction of the line's width (0 the
     /// lyric's left edge, 1 its right edge), or null for the default place
     /// (<see cref="BackingVocals.DefaultAnchor"/>). Only a mapper's own placement is stored.</param>
-    public readonly record struct BackingVocal(string Text, double StartTime, double EndTime, double? Anchor = null);
+    /// <param name="Joined">Whether this is the next PIECE of the word before it rather than a word of its
+    /// own (backlog 452, see <see cref="BackingVocals"/>): it starts where that one ends, and there is no
+    /// space between them.</param>
+    public readonly record struct BackingVocal(string Text, double StartTime, double EndTime, double? Anchor = null, bool Joined = false);
 
     /// <summary>
     /// BACKING VOCALS (backlog 445): a purely visual lyric track a line can carry beside the one the
@@ -36,17 +39,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// writes no key at all, so every map written before the feature encodes byte for byte as it did.
     /// The ranked-status comparison and the server's gameplay fingerprint both strip the key
     /// (<see cref="LyricOsuFormat.StripBacking"/>), so adding them to a ranked map never demotes it.</para>
+    ///
+    /// <para>A SUBDIVIDED word (backlog 452) is stored as its pieces, consecutive entries in this same
+    /// flat list, every piece after the first marked <see cref="BackingVocal.Joined"/>: "h|a" is
+    /// {"h", 1000..1200} then {"a", 1200..1400, joined}. Gameplay therefore needs no notion of a piece:
+    /// each entry pops up at its own time over its own anchor. The editor alone reads the flag, to draw
+    /// a run as one word with a divider in it. Flat on purpose: a nested array inside a word would
+    /// break the strip regex above (and the server's copy of it), which demotes the map, and this way
+    /// a client or browser player that has never heard of the flag still shows the pieces correctly.</para>
     /// </summary>
     public static class BackingVocals
     {
         /// <summary>The line-object key the words are stored under.</summary>
         public const string WRITE_KEY = "backing";
 
+        /// <summary>The word-object key that marks a piece of the word before it (<see cref="BackingVocal.Joined"/>).</summary>
+        public const string JOINED_KEY = "joined";
+
         /// <summary>Shortest backing word the editor and the importers produce.</summary>
         public const double MIN_SPAN_MS = 30;
 
         /// <summary>Anchors are stored to this many decimals, so a dragged anchor writes a tidy number.</summary>
         private const int anchor_decimals = 4;
+
+        /// <summary>The mark between a word's pieces wherever it is written as text: "h|a".</summary>
+        public const char PIECE_MARK = '|';
+
+        /// <summary>How far apart a piece and the one before it may be and still be one word, which only absorbs float dust from moving them.</summary>
+        private const double joined_tolerance_ms = 0.001;
 
         /// <summary>
         /// The default place of word <paramref name="index"/> of <paramref name="count"/>: evenly spaced
@@ -59,13 +79,69 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         public static double AnchorOf(IReadOnlyList<BackingVocal> words, int index)
             => words[index].Anchor is double anchor ? Math.Clamp(anchor, 0, 1) : DefaultAnchor(index, words.Count);
 
+        /// <summary>The first piece of the word entry <paramref name="index"/> belongs to.</summary>
+        public static int RunStart(IReadOnlyList<BackingVocal> words, int index)
+        {
+            while (index > 0 && words[index].Joined)
+                index--;
+
+            return index;
+        }
+
+        /// <summary>The last piece of the word entry <paramref name="index"/> belongs to.</summary>
+        public static int RunEnd(IReadOnlyList<BackingVocal> words, int index)
+        {
+            while (index + 1 < words.Count && words[index + 1].Joined)
+                index++;
+
+            return index;
+        }
+
+        /// <summary>Every piece of every word the entries at <paramref name="indices"/> belong to, ascending.</summary>
+        public static int[] ExpandRuns(IReadOnlyList<BackingVocal> words, IEnumerable<int> indices)
+        {
+            var expanded = new SortedSet<int>();
+
+            foreach (int index in indices)
+            {
+                if (index < 0 || index >= words.Count)
+                    continue;
+
+                for (int i = RunStart(words, index); i <= RunEnd(words, index); i++)
+                    expanded.Add(i);
+            }
+
+            return expanded.ToArray();
+        }
+
+        /// <summary>The pieces a written word spells: "h|a" is "h" and "a", and a word without the mark is itself.</summary>
+        public static string[] PiecesOf(string token) => token.Split(PIECE_MARK, StringSplitOptions.RemoveEmptyEntries);
+
+        /// <summary>The words as text, single spaces between words and <see cref="PIECE_MARK"/> between the pieces of one.</summary>
+        public static string SpellOut(IReadOnlyList<BackingVocal> words)
+        {
+            var sb = new StringBuilder();
+
+            for (int i = 0; i < words.Count; i++)
+            {
+                if (i > 0)
+                    sb.Append(words[i].Joined ? PIECE_MARK : ' ');
+
+                sb.Append(words[i].Text);
+            }
+
+            return sb.ToString();
+        }
+
         /// <summary>An anchor as it is stored: clamped into the line and rounded.</summary>
         public static double RoundAnchor(double anchor) => Math.Round(Math.Clamp(anchor, 0, 1), anchor_decimals);
 
         /// <summary>
         /// The words fitted into a line window: each start clamped into [<paramref name="start"/>,
         /// <paramref name="end"/>], each end into [its start, <paramref name="end"/>], empty texts
-        /// dropped, and the list ordered by start (stably, so words sung together keep their order). The
+        /// dropped, and the list ordered by start (stably, so words sung together keep their order). A
+        /// piece stays <see cref="BackingVocal.Joined"/> only while the entry before it ends where it
+        /// starts: anything that came between them leaves two words, sung exactly as they were. The
         /// same list comes back untouched when it already fits, so an idle edit allocates nothing.
         /// </summary>
         public static IReadOnlyList<BackingVocal> Fit(IReadOnlyList<BackingVocal>? words, double start, double end)
@@ -82,20 +158,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             {
                 var word = words[i];
                 fits = word.Text.Length > 0 && word.StartTime >= start && word.EndTime <= end && word.EndTime >= word.StartTime
-                       && (i == 0 || words[i - 1].StartTime <= word.StartTime);
+                       && (i == 0 || words[i - 1].StartTime <= word.StartTime)
+                       && (!word.Joined || (i > 0 && words[i - 1].EndTime == word.StartTime));
             }
 
             if (fits)
                 return words;
 
-            return words.Where(w => w.Text.Length > 0)
-                        .Select(w =>
-                        {
-                            double s = Math.Clamp(w.StartTime, start, end);
-                            return w with { StartTime = s, EndTime = Math.Clamp(w.EndTime, s, end) };
-                        })
-                        .OrderBy(w => w.StartTime)
-                        .ToArray();
+            var fitted = words.Where(w => w.Text.Length > 0)
+                              .Select(w =>
+                              {
+                                  double s = Math.Clamp(w.StartTime, start, end);
+                                  return w with { StartTime = s, EndTime = Math.Clamp(w.EndTime, s, end) };
+                              })
+                              .OrderBy(w => w.StartTime)
+                              .ToArray();
+
+            for (int i = 0; i < fitted.Length; i++)
+            {
+                if (!fitted[i].Joined)
+                    continue;
+
+                if (i > 0 && Math.Abs(fitted[i - 1].EndTime - fitted[i].StartTime) <= joined_tolerance_ms)
+                    fitted[i - 1] = fitted[i - 1] with { EndTime = fitted[i].StartTime };
+                else
+                    fitted[i] = fitted[i] with { Joined = false };
+            }
+
+            return fitted;
         }
 
         /// <summary>
@@ -162,6 +252,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 if (word.Anchor is double anchor)
                     json.WriteNumber("anchor", RoundAnchor(anchor));
 
+                if (word.Joined)
+                    json.WriteBoolean(JOINED_KEY, true);
+
                 json.WriteEndObject();
             }
 
@@ -187,6 +280,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 if (word.Anchor is double anchor)
                     item["anchor"] = RoundAnchor(anchor);
+
+                if (word.Joined)
+                    item[JOINED_KEY] = true;
 
                 array.Add(item);
             }
@@ -226,8 +322,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 double end = number(item, "end_ms") is double e ? Math.Max(start, e) : start;
                 double? anchor = number(item, "anchor") is double a ? Math.Clamp(a, 0, 1) : null;
+                bool joined = item.TryGetProperty(JOINED_KEY, out JsonElement joinedElement) && joinedElement.ValueKind == JsonValueKind.True;
 
-                words.Add(new BackingVocal(text, start, end, anchor));
+                words.Add(new BackingVocal(text, start, end, anchor, joined));
             }
 
             return words.Count > 0 ? words : null;

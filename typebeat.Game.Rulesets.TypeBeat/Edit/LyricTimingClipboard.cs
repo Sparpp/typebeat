@@ -198,6 +198,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             [JsonProperty("anchor", NullValueHandling = NullValueHandling.Ignore)]
             public double? Anchor;
+
+            /// <summary>Whether this is the next piece of the word before it (backlog 452).</summary>
+            [JsonProperty("joined", DefaultValueHandling = DefaultValueHandling.Ignore)]
+            public bool Joined;
         }
 
         /// <summary>One line's internal timing, all offsets relative to the line's StartTime.</summary>

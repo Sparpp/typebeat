@@ -422,5 +422,46 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("line 1 kept its own", () => lineAt(0).Line.BackingVocals.Count == 2);
             AddAssert("no typed word was added", () => lineAt(1).Line.Units.Count == 1);
         }
+
+        [Test]
+        public void TestSubdividingABackingWord()
+        {
+            showLineOne();
+
+            AddStep("spell the first word out", () => TypeBeatEditorOperations.SetBackingVocalText(EditorBeatmap, lineAt(0), "ha down"));
+            AddStep("click its block", () =>
+            {
+                InputManager.MoveMouseTo(strip().BackingBlockOf(lineAt(0), 0));
+                InputManager.Click(MouseButton.Left);
+            });
+            AddUntilStep("it is selected", () => state().SelectedBackingIndices.SetEquals(new[] { 0 }));
+
+            AddStep("press D", () => InputManager.Key(Key.D));
+            AddUntilStep("the word is in two pieces", () => TypeBeatEditorOperations.BackingVocalText(lineAt(0).Line) == "h|a down");
+            AddUntilStep("still one block for it", () => strip().BackingBlockCount(lineAt(0)) == 2);
+            AddAssert("and still selected", () => state().SelectedBackingIndices.SetEquals(new[] { 0 }));
+            AddUntilStep("a divider is drawn at the cut alone", () => strip().BackingDividerOf(lineAt(0), 1).Alpha > 0
+                                                                      && strip().BackingDividerOf(lineAt(0), 2).Alpha == 0);
+            AddUntilStep("the later piece has its own anchor", () => strip().BackingAnchorOf(lineAt(0), 1).Alpha > 0);
+            AddAssert("and its own dotted line, from its own piece", () =>
+                strip().BackingConnectorEnds(lineAt(0), 1).Block.X > strip().BackingConnectorEnds(lineAt(0), 0).Block.X);
+
+            double cut = 0;
+            AddStep("remember the cut", () => cut = lineAt(0).Line.BackingVocals[1].StartTime);
+            AddStep("settle on the divider", () => InputManager.MoveMouseTo(strip().BackingDividerOf(lineAt(0), 1)));
+            AddStep("press", () => InputManager.PressButton(MouseButton.Left));
+            AddStep("drag it later", () => InputManager.MoveMouseTo(strip().BackingDividerOf(lineAt(0), 1).ScreenSpaceDrawQuad.Centre + new Vector2(30, 0)));
+            AddStep("release", () => InputManager.ReleaseButton(MouseButton.Left));
+            AddAssert("the later piece starts later", () => lineAt(0).Line.BackingVocals[1].StartTime > cut);
+            AddAssert("and the first ends there", () => lineAt(0).Line.BackingVocals[0].EndTime == lineAt(0).Line.BackingVocals[1].StartTime);
+
+            AddStep("settle on the divider again", () => InputManager.MoveMouseTo(strip().BackingDividerOf(lineAt(0), 1)));
+            AddStep("double-click it", () =>
+            {
+                InputManager.Click(MouseButton.Left);
+                InputManager.Click(MouseButton.Left);
+            });
+            AddUntilStep("the word is whole again", () => TypeBeatEditorOperations.BackingVocalText(lineAt(0).Line) == "ha down");
+        }
     }
 }

@@ -503,5 +503,77 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         #endregion
+
+        // Backlog 452: a subdivided word is its pieces, side by side in the flat list.
+        private static readonly BackingVocal[] pieces =
+        {
+            new BackingVocal("h", 1000, 1200, 0.25),
+            new BackingVocal("a", 1200, 1500, 0.75, true),
+            new BackingVocal("yo", 1600, 1800),
+        };
+
+        [Test]
+        public void PiecesRoundTripFlatAndTheStripTakesThem()
+        {
+            var stream = new MemoryStream();
+
+            using (var writer = new Utf8JsonWriter(stream))
+            {
+                writer.WriteStartObject();
+                writer.WriteString("text", "line");
+                BackingVocals.Write(writer, pieces);
+                writer.WriteEndObject();
+            }
+
+            string json = Encoding.UTF8.GetString(stream.ToArray());
+
+            using (var doc = JsonDocument.Parse(json))
+                Assert.That(BackingVocals.Read(doc.RootElement), Is.EqualTo(pieces));
+
+            Assert.That(json, Does.Contain("\"joined\":true"));
+            Assert.That(json.Split("joined").Length, Is.EqualTo(2), "only the later piece is marked");
+
+            // The regex the status comparison uses, of which the server's fingerprint has a copy.
+            Assert.That(LyricOsuFormat.StripBacking(json), Is.EqualTo("{\"text\":\"line\"}"));
+        }
+
+        [Test]
+        public void GameplayPlacesEachPieceOnItsOwn()
+        {
+            Assert.That(BackingVocals.AnchorOf(pieces, 0), Is.EqualTo(0.25));
+            Assert.That(BackingVocals.AnchorOf(pieces, 1), Is.EqualTo(0.75));
+            Assert.That(BackingVocals.AnchorOf(pieces, 2), Is.EqualTo(BackingVocals.DefaultAnchor(2, 3)));
+        }
+
+        [Test]
+        public void RunsAreFoundFromAnyPiece()
+        {
+            Assert.That(BackingVocals.RunStart(pieces, 1), Is.EqualTo(0));
+            Assert.That(BackingVocals.RunEnd(pieces, 0), Is.EqualTo(1));
+            Assert.That(BackingVocals.RunStart(pieces, 2), Is.EqualTo(2));
+            Assert.That(BackingVocals.RunEnd(pieces, 2), Is.EqualTo(2));
+            Assert.That(BackingVocals.ExpandRuns(pieces, new[] { 1, 9, -1 }), Is.EqualTo(new[] { 0, 1 }));
+            Assert.That(BackingVocals.SpellOut(pieces), Is.EqualTo("h|a yo"));
+        }
+
+        [Test]
+        public void AFitKeepsAPieceOnlyWhileItFollowsItsWord()
+        {
+            Assert.That(BackingVocals.Fit(pieces, 0, 9000), Is.SameAs(pieces));
+
+            // A window that opens on the second piece leaves it heading its own word.
+            var opened = BackingVocals.Fit(new[] { new BackingVocal("a", 1200, 1500, null, true) }, 0, 9000);
+            Assert.That(opened[0].Joined, Is.False);
+
+            // Float dust from a rigid move closes up rather than splitting the word.
+            var dusty = BackingVocals.Fit(new[] { new BackingVocal("h", 1000, 1200.0000000001), new BackingVocal("a", 1200, 1500, null, true) }, 0, 9000);
+            Assert.That(dusty[0].EndTime, Is.EqualTo(1200));
+            Assert.That(dusty[1].Joined, Is.True);
+
+            // Another word coming between them leaves two words, sung as they were.
+            var parted = BackingVocals.Fit(new[] { new BackingVocal("h", 1000, 1200), new BackingVocal("x", 1100, 1150), new BackingVocal("a", 1200, 1500, null, true) }, 0, 9000);
+            Assert.That(parted.Select(w => w.Text), Is.EqualTo(new[] { "h", "x", "a" }));
+            Assert.That(parted[2].Joined, Is.False);
+        }
     }
 }

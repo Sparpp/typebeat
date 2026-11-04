@@ -31,7 +31,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// beside the word blocks they act on. A line with an ORIGINAL text (backlog 330) also gets the
     /// two-row word editor (<see cref="WordScriptEditor"/>) between the readouts and the strip.
     /// The word actions address the TRACK picked on the strip (backlog 445): on the backing track
-    /// "add word" and "remove word" add and remove backing vocals, and the subdivision and pause
+    /// "add word", "remove word" and the subdivision pair act on backing vocals, and the pause
     /// actions, which only a typed word has, grey out.
     /// </summary>
     public partial class ActiveLineDetailPanel : CompositeDrawable
@@ -353,8 +353,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             removeWordButton.Enabled.Value = backing
                 ? editable && line != null && line.Line.BackingVocals.Count > 0
                 : wordSelected && line != null && removalTargets(line).Length > 0;
-            subdivideButton.Enabled.Value = wordSelected && !backing;
-            unsubdivideButton.Enabled.Value = wordSelected && !backing;
+            bool backingWordSelected = backing && editable && line != null && state.SelectedBackingInOrder(line.Line.BackingVocals.Count).Length > 0;
+            subdivideButton.Enabled.Value = backing ? backingWordSelected : wordSelected;
+            unsubdivideButton.Enabled.Value = backing ? backingWordSelected : wordSelected;
             insertPauseButton.Enabled.Value = wordSelected && !backing;
 
             if (line == null || !live)
@@ -512,17 +513,75 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             TypeBeatEditorOperations.RemoveBackingVocals(editorBeatmap, line, targets);
 
             if (line.Line.BackingVocals.Count > 0)
-                state.SelectBackingWord(System.Math.Min(targets[0], line.Line.BackingVocals.Count - 1));
+                state.SelectBackingWord(BackingVocals.RunStart(line.Line.BackingVocals, System.Math.Min(targets[0], line.Line.BackingVocals.Count - 1)));
             else
                 state.SelectBackingTrack();
 
             return true;
         }
 
+        /// <summary>
+        /// "subdivide" on the backing track (backlog 452), for the button and the D key: every selected
+        /// backing word gets one more piece, as one undo, and stays selected. A word with nothing left to
+        /// cut flashes the panel.
+        /// </summary>
+        public void SubdivideSelectedBackingWords(TypeBeatHitObject line)
+        {
+            editBackingWords(line, (head, caret) => TypeBeatEditorOperations.SubdivideBackingVocal(editorBeatmap, line, head, caret), refuses: true);
+        }
+
+        /// <summary>
+        /// Applies a piece-count edit to every selected backing word, last first so the earlier indices
+        /// hold, then selects the same words again where they ended up.
+        /// </summary>
+        private void editBackingWords(TypeBeatHitObject line, System.Func<int, double?, bool> edit, bool refuses)
+        {
+            var words = line.Line.BackingVocals;
+            int[] heads = state.SelectedBackingInOrder(words.Count).Select(i => BackingVocals.RunStart(words, i)).Distinct().OrderBy(i => i).ToArray();
+
+            if (heads.Length == 0)
+                return;
+
+            int ordinalOf(IReadOnlyList<BackingVocal> list, int head) => Enumerable.Range(0, head).Count(i => !list[i].Joined);
+
+            int[] ordinals = heads.Select(h => ordinalOf(words, h)).ToArray();
+            bool refused = false;
+
+            editorBeatmap.BeginChange();
+
+            foreach (int head in Enumerable.Reverse(heads))
+            {
+                if (!edit(head, gridTime))
+                    refused = true;
+            }
+
+            editorBeatmap.EndChange();
+
+            var edited = line.Line.BackingVocals;
+            int[] editedHeads = Enumerable.Range(0, edited.Count).Where(i => !edited[i].Joined).ToArray();
+
+            state.SelectBackingTrack();
+
+            foreach (int ordinal in ordinals)
+            {
+                if (ordinal < editedHeads.Length)
+                    state.ToggleBackingWord(editedHeads[ordinal]);
+            }
+
+            if (refused && refuses)
+                state.Refuse();
+        }
+
         private void subdivideSelectedWords()
         {
             if (state.ActiveLine.Value is not TypeBeatHitObject line)
                 return;
+
+            if (state.BackingTrackSelected)
+            {
+                SubdivideSelectedBackingWords(line);
+                return;
+            }
 
             // Every selected word gets a subdivision (the primary alone when nothing is multi-selected),
             // as one undo. A word the caret is currently inside is cut AT the caret; every other word
@@ -554,6 +613,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         {
             if (state.ActiveLine.Value is not TypeBeatHitObject line)
                 return;
+
+            if (state.BackingTrackSelected)
+            {
+                editBackingWords(line, (head, _) => TypeBeatEditorOperations.UnsubdivideBackingVocal(editorBeatmap, line, head), refuses: false);
+                return;
+            }
 
             // The inverse press of "subdivide", over the same selection and as one undo: each
             // selected word loses ONE boundary, the one merging its narrowest adjacent pair, so a
