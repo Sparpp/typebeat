@@ -125,6 +125,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var word = new TimedUnit { Text = "meee", StartTime = 1000, EndTime = 4000, Source = TimingSource.Explicit };
             var hold = TypeBeatEditorOperations.DefaultHold(word, 1, 0)!.Value;
             var lyric = line(word.WithObjects(word.Objects with { Holds = new[] { hold } }));
+            var plain = new TimedUnit { Text = "mexy", StartTime = 1000, EndTime = 4000, Source = TimingSource.Explicit };
+            var ordinary = plain.WithObjects(plain.Objects with { Holds = new[] { TypeBeatEditorOperations.DefaultHold(plain, 1, 0)!.Value } });
             var beatmap = new TypeBeatBeatmap();
             beatmap.HitObjects.Add(new TypeBeatHitObject { StartTime = lyric.StartTime, LineIndex = 0, Line = lyric, Granularity = TimingGranularity.Word });
 
@@ -154,7 +156,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 Assert.That(tails.Select(t => (t.CellIndex, t.Type)), Is.EqualTo(new[] { (1, JudgementType.Great) }));
                 Assert.That(results.Counts[JudgementType.Great], Is.EqualTo(frames.Count + 1), "every press and the tail");
-                Assert.That(LyricDifficulty.BuildWords(new[] { lyric }, 1, false).Sum(w => w.Cells), Is.EqualTo(4), "and the rating reads it");
+                Assert.That(LyricDifficulty.BuildWords(new[] { lyric }, 1, false).Sum(w => w.Cells),
+                    Is.EqualTo(LyricDifficulty.BuildWords(new[] { line(ordinary) }, 1, false).Sum(w => w.Cells)), "and the rating prices it as any held word");
             });
         }
 
