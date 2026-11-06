@@ -97,6 +97,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(projected.Units[0].SyllableBoundaries, Does.Contain(4000.0));
         }
 
+        // Backlog 455: the numbers from a production crash, which came back to the mapper as a 500 on upload.
+        [Test]
+        public void JapaneseKeysBunchedAtAWordsEndDoNotThrow()
+        {
+            const double end = 132220;
+            double previous = 132000;
+
+            // Every key's target is at or past the end, so each one is held back by the keys still to come
+            // until the limits meet, where the old clamp threw: 132219.99999900002 > 132219.999999.
+            for (int remaining = 3; remaining >= 1; remaining--)
+            {
+                double boundary = PolyglotDifficulty.inputBoundary(end, previous, end, remaining);
+                Assert.That(boundary, Is.GreaterThan(previous));
+                Assert.That(boundary, Is.LessThan(end));
+                previous = boundary;
+            }
+        }
+
+        [TestCase(1500, 1000, 2000, 2, ExpectedResult = 1500)]
+        [TestCase(500, 1000, 2000, 2, ExpectedResult = 1000.000001)]
+        [TestCase(2500, 1000, 2000, 2, ExpectedResult = 2000 - 2 * 0.000001)]
+        public double JapaneseKeysWithRoomClampAsTheyAlwaysDid(double target, double previous, double end, int remaining)
+            => PolyglotDifficulty.inputBoundary(target, previous, end, remaining);
+
         [Test]
         public void JapaneseDoesNotFillAuthoredRestsWithInputs()
         {

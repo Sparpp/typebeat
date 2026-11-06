@@ -178,7 +178,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 double previous = start;
                 for (int i = 1; i < run.Count; i++)
                 {
-                    boundaries[i - 1] = Math.Clamp(run[i].Start, previous + 0.000001, end - (run.Count - i) * 0.000001);
+                    boundaries[i - 1] = inputBoundary(run[i].Start, previous, end, run.Count - i);
                     previous = boundaries[i - 1];
                     if (run[i].Start > run[i - 1].End + 0.001)
                         pauses.Add(new WordPause(run[i - 1].End, run[i].Start, i));
@@ -204,6 +204,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 StartTime = line.StartTime, EndTime = line.EndTime, SingEndTime = line.SingEndTime,
                 SealGraceMs = line.SealGraceMs, Estimated = line.Estimated,
             };
+        }
+
+        // One key's subdivision: after the key before it, and leaving room for the keys still to come.
+        // Keys bunched against the word's end make those two limits meet, and rounding can then put the
+        // lower one a hair above the upper one, which Math.Clamp throws on. The lower one wins.
+        internal static double inputBoundary(double target, double previous, double end, int remaining)
+        {
+            double lowest = previous + 0.000001;
+            return Math.Clamp(target, lowest, Math.Max(lowest, end - remaining * 0.000001));
         }
 
         // A fixed native-layout baseline, independent of the player's active OS layout. Cyrillic
