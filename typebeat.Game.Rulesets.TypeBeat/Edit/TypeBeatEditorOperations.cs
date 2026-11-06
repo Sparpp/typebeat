@@ -3570,14 +3570,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (unit.Objects.Holds.Any(h => h.Char == c))
                 return null;
 
+            // A stylised spelling ("meee", "ohhh") has no syllable groups at all (see TypingLine's
+            // buildSyllables), and those are the words a hold is most wanted on: the whole word is its stretch.
             int gi = flat.SyllableIndexOf(c);
+            bool endsStretch = gi >= 0 ? c == flat.Syllables[gi].EndCellExclusive - 1 : c == cellChars[^1];
+            double stretchEnd = gi >= 0 ? flat.Syllables[gi].EndTime : unit.EndTime;
 
-            if (gi < 0)
-                return null;
-
-            var g = flat.Syllables[gi];
             double start = c == 0 ? unit.StartTime : flat.Cells[c].TargetTime;
-            double end = c == g.EndCellExclusive - 1 ? g.EndTime : start + (g.EndTime - start) / 2;
+            double end = endsStretch ? stretchEnd : start + (stretchEnd - start) / 2;
 
             double cap = c + 1 < unit.Text.Length ? unit.EndTime - MIN_SYLLABLE_MS : unit.EndTime;
 

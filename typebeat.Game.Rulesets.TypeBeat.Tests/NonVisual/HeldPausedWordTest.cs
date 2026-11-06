@@ -118,6 +118,46 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             return engine;
         }
 
+        // Backlog 457: a stylised word has no syllable groups, and its hold plays like any other.
+        [Test]
+        public void AutoplayIsPerfectOnAHeldStylisedWord()
+        {
+            var word = new TimedUnit { Text = "meee", StartTime = 1000, EndTime = 4000, Source = TimingSource.Explicit };
+            var hold = TypeBeatEditorOperations.DefaultHold(word, 1, 0)!.Value;
+            var lyric = line(word.WithObjects(word.Objects with { Holds = new[] { hold } }));
+            var beatmap = new TypeBeatBeatmap();
+            beatmap.HitObjects.Add(new TypeBeatHitObject { StartTime = lyric.StartTime, LineIndex = 0, Line = lyric, Granularity = TimingGranularity.Word });
+
+            foreach (var hitObject in beatmap.HitObjects)
+                hitObject.ApplyDefaults(new ControlPointInfo(), new BeatmapDifficulty(), CancellationToken.None);
+
+            var frames = new TypeBeatAutoGenerator(beatmap, syllableTiming: true, charTimedStretch: true, authoredSyllablesOnly: true, alignSubdivisionTargets: true)
+                         .Generate().Frames.Cast<TypeBeatReplayFrame>().Where(f => f.Character >= ' ').ToList();
+
+            Assert.That(frames.Select(f => f.Character), Is.EqualTo("meee"));
+
+            var engine = engineFor(lyric);
+            var tails = new List<HoldTailJudgement>();
+            engine.HoldTailJudged += t => tails.Add(t);
+
+            foreach (var frame in frames)
+            {
+                engine.Update(frame.Time);
+                Assert.That(engine.ProcessKey(frame.Character, frame.Time), Is.True, $"'{frame.Character}' @ {frame.Time}");
+            }
+
+            engine.Update(70000);
+
+            var results = engine.BuildResults();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(tails.Select(t => (t.CellIndex, t.Type)), Is.EqualTo(new[] { (1, JudgementType.Great) }));
+                Assert.That(results.Counts[JudgementType.Great], Is.EqualTo(frames.Count + 1), "every press and the tail");
+                Assert.That(LyricDifficulty.BuildWords(new[] { lyric }, 1, false).Sum(w => w.Cells), Is.EqualTo(4), "and the rating reads it");
+            });
+        }
+
         [Test]
         public void AutoplayIsPerfectOnAPausedHeldWord()
         {

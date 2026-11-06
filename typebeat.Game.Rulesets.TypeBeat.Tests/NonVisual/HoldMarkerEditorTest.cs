@@ -53,6 +53,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(refused, Is.False);
         }
 
+        // Backlog 457: a stylised spelling has no syllable groups, and the mark used to vanish on it.
+        [TestCase("me=ee", 1)]
+        [TestCase("m=eee", 0)]
+        [TestCase("mee=e", 2)]
+        [TestCase("meee=", 3)]
+        public void AMarkerHoldsALetterOfAStylisedWord(string marked, int held)
+        {
+            var beatmap = createBeatmap("of meee");
+            var line = lineAt(beatmap, 0);
+            var expected = TypeBeatEditorOperations.DefaultHold(line.Line.Units[1], held, 0);
+            bool refused = false;
+
+            Assert.That(expected, Is.Not.Null);
+            Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, line, $"of {marked}", () => refused = true), Is.True);
+
+            Assert.That(refused, Is.False);
+            Assert.That(line.Line.RawText, Is.EqualTo("of meee"));
+            Assert.That(line.Line.Units[1].Objects.Holds, Is.EqualTo(new[] { expected!.Value }));
+            Assert.That(TypeBeatEditorOperations.PipeDisplayText(line.Line), Is.EqualTo($"of {marked}"), "the mark stays in the box");
+        }
+
         [Test]
         public void AMarkerAddsTheHoldTheDefaultSpanGives()
         {
