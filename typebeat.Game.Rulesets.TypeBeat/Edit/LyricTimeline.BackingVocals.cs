@@ -49,10 +49,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     ///
     /// <para>TRACKS (backlog 460). Backing words may overlap, two voices at once: words that overlap
     /// in time go on separate TRACKS (<see cref="BackingVocals.Tracks"/>), track 0 next to the typed
-    /// words and each further one above the last. The lane keeps its height and shows one track at a
-    /// time: with the backing track selected, the wheel scrolls through them (Ctrl+wheel still zooms),
-    /// and the lane follows the selected word to its track, so a word dragged onto another, or past
-    /// it, stays in view. Dragging a word past another reorders them (see
+    /// words and each further one above the last, stacked flush: a block's bottom edge touches the top
+    /// of the block on the track below. The lane keeps its height; with the backing track selected the
+    /// wheel scrolls it smoothly up and down the stack (Ctrl+wheel still zooms), and the lane scrolls
+    /// just far enough to keep the selected word in view, so a word dragged onto another, or past it,
+    /// stays in sight. All anchors share the one row under track 0. Dragging a word past another reorders them (see
     /// <see cref="TypeBeatEditorOperations.MoveBackingVocal"/>). Blocks, anchors and dividers are SLOTS
     /// by index: each draws whichever word holds its index now, so a reorder needs no rebuild.</para>
     /// </summary>
@@ -110,13 +111,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>How many tracks the lane holds: the most any line needs, at least one.</summary>
         private int backingTrackCount = 1;
 
-        /// <summary>The track the lane is scrolled to, and where its scroll is drawn right now (it eases there), both in tracks.</summary>
-        private int backingScrollTarget;
+        /// <summary>
+        /// How far the lane's content is scrolled down (so the tracks above come into view), and where that
+        /// is drawn right now (it eases there), both in lane heights: 0 shows track 0 where the single
+        /// track always sat, <see cref="backingMaxScroll"/> brings the top track down to that place.
+        /// </summary>
+        private float backingScrollTarget;
 
         private float backingScroll;
 
-        // A touchpad's wheel comes in fractions: a step is taken per whole notch.
-        private float backingWheel;
+        /// <summary>How far one wheel notch scrolls, in lane heights: half a track.</summary>
+        private const float backing_scroll_per_notch = backing_block_height / 2;
+
+        /// <summary>The furthest the lane scrolls: the top track brought down to where track 0 sits.</summary>
+        private float backingMaxScroll => (backingTrackCount - 1) * backing_block_height;
 
         // The selected word the lane last followed to its track: it follows again only when this changes,
         // so the wheel can still look at the other tracks while a word is selected.
@@ -210,13 +218,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         }
 
         /// <summary>
-        /// How far backing entry <paramref name="index"/>'s row sits from the lane, in lane heights: 0 on
-        /// the track the lane shows, negative above it, positive below. A row a whole lane or more away
-        /// is out of sight (the lane is masked) and is not drawn at all.
+        /// How far backing entry <paramref name="index"/>'s block sits from where a track-0 block sits, in
+        /// lane heights. The tracks stack flush, each block's bottom on the top of the one below it, so
+        /// track t is t block heights up, and the whole stack (the anchors under track 0 with it) moves
+        /// down by the lane's scroll.
         /// </summary>
-        private float backingRowOffset(TypeBeatHitObject hitObject, int index) => backingScroll - trackOf(hitObject, index);
+        private float backingRowOffset(TypeBeatHitObject hitObject, int index) => backingScroll - trackOf(hitObject, index) * backing_block_height;
 
-        private static bool offTrack(float offset) => Math.Abs(offset) >= 1;
+        /// <summary>Where the anchors' row sits in the lane (its own 0..1): under track 0, moving down with the scroll.</summary>
+        private float backingAnchorRowY => backing_anchor_y + backingScroll;
+
+        /// <summary>Whether a span of the lane (its own 0..1, top and bottom) lies wholly outside it: out of sight in the masked lane, so not drawn at all.</summary>
+        private static bool outOfLane(float top, float bottom) => bottom <= 0 || top >= 1;
 
         private void updateBackingTracks()
         {
@@ -241,38 +254,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             {
                 backingFollowed = (active, index, track);
 
+                // Only as far as it takes to bring the word's block wholly into the lane.
                 if (track >= 0)
-                    backingScrollTarget = track;
+                {
+                    float up = track * backing_block_height;
+                    backingScrollTarget = Math.Clamp(backingScrollTarget, up - backing_block_top, up + 1 - backing_block_top - backing_block_height);
+                }
             }
 
-            backingScrollTarget = Math.Clamp(backingScrollTarget, 0, backingTrackCount - 1);
+            backingScrollTarget = Math.Clamp(backingScrollTarget, 0, backingMaxScroll);
             backingScroll = (float)Interpolation.DampContinuously(backingScroll, backingScrollTarget, 40, Time.Elapsed);
 
-            if (Math.Abs(backingScroll - backingScrollTarget) < 0.002f)
+            if (Math.Abs(backingScroll - backingScrollTarget) < 0.001f)
                 backingScroll = backingScrollTarget;
 
-            backingScrollbar.UpdateLayout(backingTrackCount, backingScroll);
+            backingScrollbar.UpdateLayout(backingMaxScroll, backingScroll);
         }
 
         /// <summary>
         /// The wheel over the strip while the backing track is selected and holds more than one track
-        /// scrolls through them instead of zooming (backlog 460): up for the tracks above. Ctrl+wheel, and
-        /// the wheel with the main track selected or only one backing track, zoom as before.
+        /// scrolls the lane smoothly through them instead of zooming (backlog 460): up for the tracks
+        /// above. Ctrl+wheel, and the wheel with the main track selected or only one backing track, zoom
+        /// as before.
         /// </summary>
         private bool scrollBackingTracks(ScrollEvent e)
         {
             if (!state.BackingTrackSelected || backingTrackCount <= 1 || e.ControlPressed || e.SuperPressed)
                 return false;
 
-            backingWheel += e.ScrollDelta.Y;
-
-            while (Math.Abs(backingWheel) >= 1)
-            {
-                int step = Math.Sign(backingWheel);
-                backingWheel -= step;
-                backingScrollTarget = Math.Clamp(backingScrollTarget + step, 0, backingTrackCount - 1);
-            }
-
+            backingScrollTarget = Math.Clamp(backingScrollTarget + e.ScrollDelta.Y * backing_scroll_per_notch, 0, backingMaxScroll);
             return true;
         }
 
@@ -394,8 +404,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>How many tracks the backing lane holds right now (test support).</summary>
         internal int BackingTrackCount => backingTrackCount;
 
-        /// <summary>The track the backing lane is scrolled to (test support).</summary>
-        internal int BackingScrollTarget => backingScrollTarget;
+        /// <summary>Where the backing lane is scrolling to, in lane heights (test support).</summary>
+        internal float BackingScrollTarget => backingScrollTarget;
+
+        /// <summary>The furthest the backing lane scrolls, in lane heights (test support).</summary>
+        internal float BackingMaxScroll => backingMaxScroll;
 
         /// <summary>The track backing entry <paramref name="index"/> of <paramref name="hitObject"/>'s line is drawn on (test support).</summary>
         internal int BackingTrackOf(TypeBeatHitObject hitObject, int index) => trackOf(hitObject, index);
@@ -503,7 +516,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 HasWord = word is BackingVocal && !state.HiddenByTapScope(HitObject);
                 float offset = parent.backingRowOffset(HitObject, Index);
 
-                if (word is not BackingVocal current || !HasWord || (offTrack(offset) && !dragSource))
+                float top = backing_block_top + offset;
+
+                if (word is not BackingVocal current || !HasWord || (outOfLane(top, top + backing_block_height) && !dragSource))
                 {
                     Alpha = 0;
                     return;
@@ -511,7 +526,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 bool active = state.ActiveLine.Value == HitObject;
                 Alpha = active ? 1 : 0.55f;
-                Y = backing_block_top + offset;
+                Y = top;
 
                 // The block spans the whole word, and the label its own piece: the same for a word in one piece.
                 var words = HitObject.Line.BackingVocals;
@@ -760,7 +775,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 float offset = parent.backingRowOffset(HitObject, Index);
 
-                if (Index >= words.Count || !words[Index].Joined || state.HiddenByTapScope(HitObject) || offTrack(offset))
+                if (Index >= words.Count || !words[Index].Joined || state.HiddenByTapScope(HitObject)
+                    || outOfLane(backing_block_top + offset, backing_block_top + backing_block_height + offset))
                 {
                     Alpha = 0;
                     return;
@@ -883,9 +899,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             {
                 var words = HitObject.Line.BackingVocals;
 
-                float offset = parent.backingRowOffset(HitObject, Index);
+                // Every anchor sits in the one row under track 0, whichever track its word is on (an
+                // anchor says where across the line, which no track changes), and scrolls with it.
+                float y = parent.backingAnchorRowY;
 
-                if (Index >= words.Count || state.HiddenByTapScope(HitObject) || (offTrack(offset) && !dragging))
+                if (Index >= words.Count || state.HiddenByTapScope(HitObject) || (y >= 1 && !dragging))
                 {
                     Alpha = 0;
                     return;
@@ -893,7 +911,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 Alpha = state.ActiveLine.Value == HitObject ? 1 : 0.55f;
                 X = parent.backingAnchorX(HitObject.Line, Index);
-                Y = backing_anchor_y + offset;
+                Y = y;
 
                 bool hot = dragging || IsHovered;
                 ring.Colour = hot ? TypeBeatStyle.Caret : words[Index].Anchor != null ? TypeBeatStyle.SungAccent : TypeBeatStyle.TypedChar;
@@ -958,16 +976,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         }
 
         /// <summary>
-        /// Where the lane is among its tracks (backlog 460), drawn only while it holds more than one: a
-        /// thin rail down its right edge with a thumb for the track in view (track 0 at the bottom, as
-        /// the tracks stack), and "2/3" beside it. Takes no input.
+        /// Where the lane is scrolled among its tracks (backlog 460), drawn only while there is more
+        /// than one: a thin rail down its right edge whose thumb is the lane's share of the stacked
+        /// tracks, at the bottom while track 0 sits in its place. Takes no input.
         /// </summary>
         private partial class BackingTrackScrollbar : CompositeDrawable
         {
             private readonly Box thumb;
-            private readonly OsuSpriteText label;
-
-            private int shownTrack = -1, shownCount = -1;
 
             public override bool HandlePositionalInput => false;
 
@@ -976,61 +991,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 Anchor = Anchor.TopRight;
                 Origin = Anchor.TopRight;
                 RelativeSizeAxes = Axes.Y;
-                AutoSizeAxes = Axes.X;
+                Width = 3;
+                X = -2;
                 Alpha = 0;
 
                 InternalChildren = new Drawable[]
                 {
-                    label = new OsuSpriteText
+                    new Box { RelativeSizeAxes = Axes.Both, Colour = TypeBeatStyle.TypedChar, Alpha = 0.12f },
+                    thumb = new Box
                     {
-                        Anchor = Anchor.TopRight,
-                        Origin = Anchor.TopRight,
-                        X = -8,
-                        Y = 2,
-                        Font = TypeBeatStyle.Mono(10),
+                        RelativeSizeAxes = Axes.Both,
+                        RelativePositionAxes = Axes.Y,
                         Colour = TypeBeatStyle.TypedChar,
                         Alpha = 0.6f,
-                    },
-                    new Container
-                    {
-                        Anchor = Anchor.TopRight,
-                        Origin = Anchor.TopRight,
-                        RelativeSizeAxes = Axes.Y,
-                        Width = 3,
-                        X = -2,
-                        Children = new Drawable[]
-                        {
-                            new Box { RelativeSizeAxes = Axes.Both, Colour = TypeBeatStyle.TypedChar, Alpha = 0.12f },
-                            thumb = new Box
-                            {
-                                RelativeSizeAxes = Axes.Both,
-                                RelativePositionAxes = Axes.Y,
-                                Colour = TypeBeatStyle.TypedChar,
-                                Alpha = 0.6f,
-                            },
-                        },
                     },
                 };
             }
 
-            public void UpdateLayout(int count, float scroll)
+            /// <param name="maxScroll">How far the lane scrolls, in lane heights (0: one track, nothing to scroll).</param>
+            /// <param name="scroll">How far it is scrolled now.</param>
+            public void UpdateLayout(float maxScroll, float scroll)
             {
-                Alpha = count > 1 ? 1 : 0;
+                Alpha = maxScroll > 0 ? 1 : 0;
 
-                if (count <= 1)
+                if (maxScroll <= 0)
                     return;
 
-                thumb.Height = 1f / count;
-                thumb.Y = (count - 1 - scroll) / count;
-
-                int track = (int)Math.Round(scroll);
-
-                if (track != shownTrack || count != shownCount)
-                {
-                    shownTrack = track;
-                    shownCount = count;
-                    label.Text = $"{track + 1}/{count}";
-                }
+                thumb.Height = 1 / (1 + maxScroll);
+                thumb.Y = (maxScroll - scroll) / (1 + maxScroll);
             }
         }
 
@@ -1073,7 +1061,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 float offset = parent.backingRowOffset(HitObject, Index);
 
-                if (Index >= words.Count || state.HiddenByTapScope(HitObject) || offTrack(offset))
+                // From the block, on whichever track, down to the anchor in the shared row under track 0.
+                float blockBottom = backing_block_top + backing_block_height + offset;
+                float anchorY = parent.backingAnchorRowY;
+
+                if (Index >= words.Count || state.HiddenByTapScope(HitObject) || outOfLane(blockBottom - backing_block_height, anchorY))
                 {
                     Alpha = 0;
                     return;
@@ -1082,8 +1074,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 Alpha = state.ActiveLine.Value == HitObject ? 0.6f : 0.3f;
 
                 var (x, width) = parent.backingBlockSpan(words[Index]);
-                var from = new Vector2(x + width / 2, (backing_block_top + backing_block_height + offset) * laneHeight);
-                var to = new Vector2(parent.backingAnchorX(HitObject.Line, Index), (backing_anchor_y + offset) * laneHeight - backing_anchor_radius);
+                var from = new Vector2(x + width / 2, blockBottom * laneHeight);
+                var to = new Vector2(parent.backingAnchorX(HitObject.Line, Index), anchorY * laneHeight - backing_anchor_radius);
                 var delta = to - from;
                 float length = delta.Length;
 

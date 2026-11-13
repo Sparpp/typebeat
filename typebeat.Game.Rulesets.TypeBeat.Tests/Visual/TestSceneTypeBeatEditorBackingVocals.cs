@@ -495,15 +495,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("the selection followed the dragged word", () => state().SelectedBackingIndex.Value == 0 && state().SelectedBackingIndices.SetEquals(new[] { 0 }));
             AddUntilStep("the lane holds two tracks", () => strip().BackingTrackCount == 2);
             AddAssert("the later word is on the second", () => strip().BackingTrackOf(lineAt(0), 0) == 0 && strip().BackingTrackOf(lineAt(0), 1) == 1);
-            AddAssert("and the lane shows the dragged word's", () => strip().BackingScrollTarget == 0);
+            AddAssert("and the lane stays put, the dragged word in view", () => strip().BackingScrollTarget == 0);
+            AddUntilStep("the upper block sits flush on the lower one", () =>
+            {
+                var upper = strip().BackingBlockOf(lineAt(0), 1).ScreenSpaceDrawQuad;
+                var lower = strip().BackingBlockOf(lineAt(0), 0).ScreenSpaceDrawQuad;
+                return Math.Abs(upper.BottomLeft.Y - lower.TopLeft.Y) < 0.5f && upper.Height > 0;
+            });
 
             AddStep("remember the zoom", () => window = windowLength());
-            AddStep("wheel up", () => InputManager.ScrollVerticalBy(1));
-            AddAssert("the lane scrolled up a track", () => strip().BackingScrollTarget == 1);
+            AddStep("wheel up a notch", () => InputManager.ScrollVerticalBy(1));
+            AddAssert("the lane scrolled part of the way up, not a whole track", () => strip().BackingScrollTarget > 0 && strip().BackingScrollTarget < strip().BackingMaxScroll);
             AddAssert("without zooming", () => Math.Abs(windowLength() - window) < 1);
-            AddStep("wheel up again", () => InputManager.ScrollVerticalBy(1));
-            AddAssert("there is no third", () => strip().BackingScrollTarget == 1);
-            AddUntilStep("the other word's block is drawn there", () => strip().BackingBlockOf(lineAt(0), 1).Alpha > 0 && strip().BackingBlockOf(lineAt(0), 0).Alpha == 0);
+            AddStep("wheel up a lot", () => InputManager.ScrollVerticalBy(10));
+            AddAssert("it stops with the top track where track 0 sat", () => strip().BackingScrollTarget == strip().BackingMaxScroll);
+            AddUntilStep("both words are still drawn, stacked", () => strip().BackingBlockOf(lineAt(0), 1).Alpha > 0 && strip().BackingBlockOf(lineAt(0), 0).Alpha > 0);
 
             AddStep("Ctrl+wheel", () =>
             {
@@ -512,7 +518,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 InputManager.ReleaseKey(Key.ControlLeft);
             });
             AddAssert("zooms as before", () => windowLength() < window - 1);
-            AddAssert("and leaves the lane where it was", () => strip().BackingScrollTarget == 1);
+            AddAssert("and leaves the lane where it was", () => strip().BackingScrollTarget == strip().BackingMaxScroll);
         }
     }
 }
