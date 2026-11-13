@@ -463,5 +463,56 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             });
             AddUntilStep("the word is whole again", () => TypeBeatEditorOperations.BackingVocalText(lineAt(0).Line) == "ha down");
         }
+
+        /// <summary>
+        /// Backlog 460: a backing word dragged onto another goes on a track of its own, and past it the
+        /// two swap places in the order (and in the line list's brackets); with the backing track
+        /// selected, the wheel scrolls through the tracks, and Ctrl+wheel still zooms.
+        /// </summary>
+        [Test]
+        public void TestDraggingOneWordOntoAnotherStacksAndReordersThem()
+        {
+            Vector2 pressAt = default;
+            double window = 0;
+
+            float screenDistance(double ms) => strip().ToScreenSpace(new Vector2(strip().PositionOf(3000 + ms), 0)).X - strip().ToScreenSpace(new Vector2(strip().PositionOf(3000), 0)).X;
+            double windowLength() => strip().TimeAt(strip().DrawWidth) - strip().TimeAt(0);
+
+            showLineOne();
+            AddStep("name the two words", () => TypeBeatEditorOperations.SetBackingVocalText(EditorBeatmap, lineAt(0), "one two"));
+            AddUntilStep("one track to begin with", () => strip().BackingTrackCount == 1);
+
+            // "one" 3000..3600, "two" 3800..4400: "two" is dragged a second earlier, over and past "one".
+            AddStep("settle on the second block", () => InputManager.MoveMouseTo(pressAt = strip().BackingBlockOf(lineAt(0), 1).ScreenSpaceDrawQuad.Centre));
+            AddStep("press", () => InputManager.PressButton(MouseButton.Left));
+            AddStep("start the drag", () => InputManager.MoveMouseTo(pressAt - new Vector2(10, 0)));
+            AddStep("drag it a second earlier", () => InputManager.MoveMouseTo(pressAt + new Vector2(screenDistance(-1000), 0)));
+            AddStep("release", () => InputManager.ReleaseButton(MouseButton.Left));
+
+            AddAssert("the two swapped places", () => lineAt(0).Line.BackingVocals.Select(w => w.Text).SequenceEqual(new[] { "two", "one" }));
+            AddAssert("and overlap", () => lineAt(0).Line.BackingVocals[0].EndTime > lineAt(0).Line.BackingVocals[1].StartTime);
+            AddAssert("the line list spells them in the new order", () => TypeBeatEditorOperations.BackingSuffix(lineAt(0).Line) == " (two one)");
+            AddAssert("the selection followed the dragged word", () => state().SelectedBackingIndex.Value == 0 && state().SelectedBackingIndices.SetEquals(new[] { 0 }));
+            AddUntilStep("the lane holds two tracks", () => strip().BackingTrackCount == 2);
+            AddAssert("the later word is on the second", () => strip().BackingTrackOf(lineAt(0), 0) == 0 && strip().BackingTrackOf(lineAt(0), 1) == 1);
+            AddAssert("and the lane shows the dragged word's", () => strip().BackingScrollTarget == 0);
+
+            AddStep("remember the zoom", () => window = windowLength());
+            AddStep("wheel up", () => InputManager.ScrollVerticalBy(1));
+            AddAssert("the lane scrolled up a track", () => strip().BackingScrollTarget == 1);
+            AddAssert("without zooming", () => Math.Abs(windowLength() - window) < 1);
+            AddStep("wheel up again", () => InputManager.ScrollVerticalBy(1));
+            AddAssert("there is no third", () => strip().BackingScrollTarget == 1);
+            AddUntilStep("the other word's block is drawn there", () => strip().BackingBlockOf(lineAt(0), 1).Alpha > 0 && strip().BackingBlockOf(lineAt(0), 0).Alpha == 0);
+
+            AddStep("Ctrl+wheel", () =>
+            {
+                InputManager.PressKey(Key.ControlLeft);
+                InputManager.ScrollVerticalBy(1);
+                InputManager.ReleaseKey(Key.ControlLeft);
+            });
+            AddAssert("zooms as before", () => windowLength() < window - 1);
+            AddAssert("and leaves the lane where it was", () => strip().BackingScrollTarget == 1);
+        }
     }
 }

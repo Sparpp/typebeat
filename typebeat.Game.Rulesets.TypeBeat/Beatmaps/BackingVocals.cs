@@ -139,53 +139,122 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>
         /// The words fitted into a line window: each start clamped into [<paramref name="start"/>,
         /// <paramref name="end"/>], each end into [its start, <paramref name="end"/>], empty texts
-        /// dropped, and the list ordered by start (stably, so words sung together keep their order). A
-        /// piece stays <see cref="BackingVocal.Joined"/> only while the entry before it ends where it
-        /// starts: anything that came between them leaves two words, sung exactly as they were. The
-        /// same list comes back untouched when it already fits, so an idle edit allocates nothing.
+        /// dropped, and the list ordered by when each WORD starts (stably, so words sung together keep
+        /// their order). A subdivided word's pieces stay together behind its first one, so a word sung
+        /// over a subdivided one (backlog 460: the backing words may overlap, on tracks of their own in
+        /// the editor) comes after all of its pieces. A piece stays <see cref="BackingVocal.Joined"/>
+        /// only while the entry before it in the given list ends where it starts: anything that came
+        /// between them leaves two words, sung exactly as they were. The same list comes back untouched
+        /// when it already fits, so an idle edit allocates nothing.
         /// </summary>
-        public static IReadOnlyList<BackingVocal> Fit(IReadOnlyList<BackingVocal>? words, double start, double end)
+        public static IReadOnlyList<BackingVocal> Fit(IReadOnlyList<BackingVocal>? words, double start, double end) => Fit(words, start, end, out _);
+
+        /// <summary>
+        /// <see cref="Fit(IReadOnlyList{BackingVocal}?, double, double)"/>, also saying where each given
+        /// entry went: <paramref name="positions"/>[i] is entry i's index in the result, or -1 when it was
+        /// dropped. This is how an edit that reorders the words finds the one it moved.
+        /// </summary>
+        public static IReadOnlyList<BackingVocal> Fit(IReadOnlyList<BackingVocal>? words, double start, double end, out int[] positions)
         {
             if (words == null || words.Count == 0)
+            {
+                positions = Array.Empty<int>();
                 return Array.Empty<BackingVocal>();
+            }
 
             if (end < start)
                 end = start;
 
             bool fits = true;
+            double lastWordStart = double.NegativeInfinity;
 
             for (int i = 0; i < words.Count && fits; i++)
             {
                 var word = words[i];
                 fits = word.Text.Length > 0 && word.StartTime >= start && word.EndTime <= end && word.EndTime >= word.StartTime
-                       && (i == 0 || words[i - 1].StartTime <= word.StartTime)
-                       && (!word.Joined || (i > 0 && words[i - 1].EndTime == word.StartTime));
+                       && (word.Joined ? i > 0 && words[i - 1].EndTime == word.StartTime : lastWordStart <= word.StartTime);
+
+                if (!word.Joined)
+                    lastWordStart = word.StartTime;
             }
 
             if (fits)
-                return words;
-
-            var fitted = words.Where(w => w.Text.Length > 0)
-                              .Select(w =>
-                              {
-                                  double s = Math.Clamp(w.StartTime, start, end);
-                                  return w with { StartTime = s, EndTime = Math.Clamp(w.EndTime, s, end) };
-                              })
-                              .OrderBy(w => w.StartTime)
-                              .ToArray();
-
-            for (int i = 0; i < fitted.Length; i++)
             {
-                if (!fitted[i].Joined)
+                positions = Enumerable.Range(0, words.Count).ToArray();
+                return words;
+            }
+
+            // The words as given: a joined entry continues the word before it while that word's last
+            // piece ends where it starts (float dust from a rigid move closes up); anything else heads
+            // a word of its own.
+            var runs = new List<List<(BackingVocal Word, int From)>>();
+
+            for (int i = 0; i < words.Count; i++)
+            {
+                var w = words[i];
+
+                if (w.Text.Length == 0)
                     continue;
 
-                if (i > 0 && Math.Abs(fitted[i - 1].EndTime - fitted[i].StartTime) <= joined_tolerance_ms)
-                    fitted[i - 1] = fitted[i - 1] with { EndTime = fitted[i].StartTime };
+                double s = Math.Clamp(w.StartTime, start, end);
+                w = w with { StartTime = s, EndTime = Math.Clamp(w.EndTime, s, end) };
+
+                if (w.Joined && runs.Count > 0 && Math.Abs(runs[^1][^1].Word.EndTime - w.StartTime) <= joined_tolerance_ms)
+                {
+                    var last = runs[^1][^1];
+                    runs[^1][^1] = (last.Word with { EndTime = w.StartTime }, last.From);
+                    runs[^1].Add((w, i));
+                }
                 else
-                    fitted[i] = fitted[i] with { Joined = false };
+                    runs.Add(new List<(BackingVocal, int)> { (w with { Joined = false }, i) });
+            }
+
+            positions = Enumerable.Repeat(-1, words.Count).ToArray();
+            var fitted = new List<BackingVocal>(words.Count);
+
+            foreach (var run in runs.OrderBy(r => r[0].Word.StartTime))
+            {
+                foreach (var (word, from) in run)
+                {
+                    positions[from] = fitted.Count;
+                    fitted.Add(word);
+                }
             }
 
             return fitted;
+        }
+
+        /// <summary>
+        /// The editor's TRACK of each entry (backlog 460): words that overlap in time cannot share one,
+        /// so each word (all of its pieces together) goes on the lowest track whose words have all ended
+        /// by the time it starts, 0 being the one next to the typed words. Words that only touch share a
+        /// track. Display only: nothing is stored, and gameplay never reads it.
+        /// </summary>
+        public static int[] Tracks(IReadOnlyList<BackingVocal> words)
+        {
+            int[] tracks = new int[words.Count];
+            var trackEnds = new List<double>();
+
+            for (int head = 0; head < words.Count;)
+            {
+                int tail = RunEnd(words, head);
+                int track = 0;
+
+                while (track < trackEnds.Count && trackEnds[track] > words[head].StartTime)
+                    track++;
+
+                if (track == trackEnds.Count)
+                    trackEnds.Add(words[tail].EndTime);
+                else
+                    trackEnds[track] = words[tail].EndTime;
+
+                for (int i = head; i <= tail; i++)
+                    tracks[i] = track;
+
+                head = tail + 1;
+            }
+
+            return tracks;
         }
 
         /// <summary>

@@ -73,20 +73,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void BackingWordsStopAtTheirNeighboursStartsAndTheLine()
+        public void ABackingWordMovedPastAnotherReordersThemAndStopsAtTheLine()
         {
             var editorBeatmap = createBeatmapWithBacking();
             var hitObject = lineAt(editorBeatmap, 1);
             double secondStart = hitObject.Line.BackingVocals[1].StartTime;
+            double oohLength = hitObject.Line.BackingVocals[0].EndTime - hitObject.Line.BackingVocals[0].StartTime;
 
-            // Past the next word's start: stops on it, so the order (and the default anchors) holds.
-            TypeBeatEditorOperations.MoveBackingVocal(editorBeatmap, hitObject, 0, 5000);
-            Assert.That(hitObject.Line.BackingVocals[0].StartTime, Is.EqualTo(secondStart));
+            // Past the next word's start (backlog 460): the two swap places, the line list spells them
+            // in the new order, and the move says where its word went. Its length is kept to the line's end.
+            Assert.That(TypeBeatEditorOperations.MoveBackingVocal(editorBeatmap, hitObject, 0, 5000), Is.EqualTo(1));
+            Assert.That(hitObject.Line.BackingVocals.Select(w => w.Text), Is.EqualTo(new[] { "yeah", "ooh" }));
+            Assert.That(hitObject.Line.BackingVocals[1].StartTime, Is.EqualTo(6000 - oohLength).Within(1e-6));
+            Assert.That(hitObject.Line.BackingVocals[1].EndTime, Is.EqualTo(6000).Within(1e-6));
+            Assert.That(TypeBeatEditorOperations.BackingSuffix(hitObject.Line), Is.EqualTo(" (yeah ooh)"));
 
-            // Before the line: stops at its start.
-            TypeBeatEditorOperations.SetBackingVocalTiming(editorBeatmap, hitObject, 0, 1000, 3500);
-            Assert.That(hitObject.Line.BackingVocals[0].StartTime, Is.EqualTo(3000));
-            Assert.That(hitObject.Line.BackingVocals[0].EndTime, Is.EqualTo(3500));
+            // A start resized back past it reorders them again; before the line, it stops at its start.
+            Assert.That(TypeBeatEditorOperations.SetBackingVocalTiming(editorBeatmap, hitObject, 1, 1000, 3500), Is.EqualTo(0));
+            Assert.That(hitObject.Line.BackingVocals.Select(w => (w.Text, w.StartTime, w.EndTime)).First(), Is.EqualTo(("ooh", 3000d, 3500d)));
+            Assert.That(TypeBeatEditorOperations.BackingSuffix(hitObject.Line), Is.EqualTo(" (ooh yeah)"));
 
             // An end before the start is held a minimum span after it; an end past the line, at its end.
             TypeBeatEditorOperations.SetBackingVocalTiming(editorBeatmap, hitObject, 1, secondStart, secondStart - 500);
@@ -320,32 +325,40 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void AGroupMovesRigidlyAndStopsAtTheWordsOutsideIt()
+        public void AGroupMovesRigidlyAndPassesTheWordsOutsideIt()
         {
             var editorBeatmap = createBeatmapWithBacking();
             var hitObject = lineAt(editorBeatmap, 1);
 
-            // ooh 3000.., yeah .., and a third word at 5600 outside the group.
-            TypeBeatEditorOperations.AddBackingVocal(editorBeatmap, hitObject, 5600, "hey");
+            // ooh 3000.., a word outside the group at 3100, yeah ..5500.
+            TypeBeatEditorOperations.AddBackingVocal(editorBeatmap, hitObject, 3100, "hey");
             var before = hitObject.Line.BackingVocals.ToArray();
-            int[] group = { 0, 1 };
-            double[] starts = group.Select(i => before[i].StartTime).ToArray();
-            double[] ends = group.Select(i => before[i].EndTime).ToArray();
+            Assert.That(before.Select(w => w.Text), Is.EqualTo(new[] { "ooh", "hey", "yeah" }));
+            int[] group = { 0, 2 };
+            BackingVocal word(string text) => hitObject.Line.BackingVocals.Single(w => w.Text == text);
 
-            TypeBeatEditorOperations.MoveBackingVocals(editorBeatmap, hitObject, group, starts, ends, 200);
-            Assert.That(hitObject.Line.BackingVocals.Take(2).Select(w => (w.StartTime, w.EndTime)),
+            // "ooh" passes "hey" (backlog 460): the order changes, and the move says where its words went.
+            int[] at = TypeBeatEditorOperations.MoveBackingVocals(editorBeatmap, hitObject, before, group, 200);
+            Assert.That(hitObject.Line.BackingVocals.Select(w => w.Text), Is.EqualTo(new[] { "hey", "ooh", "yeah" }));
+            Assert.That(at, Is.EqualTo(new[] { 1, 2 }));
+            Assert.That(at.Select(i => (hitObject.Line.BackingVocals[i].StartTime, hitObject.Line.BackingVocals[i].EndTime)),
                 Is.EqualTo(group.Select(i => (before[i].StartTime + 200, Math.Min(6000, before[i].EndTime + 200)))));
+            Assert.That(word("hey"), Is.EqualTo(before[1]), "the word outside the group never moves");
 
-            // Far later: held where the group's last word meets "hey" or, keeping its length, the line's
-            // end, whichever comes first; far earlier: held at the line's start.
-            TypeBeatEditorOperations.MoveBackingVocals(editorBeatmap, hitObject, group, starts, ends, 9000);
-            Assert.That(hitObject.Line.BackingVocals[1].StartTime, Is.EqualTo(Math.Min(5600, 6000 - (ends[1] - starts[1]))).Within(1e-6));
-            Assert.That(hitObject.Line.BackingVocals[1].StartTime, Is.LessThanOrEqualTo(5600));
-            Assert.That(hitObject.Line.BackingVocals[1].StartTime - hitObject.Line.BackingVocals[0].StartTime, Is.EqualTo(starts[1] - starts[0]), "rigid");
+            // Always measured from where the drag began, so dragging back puts the order back.
+            at = TypeBeatEditorOperations.MoveBackingVocals(editorBeatmap, hitObject, before, group, 0);
+            Assert.That(hitObject.Line.BackingVocals, Is.EqualTo(before));
+            Assert.That(at, Is.EqualTo(group));
 
-            TypeBeatEditorOperations.MoveBackingVocals(editorBeatmap, hitObject, group, starts, ends, -9000);
-            Assert.That(hitObject.Line.BackingVocals[0].StartTime, Is.EqualTo(3000));
-            Assert.That(hitObject.Line.BackingVocals[2], Is.EqualTo(before[2]), "the word outside the group never moves");
+            // Far later: held where the group's last word, keeping its length, meets the line's end;
+            // far earlier: held at the line's start.
+            TypeBeatEditorOperations.MoveBackingVocals(editorBeatmap, hitObject, before, group, 9000);
+            Assert.That(word("yeah").EndTime, Is.EqualTo(6000).Within(1e-6));
+            Assert.That(word("yeah").StartTime - word("ooh").StartTime, Is.EqualTo(before[2].StartTime - before[0].StartTime).Within(1e-6), "rigid");
+
+            TypeBeatEditorOperations.MoveBackingVocals(editorBeatmap, hitObject, before, group, -9000);
+            Assert.That(word("ooh").StartTime, Is.EqualTo(3000));
+            Assert.That(word("hey"), Is.EqualTo(before[1]));
 
             assertReloadStable(editorBeatmap);
         }
@@ -445,17 +458,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void ACutNeverPassesTheNextWord()
+        public void ACutMayFallUnderAWordSungOverIt()
         {
             var editorBeatmap = beatmapWithHa(out var hitObject);
             TypeBeatEditorOperations.SetBackingVocalText(editorBeatmap, hitObject, "ha yo");
             TypeBeatEditorOperations.MoveBackingVocal(editorBeatmap, hitObject, 1, 3200);
 
-            // The caret is past "yo"'s start, so the word bisects what is in front of it instead.
+            // "yo" is sung over "ha" from 3200 (backlog 460), so the caret past its start still cuts "ha"
+            // there: the words are ordered by where each word starts, and "yo" stays after both pieces.
             Assert.That(TypeBeatEditorOperations.SubdivideBackingVocal(editorBeatmap, hitObject, 0, 3800), Is.True);
-            Assert.That(hitObject.Line.BackingVocals.Select(w => w.Text), Is.EqualTo(new[] { "h", "a", "yo" }));
-            Assert.That(hitObject.Line.BackingVocals[1].StartTime, Is.EqualTo(3100));
-            Assert.That(hitObject.Line.BackingVocals[1].Joined, Is.True);
+            Assert.That(hitObject.Line.BackingVocals.Select(w => (w.Text, w.StartTime, w.Joined)),
+                Is.EqualTo(new[] { ("h", 3000d, false), ("a", 3800d, true), ("yo", 3200d, false) }));
+            Assert.That(BackingVocals.Tracks(hitObject.Line.BackingVocals), Is.EqualTo(new[] { 0, 0, 1 }), "and it is drawn on a track of its own");
+            Assert.That(TypeBeatEditorOperations.BackingSuffix(hitObject.Line), Is.EqualTo(" (h|a yo)"));
+            assertReloadStable(editorBeatmap);
         }
 
         [Test]
@@ -551,15 +567,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void ANewWordCannotLandBetweenPieces()
+        public void ANewWordInsideASubdividedOneIsAWordOfItsOwn()
         {
             var editorBeatmap = beatmapWithHa(out var hitObject);
             TypeBeatEditorOperations.SubdivideBackingVocal(editorBeatmap, hitObject, 0, 3300);
 
-            TypeBeatEditorOperations.AddBackingVocal(editorBeatmap, hitObject, 3100, "yo");
-
+            // At the playhead, sung over the subdivided word (backlog 460): listed after both of its
+            // pieces, which stay one word, and drawn on a track of its own.
+            Assert.That(TypeBeatEditorOperations.AddBackingVocal(editorBeatmap, hitObject, 3100, "yo"), Is.EqualTo(2));
             Assert.That(hitObject.Line.BackingVocals.Select(w => (w.Text, w.StartTime, w.Joined)),
-                Is.EqualTo(new[] { ("h", 3000d, false), ("a", 3300d, true), ("yo", 3300d, false) }));
+                Is.EqualTo(new[] { ("h", 3000d, false), ("a", 3300d, true), ("yo", 3100d, false) }));
+            Assert.That(BackingVocals.Tracks(hitObject.Line.BackingVocals), Is.EqualTo(new[] { 0, 0, 1 }));
+            assertReloadStable(editorBeatmap);
+        }
+
+        [Test]
+        public void DraggingASubdividedWordPastAnotherKeepsItsPiecesTogether()
+        {
+            var editorBeatmap = beatmapWithHa(out var hitObject);
+            TypeBeatEditorOperations.SetBackingVocalText(editorBeatmap, hitObject, "h|a yo");
+
+            // "h|a" 3000..4000, "yo" 4000..5500. Moved past "yo"'s start, the whole word goes behind it.
+            Assert.That(TypeBeatEditorOperations.MoveBackingVocal(editorBeatmap, hitObject, 1, 4100), Is.EqualTo(1));
+            Assert.That(hitObject.Line.BackingVocals.Select(w => (w.Text, w.Joined)), Is.EqualTo(new[] { ("yo", false), ("h", false), ("a", true) }));
+            Assert.That(TypeBeatEditorOperations.BackingSuffix(hitObject.Line), Is.EqualTo(" (yo h|a)"));
+            assertReloadStable(editorBeatmap);
         }
     }
 }

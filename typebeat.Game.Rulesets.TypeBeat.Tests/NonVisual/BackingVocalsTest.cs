@@ -575,5 +575,40 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(parted.Select(w => w.Text), Is.EqualTo(new[] { "h", "x", "a" }));
             Assert.That(parted[2].Joined, Is.False);
         }
+
+        [Test]
+        public void AWordSungOverASubdividedOneComesAfterAllOfItsPieces()
+        {
+            // Ordered by where each WORD starts (backlog 460): "x" starts inside "h|a", after its first piece.
+            var over = new[] { new BackingVocal("h", 1000, 1200), new BackingVocal("a", 1200, 1500, null, true), new BackingVocal("x", 1100, 1300) };
+            Assert.That(BackingVocals.Fit(over, 0, 9000), Is.SameAs(over));
+
+            // Given out of order, the words are sorted by their first pieces and the pieces stay together;
+            // the positions say where each given entry went.
+            var given = new[] { new BackingVocal("x", 1100, 1300), new BackingVocal("h", 1000, 1200), new BackingVocal("a", 1200, 1500, null, true) };
+            Assert.That(BackingVocals.Fit(given, 0, 9000, out int[] positions), Is.EqualTo(over));
+            Assert.That(positions, Is.EqualTo(new[] { 2, 0, 1 }));
+
+            // A dropped entry has no position.
+            BackingVocals.Fit(new[] { new BackingVocal("", 0, 10), new BackingVocal("b", 20, 30) }, 0, 100, out positions);
+            Assert.That(positions, Is.EqualTo(new[] { -1, 0 }));
+        }
+
+        [Test]
+        public void OverlappingWordsGoOnTracksOfTheirOwn()
+        {
+            var words = new[]
+            {
+                new BackingVocal("a", 1000, 1500),
+                new BackingVocal("d", 1100, 1400), // over "a": a second track
+                new BackingVocal("e", 1450, 1600), // "d" has ended: back on the second track
+                new BackingVocal("b", 1500, 2000), // only touches "a": shares its track
+                new BackingVocal("f", 1550, 1700), // over "b" and "e": a third
+            };
+
+            Assert.That(BackingVocals.Tracks(words), Is.EqualTo(new[] { 0, 1, 1, 0, 2 }));
+            Assert.That(BackingVocals.Tracks(pieces), Is.EqualTo(new[] { 0, 0, 0 }), "a subdivided word is one block on one track");
+            Assert.That(BackingVocals.Tracks(Array.Empty<BackingVocal>()), Is.Empty);
+        }
     }
 }

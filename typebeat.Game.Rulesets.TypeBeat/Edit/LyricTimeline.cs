@@ -171,7 +171,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                         backingBlockLane = backingLane(
                             backingLaneSeparator(),
                             backingConnectorLayer = new Container { RelativeSizeAxes = Axes.Both },
-                            backingBlockLayer = new Container { RelativeSizeAxes = Axes.Both }),
+                            backingBlockLayer = new Container { RelativeSizeAxes = Axes.Both },
+                            backingScrollbar = new BackingTrackScrollbar()),
                         new TimingGrid(() => (windowStart, windowStart + windowLength)),
                         mainHandleTrack = mainTrack(handleLayer = new Container { RelativeSizeAxes = Axes.Both }),
                         boundaryLayer = new Container { RelativeSizeAxes = Axes.Both },
@@ -503,6 +504,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         {
             if (DrawWidth <= 0)
                 return false;
+
+            // With the backing track selected and more than one of them, the wheel scrolls through
+            // its tracks instead (backlog 460).
+            if (scrollBackingTracks(e))
+                return true;
 
             // Zoom the strip's OWN window around the cursor. This never touches the shared waveform
             // timeline or the clock, so zooming does NOT move the playhead. Wheel up = zoom in.

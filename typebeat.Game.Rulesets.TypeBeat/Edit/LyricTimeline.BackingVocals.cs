@@ -12,6 +12,7 @@ using osu.Framework.Graphics.Cursor;
 using osu.Framework.Graphics.Shapes;
 using osu.Framework.Input.Events;
 using osu.Framework.Localisation;
+using osu.Framework.Utils;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
@@ -45,6 +46,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// a word block, and selects, moves and resizes as one. The block's own draws the first piece's
     /// letters, and each later piece a label of its own that takes no input; every piece has its own
     /// anchor and dotted line, because each pops up on its own in gameplay.</para>
+    ///
+    /// <para>TRACKS (backlog 460). Backing words may overlap, two voices at once: words that overlap
+    /// in time go on separate TRACKS (<see cref="BackingVocals.Tracks"/>), track 0 next to the typed
+    /// words and each further one above the last. The lane keeps its height and shows one track at a
+    /// time: with the backing track selected, the wheel scrolls through them (Ctrl+wheel still zooms),
+    /// and the lane follows the selected word to its track, so a word dragged onto another, or past
+    /// it, stays in view. Dragging a word past another reorders them (see
+    /// <see cref="TypeBeatEditorOperations.MoveBackingVocal"/>). Blocks, anchors and dividers are SLOTS
+    /// by index: each draws whichever word holds its index now, so a reorder needs no rebuild.</para>
     /// </summary>
     public partial class LyricTimeline
     {
@@ -91,6 +101,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private readonly List<BackingConnector> backingConnectors = new List<BackingConnector>();
         private readonly List<BackingDivider> backingDividers = new List<BackingDivider>();
 
+        private readonly BackingTrackScrollbar backingScrollbar;
+
+        // Each line's tracks, recomputed only when its (immutable) line changes, so the idle frame
+        // allocates nothing.
+        private readonly Dictionary<TypeBeatHitObject, (LyricLine Line, int[] Tracks)> backingTracks = new Dictionary<TypeBeatHitObject, (LyricLine, int[])>();
+
+        /// <summary>How many tracks the lane holds: the most any line needs, at least one.</summary>
+        private int backingTrackCount = 1;
+
+        /// <summary>The track the lane is scrolled to, and where its scroll is drawn right now (it eases there), both in tracks.</summary>
+        private int backingScrollTarget;
+
+        private float backingScroll;
+
+        // A touchpad's wheel comes in fractions: a step is taken per whole notch.
+        private float backingWheel;
+
+        // The selected word the lane last followed to its track: it follows again only when this changes,
+        // so the wheel can still look at the other tracks while a word is selected.
+        private (TypeBeatHitObject? Line, int Index, int Track) backingFollowed = (null, -1, -1);
+
+        /// <summary>The backing word being dragged (its index right now, which a reorder changes), or none; drawn lit.</summary>
+        private (TypeBeatHitObject? Line, int Index) draggedBacking = (null, -1);
+
         /// <summary>A container over the main track: <see cref="MAIN_TRACK_HEIGHT"/> of the strip, centred on it, so the word blocks sit in the middle of the view.</summary>
         private static Container mainTrack(Drawable content) => new Container
         {
@@ -101,11 +135,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             Child = content,
         };
 
-        /// <summary>A container over the backing lane: the top <see cref="BACKING_LANE_HEIGHT"/> of the strip.</summary>
+        /// <summary>
+        /// A container over the backing lane: the top <see cref="BACKING_LANE_HEIGHT"/> of the strip.
+        /// Masked, because the tracks the lane is not scrolled to sit just above or below it.
+        /// </summary>
         private static Container backingLane(params Drawable[] content) => new Container
         {
             RelativeSizeAxes = Axes.Both,
             Height = BACKING_LANE_HEIGHT,
+            Masking = true,
             Children = content,
         };
 
@@ -149,10 +187,99 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             backingAnchors.Clear();
             backingConnectors.Clear();
             backingDividers.Clear();
+            backingTracks.Clear();
+        }
+
+        /// <summary>The track of each of <paramref name="hitObject"/>'s backing entries (see <see cref="BackingVocals.Tracks"/>).</summary>
+        private int[] tracksOf(TypeBeatHitObject hitObject)
+        {
+            var line = hitObject.Line;
+
+            if (backingTracks.TryGetValue(hitObject, out var cached) && ReferenceEquals(cached.Line, line))
+                return cached.Tracks;
+
+            int[] tracks = BackingVocals.Tracks(line.BackingVocals);
+            backingTracks[hitObject] = (line, tracks);
+            return tracks;
+        }
+
+        private int trackOf(TypeBeatHitObject hitObject, int index)
+        {
+            int[] tracks = tracksOf(hitObject);
+            return index >= 0 && index < tracks.Length ? tracks[index] : 0;
+        }
+
+        /// <summary>
+        /// How far backing entry <paramref name="index"/>'s row sits from the lane, in lane heights: 0 on
+        /// the track the lane shows, negative above it, positive below. A row a whole lane or more away
+        /// is out of sight (the lane is masked) and is not drawn at all.
+        /// </summary>
+        private float backingRowOffset(TypeBeatHitObject hitObject, int index) => backingScroll - trackOf(hitObject, index);
+
+        private static bool offTrack(float offset) => Math.Abs(offset) >= 1;
+
+        private void updateBackingTracks()
+        {
+            int count = 1;
+
+            for (int i = 0; i < displayed.Count; i++)
+            {
+                int[] tracks = tracksOf(displayed[i].hitObject);
+
+                for (int j = 0; j < tracks.Length; j++)
+                    count = Math.Max(count, tracks[j] + 1);
+            }
+
+            backingTrackCount = count;
+
+            // Follow the selected word to its track when the selection (or its track) changes.
+            var active = state.ActiveLine.Value;
+            int index = state.BackingTrackSelected ? state.SelectedBackingIndex.Value : -1;
+            int track = active != null && index >= 0 && index < active.Line.BackingVocals.Count ? trackOf(active, index) : -1;
+
+            if (backingFollowed.Line != active || backingFollowed.Index != index || backingFollowed.Track != track)
+            {
+                backingFollowed = (active, index, track);
+
+                if (track >= 0)
+                    backingScrollTarget = track;
+            }
+
+            backingScrollTarget = Math.Clamp(backingScrollTarget, 0, backingTrackCount - 1);
+            backingScroll = (float)Interpolation.DampContinuously(backingScroll, backingScrollTarget, 40, Time.Elapsed);
+
+            if (Math.Abs(backingScroll - backingScrollTarget) < 0.002f)
+                backingScroll = backingScrollTarget;
+
+            backingScrollbar.UpdateLayout(backingTrackCount, backingScroll);
+        }
+
+        /// <summary>
+        /// The wheel over the strip while the backing track is selected and holds more than one track
+        /// scrolls through them instead of zooming (backlog 460): up for the tracks above. Ctrl+wheel, and
+        /// the wheel with the main track selected or only one backing track, zoom as before.
+        /// </summary>
+        private bool scrollBackingTracks(ScrollEvent e)
+        {
+            if (!state.BackingTrackSelected || backingTrackCount <= 1 || e.ControlPressed || e.SuperPressed)
+                return false;
+
+            backingWheel += e.ScrollDelta.Y;
+
+            while (Math.Abs(backingWheel) >= 1)
+            {
+                int step = Math.Sign(backingWheel);
+                backingWheel -= step;
+                backingScrollTarget = Math.Clamp(backingScrollTarget + step, 0, backingTrackCount - 1);
+            }
+
+            return true;
         }
 
         private void updateBackingVocalLayout()
         {
+            updateBackingTracks();
+
             for (int i = 0; i < backingBlocks.Count; i++)
                 backingBlocks[i].UpdateLayout(this);
 
@@ -261,8 +388,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>The line boundaries the strip is drawing, one per line (test support).</summary>
         internal IReadOnlyList<Drawable> BoundaryHandles => boundaryHandles;
 
-        /// <summary>How many backing word blocks the strip is drawing for <paramref name="hitObject"/> (test support).</summary>
-        internal int BackingBlockCount(TypeBeatHitObject hitObject) => backingBlocks.Count(b => b.HitObject == hitObject && b.Alpha > 0 && !b.IsLaterPiece);
+        /// <summary>How many backing word blocks the strip holds for <paramref name="hitObject"/>, on whichever track (test support).</summary>
+        internal int BackingBlockCount(TypeBeatHitObject hitObject) => backingBlocks.Count(b => b.HitObject == hitObject && b.HasWord && !b.IsLaterPiece);
+
+        /// <summary>How many tracks the backing lane holds right now (test support).</summary>
+        internal int BackingTrackCount => backingTrackCount;
+
+        /// <summary>The track the backing lane is scrolled to (test support).</summary>
+        internal int BackingScrollTarget => backingScrollTarget;
+
+        /// <summary>The track backing entry <paramref name="index"/> of <paramref name="hitObject"/>'s line is drawn on (test support).</summary>
+        internal int BackingTrackOf(TypeBeatHitObject hitObject, int index) => trackOf(hitObject, index);
 
         /// <summary>Backing word <paramref name="index"/>'s block on <paramref name="hitObject"/>'s line (test support).</summary>
         internal Drawable BackingBlockOf(TypeBeatHitObject hitObject, int index) => backingBlocks.Single(b => b.HitObject == hitObject && b.Index == index);
@@ -304,13 +440,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             private Grab grab;
             private double grabStart, grabEnd, grabTime;
-            private bool dragging;
+
+            // The dragged word's index right now: a drag past another word reorders them (backlog 460),
+            // and the word is followed by where it went rather than by this slot's own index.
+            private int dragIndex;
+
+            // This slot started the drag in progress. It stays present for the whole gesture, even when
+            // the word it now holds sits on a track out of sight (the masked lane clips it anyway), so
+            // nothing can cut the drag's events off.
+            private bool dragSource;
 
             // A group drag (the body of a block in a multi-selection): every selected word moves by the
-            // same distance, captured at drag start as the word blocks' own group drag is.
+            // same distance from where the drag found them (the line's words then, and their indices in it).
+            private BackingVocal[] groupOriginal = Array.Empty<BackingVocal>();
             private int[] groupIndices = Array.Empty<int>();
-            private double[] groupStarts = Array.Empty<double>();
-            private double[] groupEnds = Array.Empty<double>();
             private string? lastFontFamily;
 
             public TypeBeatHitObject HitObject { get; }
@@ -318,6 +461,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             /// <summary>Whether this draws a later piece of a subdivided word: only its letters show, and the word's block takes the input.</summary>
             public bool IsLaterPiece { get; private set; }
+
+            /// <summary>Whether this slot has a word to draw, on whichever track (an edit may have dropped it until the next rebuild).</summary>
+            public bool HasWord { get; private set; }
 
             public override bool ReceivePositionalInputAt(Vector2 screenSpacePos) => !IsLaterPiece && base.ReceivePositionalInputAt(screenSpacePos);
 
@@ -354,7 +500,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             public void UpdateLayout(LyricTimeline parent)
             {
-                if (word is not BackingVocal current || state.HiddenByTapScope(HitObject))
+                HasWord = word is BackingVocal && !state.HiddenByTapScope(HitObject);
+                float offset = parent.backingRowOffset(HitObject, Index);
+
+                if (word is not BackingVocal current || !HasWord || (offTrack(offset) && !dragSource))
                 {
                     Alpha = 0;
                     return;
@@ -362,6 +511,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 bool active = state.ActiveLine.Value == HitObject;
                 Alpha = active ? 1 : 0.55f;
+                Y = backing_block_top + offset;
 
                 // The block spans the whole word, and the label its own piece: the same for a word in one piece.
                 var words = HitObject.Line.BackingVocals;
@@ -391,6 +541,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 BorderThickness = 1.5f;
 
                 bool selected = active && state.BackingTrackSelected && state.SelectedBackingIndices.Contains(Index);
+                bool dragging = parent.draggedBacking.Line == HitObject && parent.draggedBacking.Index == Index;
 
                 BorderColour = selected || dragging || IsHovered ? TypeBeatStyle.Caret : TypeBeatStyle.TypedChar.Opacity(active ? 0.7f : 0.45f);
                 body.Colour = selected ? TypeBeatStyle.Caret : TypeBeatStyle.TypedChar;
@@ -449,30 +600,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 if (word is not BackingVocal current)
                     return false;
 
+                var words = HitObject.Line.BackingVocals;
+                dragIndex = BackingVocals.RunStart(words, Index);
                 grabStart = current.StartTime;
-                grabEnd = HitObject.Line.BackingVocals[BackingVocals.RunEnd(HitObject.Line.BackingVocals, Index)].EndTime;
+                grabEnd = words[BackingVocals.RunEnd(words, Index)].EndTime;
                 grabTime = strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMouseDownPosition).X);
 
                 // The body of a block in a multi-selection drags the whole selection; anything else
                 // collapses the selection to this block, as a word block does.
-                var words = HitObject.Line.BackingVocals;
                 var selected = BackingVocals.ExpandRuns(words, state.SelectedBackingInOrder(words.Count));
                 bool group = grab == Grab.Move && state.ActiveLine.Value == HitObject && state.BackingTrackSelected
                              && selected.Length > 1 && selected.Contains(Index);
 
                 if (group)
                 {
+                    groupOriginal = words.ToArray();
                     groupIndices = selected;
-                    groupStarts = selected.Select(i => words[i].StartTime).ToArray();
-                    groupEnds = selected.Select(i => words[i].EndTime).ToArray();
                 }
                 else
                 {
+                    groupOriginal = Array.Empty<BackingVocal>();
                     groupIndices = Array.Empty<int>();
                     strip.selectBackingWord(HitObject, Index);
                 }
 
-                dragging = true;
+                strip.draggedBacking = (HitObject, dragIndex);
+                dragSource = true;
                 state.BeginInteraction();
                 editorBeatmap.BeginChange();
                 return true;
@@ -489,30 +642,52 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 switch (grab)
                 {
                     case Grab.ResizeStart:
-                        TypeBeatEditorOperations.SetBackingVocalTiming(editorBeatmap, HitObject, Index, edgeTime, grabEnd);
+                        follow(TypeBeatEditorOperations.SetBackingVocalTiming(editorBeatmap, HitObject, dragIndex, edgeTime, grabEnd));
                         break;
 
                     case Grab.ResizeEnd:
-                        TypeBeatEditorOperations.SetBackingVocalTiming(editorBeatmap, HitObject, Index, grabStart, edgeTime);
+                        follow(TypeBeatEditorOperations.SetBackingVocalTiming(editorBeatmap, HitObject, dragIndex, grabStart, edgeTime));
                         break;
 
                     default:
                         if (groupIndices.Length > 0)
                         {
                             // The group's first word snaps, and the rest follow it by the same distance.
-                            double delta = strip.SnapToGrid(groupStarts[0] + cursorTime - grabTime) - groupStarts[0];
-                            TypeBeatEditorOperations.MoveBackingVocals(editorBeatmap, HitObject, groupIndices, groupStarts, groupEnds, delta);
+                            double first = groupOriginal[groupIndices[0]].StartTime;
+                            double delta = strip.SnapToGrid(first + cursorTime - grabTime) - first;
+                            int[] at = TypeBeatEditorOperations.MoveBackingVocals(editorBeatmap, HitObject, groupOriginal, groupIndices, delta);
+                            int mine = Array.IndexOf(groupIndices, Index);
+
+                            if (at.Length == groupIndices.Length && mine >= 0)
+                            {
+                                dragIndex = at[mine];
+                                strip.draggedBacking = (HitObject, dragIndex);
+
+                                if (state.ActiveLine.Value == HitObject)
+                                    state.SetBackingSelection(at, dragIndex);
+                            }
                         }
                         else
-                            TypeBeatEditorOperations.MoveBackingVocal(editorBeatmap, HitObject, Index, strip.SnapToGrid(grabStart + cursorTime - grabTime));
+                            follow(TypeBeatEditorOperations.MoveBackingVocal(editorBeatmap, HitObject, dragIndex, strip.SnapToGrid(grabStart + cursorTime - grabTime)));
 
                         break;
                 }
             }
 
+            /// <summary>Keeps the drag, the lit block and the selection on the dragged word wherever a reorder put it.</summary>
+            private void follow(int index)
+            {
+                dragIndex = index;
+                strip.draggedBacking = (HitObject, index);
+
+                if (state.ActiveLine.Value == HitObject && state.SelectedBackingIndex.Value != index)
+                    state.SelectBackingWord(index);
+            }
+
             protected override void OnDragEnd(DragEndEvent e)
             {
-                dragging = false;
+                dragSource = false;
+                strip.draggedBacking = (null, -1);
                 editorBeatmap.EndChange();
                 state.EndInteraction();
             }
@@ -583,7 +758,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             {
                 var words = HitObject.Line.BackingVocals;
 
-                if (Index >= words.Count || !words[Index].Joined || state.HiddenByTapScope(HitObject))
+                float offset = parent.backingRowOffset(HitObject, Index);
+
+                if (Index >= words.Count || !words[Index].Joined || state.HiddenByTapScope(HitObject) || offTrack(offset))
                 {
                     Alpha = 0;
                     return;
@@ -591,6 +768,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 Alpha = state.ActiveLine.Value == HitObject ? 1 : 0.55f;
                 X = parent.PositionOf(words[Index].StartTime);
+                Y = backing_block_top + offset;
             }
 
             // Handled, or the block under the divider takes the resize cursor away again (see PauseEdgeHandle).
@@ -705,7 +883,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             {
                 var words = HitObject.Line.BackingVocals;
 
-                if (Index >= words.Count || state.HiddenByTapScope(HitObject))
+                float offset = parent.backingRowOffset(HitObject, Index);
+
+                if (Index >= words.Count || state.HiddenByTapScope(HitObject) || (offTrack(offset) && !dragging))
                 {
                     Alpha = 0;
                     return;
@@ -713,6 +893,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 Alpha = state.ActiveLine.Value == HitObject ? 1 : 0.55f;
                 X = parent.backingAnchorX(HitObject.Line, Index);
+                Y = backing_anchor_y + offset;
 
                 bool hot = dragging || IsHovered;
                 ring.Colour = hot ? TypeBeatStyle.Caret : words[Index].Anchor != null ? TypeBeatStyle.SungAccent : TypeBeatStyle.TypedChar;
@@ -777,6 +958,83 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         }
 
         /// <summary>
+        /// Where the lane is among its tracks (backlog 460), drawn only while it holds more than one: a
+        /// thin rail down its right edge with a thumb for the track in view (track 0 at the bottom, as
+        /// the tracks stack), and "2/3" beside it. Takes no input.
+        /// </summary>
+        private partial class BackingTrackScrollbar : CompositeDrawable
+        {
+            private readonly Box thumb;
+            private readonly OsuSpriteText label;
+
+            private int shownTrack = -1, shownCount = -1;
+
+            public override bool HandlePositionalInput => false;
+
+            public BackingTrackScrollbar()
+            {
+                Anchor = Anchor.TopRight;
+                Origin = Anchor.TopRight;
+                RelativeSizeAxes = Axes.Y;
+                AutoSizeAxes = Axes.X;
+                Alpha = 0;
+
+                InternalChildren = new Drawable[]
+                {
+                    label = new OsuSpriteText
+                    {
+                        Anchor = Anchor.TopRight,
+                        Origin = Anchor.TopRight,
+                        X = -8,
+                        Y = 2,
+                        Font = TypeBeatStyle.Mono(10),
+                        Colour = TypeBeatStyle.TypedChar,
+                        Alpha = 0.6f,
+                    },
+                    new Container
+                    {
+                        Anchor = Anchor.TopRight,
+                        Origin = Anchor.TopRight,
+                        RelativeSizeAxes = Axes.Y,
+                        Width = 3,
+                        X = -2,
+                        Children = new Drawable[]
+                        {
+                            new Box { RelativeSizeAxes = Axes.Both, Colour = TypeBeatStyle.TypedChar, Alpha = 0.12f },
+                            thumb = new Box
+                            {
+                                RelativeSizeAxes = Axes.Both,
+                                RelativePositionAxes = Axes.Y,
+                                Colour = TypeBeatStyle.TypedChar,
+                                Alpha = 0.6f,
+                            },
+                        },
+                    },
+                };
+            }
+
+            public void UpdateLayout(int count, float scroll)
+            {
+                Alpha = count > 1 ? 1 : 0;
+
+                if (count <= 1)
+                    return;
+
+                thumb.Height = 1f / count;
+                thumb.Y = (count - 1 - scroll) / count;
+
+                int track = (int)Math.Round(scroll);
+
+                if (track != shownTrack || count != shownCount)
+                {
+                    shownTrack = track;
+                    shownCount = count;
+                    label.Text = $"{track + 1}/{count}";
+                }
+            }
+        }
+
+        /// <summary>
         /// The dotted line from a backing word's anchor up to the centre of its block's bottom edge: one
         /// rotated, masked row of dashes, so moving either end costs a transform, and dashes are only
         /// ever added (when the line grows past the ones it has), never per frame.
@@ -813,7 +1071,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             {
                 var words = HitObject.Line.BackingVocals;
 
-                if (Index >= words.Count || state.HiddenByTapScope(HitObject))
+                float offset = parent.backingRowOffset(HitObject, Index);
+
+                if (Index >= words.Count || state.HiddenByTapScope(HitObject) || offTrack(offset))
                 {
                     Alpha = 0;
                     return;
@@ -822,8 +1082,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 Alpha = state.ActiveLine.Value == HitObject ? 0.6f : 0.3f;
 
                 var (x, width) = parent.backingBlockSpan(words[Index]);
-                var from = new Vector2(x + width / 2, (backing_block_top + backing_block_height) * laneHeight);
-                var to = new Vector2(parent.backingAnchorX(HitObject.Line, Index), backing_anchor_y * laneHeight - backing_anchor_radius);
+                var from = new Vector2(x + width / 2, (backing_block_top + backing_block_height + offset) * laneHeight);
+                var to = new Vector2(parent.backingAnchorX(HitObject.Line, Index), (backing_anchor_y + offset) * laneHeight - backing_anchor_radius);
                 var delta = to - from;
                 float length = delta.Length;
 

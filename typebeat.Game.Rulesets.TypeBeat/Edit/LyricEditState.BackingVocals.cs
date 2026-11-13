@@ -99,6 +99,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             SelectedTrack.Value = LyricTrack.Backing;
         }
 
+        /// <summary>
+        /// Re-points the backing selection at <paramref name="indices"/>, <paramref name="primary"/> the
+        /// primary one, on the backing track: what a drag does when its words reorder (backlog 460), so
+        /// the selection stays on the same words rather than on the places they left.
+        /// </summary>
+        public void SetBackingSelection(IEnumerable<int> indices, int primary)
+        {
+            ClearUnitSelection();
+            SelectedBackingIndices.Clear();
+
+            foreach (int i in indices)
+            {
+                if (i >= 0)
+                    SelectedBackingIndices.Add(i);
+            }
+
+            if (primary >= 0)
+                SelectedBackingIndices.Add(primary);
+
+            SelectedBackingIndex.Value = primary;
+            SelectedTrack.Value = LyricTrack.Backing;
+        }
+
         /// <summary>Selects every backing word of the active line (Select All on the backing track).</summary>
         public void SelectAllBackingWords(int count)
         {
