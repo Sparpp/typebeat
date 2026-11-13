@@ -466,7 +466,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// <paramref name="useAutomaticAlignment"/> the preference order is: local aligner
         /// subprocess (word/syllable granularity) → line-granularity LRC fallback. Without it, the
         /// aligner is skipped entirely and only the LRC line-stamp path is used (instant, line
-        /// granularity). Never triggers the ~2 GB local bootstrap. The lyrics text is written to a
+        /// granularity). Never triggers the ~3.5 GB local bootstrap. The lyrics text is written to a
         /// temp file for the aligner and cleaned up.
         ///
         /// <para>This entry point is LOCAL only: the editor's re-align uses it, and the server aligner

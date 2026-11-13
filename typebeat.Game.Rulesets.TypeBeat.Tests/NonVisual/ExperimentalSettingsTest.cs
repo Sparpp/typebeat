@@ -226,7 +226,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 // The high-accuracy checkbox is meaningless without the installer, so they sit together.
                 var installButton = controls.OfType<Container>().Select(c => c.Child).OfType<FormButton>().Single();
 
-                Assert.That(installButton.Caption.ToString(), Is.EqualTo("Install local auto-aligner (~2 GB)"));
+                Assert.That(installButton.Caption.ToString(), Is.EqualTo("Install local auto-aligner (~3.5 GB)"));
 
                 // ILocalAlignerManager is resolved CanBeNull and is absent here, exactly as it is in a
                 // headless scene: the button must go dead rather than throw on a click nothing services.
@@ -286,7 +286,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(TypeBeatExperimentalSettingsSubsection.InstallButtonText(new FakeAlignerManager { NeedsRepair = true }),
                 Is.EqualTo("Repair local auto-aligner"));
             Assert.That(TypeBeatExperimentalSettingsSubsection.InstallButtonText(new FakeAlignerManager()),
-                Is.EqualTo("Install local auto-aligner (~2 GB)"));
+                Is.EqualTo("Install local auto-aligner (~3.5 GB)"));
             Assert.That(TypeBeatExperimentalSettingsSubsection.InstallButtonText(new FakeAlignerManager { IsInstalled = true }),
                 Is.EqualTo("Reinstall local auto-aligner"));
         }

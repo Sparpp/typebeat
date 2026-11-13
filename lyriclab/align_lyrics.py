@@ -728,6 +728,10 @@ def separate_vocals(song_wav: Path, work: Path, model: str, device: str,
     if out.exists() and out.stat().st_mtime >= song_wav.stat().st_mtime:
         log(f"separation: cached ({out})")
         return out
+    if model == "htdemucs":
+        # in place from our mirror first, so the Demucs child finds it and makes no request
+        # (MODEL_FILES); any other --demucs-model is still fetched by Demucs itself
+        model_file_path("htdemucs", prefix="separation: ")
     log(f"separation: running demucs ({model}) on {device} ...")
     env = dict(os.environ)
     env["OMP_NUM_THREADS"] = str(threads)
@@ -1069,6 +1073,8 @@ def evidence_emissions(quality, wav, audio_key, work: Path, device: str, window_
     model = None
     if missing:
         log("loading MMS_FA aligner model (first run downloads ~1.2 GB)...")
+        # in place from our mirror first, so torchaudio finds it and makes no request (MODEL_FILES)
+        model_file_path("mms_fa", prefix="loading MMS_FA aligner model: ")
         model = torchaudio.pipelines.MMS_FA.get_model(with_star=True).to(device).eval()
         if prec == "int8":
             try:
@@ -4285,6 +4291,76 @@ def self_test_separate_only() -> int:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def self_test_model_files() -> int:
+    """Pins model_file_path's download rules (standard library only, fake files and a fake
+    downloader): our mirror first and the original second, the full sha256 before a download is
+    moved into place, a wrong file deleted and fetched again, a right one never re-fetched, the
+    size-only check at use for the big file, nothing left behind when both hosts fail; and the
+    table itself (each library-looked-up name is the basename of the library's own URL)."""
+    import hashlib
+    import tempfile
+
+    good, bad = b"type!beat model bytes", b"type!beat MODEL bytes"   # same size, different bytes
+    sha = hashlib.sha256(good).hexdigest()
+    mirror, upstream = "https://mirror.test/m.bin", "https://upstream.test/m.bin"
+
+    def fetcher(*answers):
+        """A download_url_to_file stand-in: answers in order, each bytes to write or an exception."""
+        calls, queue = [], list(answers)
+
+        def download(url, dst, progress=True):
+            calls.append(url)
+            a = queue.pop(0)
+            if isinstance(a, Exception):
+                raise a
+            Path(dst).write_bytes(a)
+        return download, calls
+
+    def run(answers, *, present=None, verify=None, hash_at_use=True):
+        """(file bytes after, urls fetched, error or None, leftover .part files)"""
+        MODEL_FILES["_test"] = ModelFile("_test", "m.bin", len(good), sha, mirror, upstream, "a test file", hash_at_use)
+        try:
+            with tempfile.TemporaryDirectory() as hub:
+                ckpt = Path(hub) / "checkpoints"
+                if present is not None:
+                    ckpt.mkdir(parents=True)
+                    (ckpt / "m.bin").write_bytes(present)
+                download, calls = fetcher(*answers)
+                err = None
+                try:
+                    model_file_path("_test", verify=verify, download=download, hub_dir=hub)
+                except RuntimeError as exc:
+                    err = str(exc)
+                f = ckpt / "m.bin"
+                return (f.read_bytes() if f.exists() else None, calls, err,
+                        sorted(p.name for p in ckpt.glob("*.part")) if ckpt.exists() else [])
+        finally:
+            del MODEL_FILES["_test"]
+
+    from urllib.parse import urlparse
+    failed_both = run([OSError("refused"), OSError("expired certificate")])
+    return _check_all("model files", [
+        ("missing: fetched from our mirror only", run([good])[:2], (good, [mirror])),
+        ("present and right: nothing fetched", run([], present=good)[:2], (good, [])),
+        ("present, wrong size: deleted and fetched again", run([good], present=b"short")[:2], (good, [mirror])),
+        ("present, wrong bytes, hashed at use: fetched again", run([good], present=bad)[:2], (good, [mirror])),
+        ("present, wrong bytes, big file: its size is all a run checks", run([], present=bad, hash_at_use=False)[:2], (bad, [])),
+        ("... and setup's full check replaces it", run([good], present=bad, verify=True, hash_at_use=False)[:2], (good, [mirror])),
+        ("mirror down: the original host", run([OSError("refused"), good])[:2], (good, [mirror, upstream])),
+        ("mirror serves wrong bytes: deleted, the original host", run([bad, good])[:2], (good, [mirror, upstream])),
+        ("both fail: no file and no .part left", (failed_both[0], failed_both[3]), (None, [])),
+        ("both fail: the error names the file and both hosts",
+         all(s in (failed_both[2] or "") for s in ("m.bin", "mirror.test", "upstream.test")), True),
+        ("wrong bytes from both: the error says so", "sha256" in (run([bad, bad])[2] or ""), True),
+        ("table: torchaudio and Demucs look their files up by their URL's basename",
+         [(k, MODEL_FILES[k].name == Path(urlparse(MODEL_FILES[k].upstream).path).name) for k in ("mms_fa", "htdemucs")],
+         [("mms_fa", True), ("htdemucs", True)]),
+        ("table: every file has a mirror copy under MODEL_MIRROR",
+         all(m.mirror.startswith(MODEL_MIRROR + "/") for m in MODEL_FILES.values()), True),
+        ("table: only the big file skips the hash at use", [k for k, m in MODEL_FILES.items() if not m.hash_at_use], ["mms_fa"]),
+    ])
+
+
 def self_test_espeak() -> int:
     """Pins the version 11 espeak-ng start-up guards (standard library only): espeak_data_path's
     decision order on scratch trees with an injected platform and cache root, and espeak_probe
@@ -5099,39 +5175,149 @@ def qmul_network(n_class: int = 72):
     return AcousticModel()
 
 
-def qmul_weights_path():
-    """The QMUL checkpoint in torch hub's checkpoint dir (where torchaudio keeps MMS_FA), fetched
-    from the pinned commit on first use and checked against QMUL_SHA256. Raises on any failure (a
-    failed download, a hash mismatch); a bad file is deleted so the next run fetches it again."""
+# --------------------------------------------------------------------------
+# Model weights: our mirror first, the original host second
+# --------------------------------------------------------------------------
+
+# The three checkpoints the aligner runs on are mirrored on type!beat's own download host (the
+# public bucket behind dl.typebeat.sh; NOTICE.txt beside them carries their licences), so an install
+# no longer depends on the original hosts: on 2026-11-12 dl.fbaipublicfiles.com served an expired
+# certificate and a first import failed with it. Each file is put in torch hub's checkpoint dir
+# under the name its library looks up there (the basename of the library's own URL), and
+# torch.hub.load_state_dict_from_url uses a file already present without making a request, so once
+# the files are in place torchaudio (MMS_FA) and Demucs (htdemucs, in its subprocess, which inherits
+# the environment and with it TORCH_HOME) never contact their hosts. Every download is checked
+# against the full sha256 before it is moved into place. A changed file needs a new name as well as
+# a new sha256, because the libraries find their files by name. No ALIGNER_VERSION bump for any of
+# this: the bytes, and so the output, are the same (backlog 414's rule).
+MODEL_MIRROR = "https://dl.typebeat.sh/aligner/models"
+
+
+@dataclass(frozen=True)
+class ModelFile:
+    key: str
+    name: str             # the file name in torch hub's checkpoint dir, the one its library looks up
+    size: int             # bytes
+    sha256: str
+    mirror: str           # our copy, tried first
+    upstream: str         # the original, tried when ours fails
+    what: str             # how the log names it
+    hash_at_use: bool     # hash a file already present on every use, not only at setup and update
+                          # (cheap for the small two; the 1.2 GB one has its size checked instead)
+
+
+MODEL_FILES = {m.key: m for m in (
+    ModelFile("mms_fa", "model.pt", 1_262_047_414,
+              "20ef12963ab4924bef49ac4fc7f58ad5da2ee43b2c11bc8c853c9b90ecdbc680",
+              f"{MODEL_MIRROR}/mms_fa/model.pt",
+              "https://dl.fbaipublicfiles.com/mms/torchaudio/ctc_alignment_mling_uroman/model.pt",
+              "the MMS_FA letter model (1.2 GB)", False),
+    ModelFile("htdemucs", "955717e8-8726e21a.th", 84_141_911,
+              "8726e21a993978c7ba086d3872e7608d7d5bfca646ca4aca459ffda844faa8b4",
+              f"{MODEL_MIRROR}/htdemucs/955717e8-8726e21a.th",
+              "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/955717e8-8726e21a.th",
+              "the htdemucs vocal separation model (84 MB)", True),
+    ModelFile("qmul", QMUL_FILE, 57_491_286, QMUL_SHA256,
+              f"{MODEL_MIRROR}/qmul/{QMUL_FILE}", QMUL_URL,
+              "the QMUL multilingual weights (57 MB)", True),
+)}
+
+
+def sha256_file(path: Path) -> str:
     import hashlib
 
-    import torch
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
 
-    d = Path(torch.hub.get_dir()) / "checkpoints"
-    path = d / QMUL_FILE
 
-    def sha(p):
-        h = hashlib.sha256()
-        with open(p, "rb") as f:
-            for block in iter(lambda: f.read(1 << 20), b""):
-                h.update(block)
-        return h.hexdigest()
+def model_file_problem(path: Path, m: ModelFile, full: bool):
+    """What is wrong with the file at path as a copy of m, or None: its size, then (when full) its
+    sha256. Standard library only."""
+    size = path.stat().st_size
+    if size != m.size:
+        return f"is {size} bytes, expected {m.size}"
+    if full:
+        got = sha256_file(path)
+        if got != m.sha256:
+            return f"has sha256 {got}, expected {m.sha256}"
+    return None
 
-    if not path.exists():
-        d.mkdir(parents=True, exist_ok=True)
-        log(f"fused evidence: downloading the QMUL multilingual weights (57 MB, {QMUL_URL})")
-        tmp = path.with_name(f"{path.name}.{os.getpid()}.part")
+
+def model_file_path(key: str, *, verify=None, progress: bool = True, prefix: str = "",
+                    download=None, hub_dir=None) -> Path:
+    """MODEL_FILES[key] in torch hub's checkpoint dir, downloaded first when it is missing or wrong.
+    A file already there is accepted on its size, plus its full sha256 when verify is True (None:
+    the entry's hash_at_use). A wrong one is deleted, named in the log, and downloaded again. A
+    download goes to a .part file, from our mirror and then the original host, and is moved into
+    place only when its full sha256 matches; one that does not is deleted. Raises when neither
+    host yields the file. prefix leads every log line, so the game's import screen files the lines
+    under the step that needs the file ("separation: ", "loading MMS_FA aligner model: "); progress
+    is torch's own download bar. download and hub_dir exist only for the self-test."""
+    from urllib.parse import urlparse
+
+    m = MODEL_FILES[key]
+    if download is None or hub_dir is None:
+        import torch
+
+        download = download or torch.hub.download_url_to_file
+        hub_dir = hub_dir or torch.hub.get_dir()
+    d = Path(hub_dir) / "checkpoints"
+    path = d / m.name
+    if path.exists():
+        problem = model_file_problem(path, m, m.hash_at_use if verify is None else verify)
+        if problem is None:
+            return path
+        path.unlink()
+        log(f"{prefix}{m.name} in {d} {problem}; deleted, fetching it again")
+    d.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.part")
+    failures = []
+    for url in (m.mirror, m.upstream):
+        host = urlparse(url).netloc
+        log(f"{prefix}downloading {m.what} from {host}")
         try:
-            torch.hub.download_url_to_file(QMUL_URL, str(tmp), progress=False)
-            os.replace(tmp, path)
+            download(url, str(tmp), progress=progress)
+            problem = model_file_problem(tmp, m, True)
+            if problem is None:
+                os.replace(tmp, path)
+                return path
+            failures.append(f"{host}: the file {problem}")
+            log(f"{prefix}{m.name} from {host} {problem}; deleted")
+        except Exception as exc:
+            failures.append(f"{host}: {type(exc).__name__}: {exc}")
+            log(f"{prefix}{m.name} could not be fetched from {host} ({type(exc).__name__}: {exc})")
         finally:
             if tmp.exists():
                 tmp.unlink()
-    got = sha(path)
-    if got != QMUL_SHA256:
-        path.unlink()
-        raise RuntimeError(f"the QMUL weights' sha256 is {got}, expected {QMUL_SHA256}; deleted")
-    return path
+    raise RuntimeError(f"{m.name} could not be fetched ({'; '.join(failures)})")
+
+
+def ensure_model_files(keys=None, *, verify: bool = True, progress: bool = False) -> list:
+    """Every file in MODEL_FILES (or those keys) in place and checked, for the setup scripts, their
+    update mode and the server worker: each is hashed in full when verify, and fetched when missing
+    or wrong. Tries every file before raising, so one failure does not hold the others back, then
+    raises naming the ones that failed. Returns the paths."""
+    paths, failed = [], []
+    for key in (keys or MODEL_FILES):
+        try:
+            paths.append(model_file_path(key, verify=verify, progress=progress))
+        except Exception as exc:
+            failed.append(f"{MODEL_FILES[key].name} ({exc})")
+    if failed:
+        raise RuntimeError("model files not in place: " + "; ".join(failed))
+    for p in paths:
+        log(f"model file ready: {p}")
+    return paths
+
+
+def qmul_weights_path():
+    """The QMUL checkpoint in torch hub's checkpoint dir (where torchaudio keeps MMS_FA), fetched on
+    first use (see MODEL_FILES) and checked against QMUL_SHA256 on every call. Raises on any
+    failure; a bad file is deleted so the next run fetches it again."""
+    return model_file_path("qmul", prefix="fused evidence: ", progress=False)
 
 
 def qmul_evidence(wav, audio_key: str, work: Path, device: str):
@@ -5633,8 +5819,11 @@ if __name__ == "__main__":
         sys.exit(self_test_espeak())
     if "--self-test-separate" in sys.argv:
         sys.exit(self_test_separate_only())
+    if "--self-test-model-files" in sys.argv:
+        sys.exit(self_test_model_files())
     if "--self-test" in sys.argv:
         sys.exit(max(self_test_syllables(), self_test_normalize(), self_test_sections(), self_test_garbage(),
                      self_test_even_letters(), self_test_estimated(), self_test_spacing(), self_test_late(), self_test_band(),
-                     self_test_dup(), self_test_cache(), self_test_fused(), self_test_espeak(), self_test_separate_only()))
+                     self_test_dup(), self_test_cache(), self_test_fused(), self_test_espeak(), self_test_separate_only(),
+                     self_test_model_files()))
     main()

@@ -245,7 +245,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 return "Repair local auto-aligner";
 
             if (manager?.IsInstalled != true)
-                return "Install local auto-aligner (~2 GB)";
+                return "Install local auto-aligner (~3.5 GB)";
 
             var status = manager.VersionStatus;
 
@@ -266,7 +266,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public static string InstallButtonTooltip(ILocalAlignerManager? manager)
         {
             if (manager?.NeedsRepair == true)
-                return "The aligner's environment on this machine never finished installing, or predates the check that confirms it did. Repair tests it first and keeps it if it works (seconds); if it does not, it is deleted and downloaded again (~2 GB).";
+                return "The aligner's environment on this machine never finished installing, or predates the check that confirms it did. Repair tests it first and keeps it if it works (seconds); if it does not, it is deleted and downloaded again (~2 GB; models already downloaded are kept).";
 
             switch (manager?.IsInstalled == true ? manager.VersionStatus : AlignerVersionStatus.Matches)
             {

@@ -44,8 +44,9 @@
 #            heals instead of failing every retry the same way.
 # -Update: on a COMPLETED install (the sentinel present), bring the existing venv up to this
 #          script's dependency set in place (the aligner dependencies, then the fused-evidence
-#          pair and its weights), then exit. The torch line is not re-run and the venv and
-#          sentinel are never removed, so it costs a few small downloads at most. This is how the
+#          pair, then the model files), then exit. The torch line is not re-run and the venv and
+#          sentinel are never removed, so it costs a few small downloads at most, plus any model
+#          file not yet in place (the 1.2 GB letter model on an install that never aligned). This is how the
 #          game's Update button gives an existing install the packages a newer aligner adds. A
 #          failure exits 1 with the usual sentence but leaves the install as it was: the aligner
 #          still runs (version 10 runs its version 9 path without the pair). Without a sentinel,
@@ -55,9 +56,13 @@
 # installed by their OWN uv call after the required set, best effort, and are deliberately NOT in
 # the import check below, which is what gates the sentinel. The aligner falls back to its version 9
 # path when they are missing, so a platform with no espeakng-loader wheel (or a resolver that
-# rejects them) still gets a working aligner instead of a failed setup. Their 57 MB of weights are
-# fetched the same way (align_lyrics.qmul_weights_path, into torch hub's checkpoint dir, sha256
-# checked); when that fails the first fused import fetches them instead.
+# rejects them) still gets a working aligner instead of a failed setup.
+#
+# Model files: the aligner's three checkpoints (MMS_FA 1.2 GB, htdemucs 84 MB, the fused path's
+# QMUL 57 MB) are fetched by align_lyrics.ensure_model_files into torch hub's checkpoint dir, from
+# type!beat's own mirror first and the original hosts second, each checked against its full sha256
+# (the table, URLs and hashes live in align_lyrics.py alone, MODEL_FILES). Best effort like the pair:
+# a failure is one WARNING line, and the first import that needs a file fetches it the same way.
 #
 # Failure output: one plain sentence on stderr that starts "setup failed:", says what failed and
 # what the player can do (retry, check the connection, or install later from Settings), then the
@@ -152,10 +157,8 @@ function Test-UvPinned([string]$exe) {
     return $false
 }
 
-# The fused-evidence pair, then its weights through the aligner's own qmul_weights_path (so the
-# URL, the file name and the sha256 live in align_lyrics.py alone). Best effort (see the header):
-# each failure is one WARNING line, and $fusedInstalled says whether the packages went in. The
-# weights are skipped without them, and the first import that needs them fetches them itself.
+# The fused-evidence pair. Best effort (see the header): a failure is one WARNING line, and
+# $fusedInstalled says whether the packages went in.
 $fusedInstalled = $false
 function Install-FusedEvidence {
     Write-Output 'installing the fused-evidence packages...'
@@ -165,10 +168,16 @@ function Install-FusedEvidence {
         return
     }
     $script:fusedInstalled = $true
-    Write-Output 'fetching the fused-evidence weights (57 MB, once)...'
-    & $py -c "import align_lyrics; align_lyrics.qmul_weights_path()"
+}
+
+# The model files through the aligner's own ensure_model_files (see the header), each one hashed in
+# full, so a file already in place is kept and a damaged one is replaced. Best effort: one WARNING
+# line on failure, after which the first import that needs a file fetches it itself.
+function Get-ModelFiles {
+    Write-Output 'fetching the model files the aligner needs (about 1.4 GB the first time)...'
+    & $py -c "import align_lyrics; align_lyrics.ensure_model_files()"
     if ($LASTEXITCODE -ne 0) {
-        Write-Output "WARNING: the fused-evidence weights could not be fetched (exit code $LASTEXITCODE); the first import that needs them fetches them instead"
+        Write-Output "WARNING: the model files could not all be fetched (exit code $LASTEXITCODE); the first import that needs one fetches it instead"
     }
 }
 
@@ -263,6 +272,7 @@ if ($updating) {
     Invoke-Native 'updating the aligner dependencies failed' $retryNetwork { & $uvExe pip install --python $py $alignerPackages }
     Install-FusedEvidence
     if (-not $fusedInstalled) { Stop-Setup 'installing the fused-evidence packages failed' $retryNetwork 'the aligner keeps working on its version 9 path' }
+    Get-ModelFiles
     Write-Output 'lyriclab environment updated'
     exit 0
 }
@@ -290,6 +300,7 @@ $step = 'verifying the installed packages'
 Invoke-Native 'the installed packages do not import' $retryPlain { & $py -c "import torch, torchaudio, demucs, soundfile, pyphen, num2words" }
 
 Install-FusedEvidence
+Get-ModelFiles
 
 if ($Device -eq 'cuda') {
     Write-Output 'verifying CUDA is usable by torch...'

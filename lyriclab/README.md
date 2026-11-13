@@ -437,18 +437,27 @@ which breaks Demucs checkpoint loading. Python 3.11 pinned for wheel
 coverage.)
 
 `setup.ps1` / `setup.sh` do the same (the fused-evidence pair best effort, by
-its own call, then its weights through `qmul_weights_path`) and, as their last
-step, write `.venv/.typebeat-setup-ok`. The game treats the aligner as
+its own call, then the model files through `ensure_model_files`) and, as their
+last step, write `.venv/.typebeat-setup-ok`. The game treats the aligner as
 installed only when that sentinel exists; a venv built by hand without it shows
 as "Repair" in the game's settings, and Repair keeps it (writing the sentinel)
 if its packages import, or rebuilds it if they do not. The pair is not part of
 that import check, so a platform without an `espeakng-loader` wheel still
 installs. `setup.ps1 -Update` / `setup.sh --update` bring a completed install
-up to the script's package set in place (torch untouched, nothing removed);
-the game's Update button runs it after copying newer scripts.
+up to the script's package set in place (torch untouched, nothing removed)
+and fetch any model file not yet in place; the game's Update button runs it
+after copying newer scripts.
 
-Models cache in `%USERPROFILE%\.cache\torch\hub\checkpoints` (~1.3 GB total:
-MMS_FA aligner + htdemucs, plus 57 MB for the QMUL weights of the fused path).
+Models cache in `%USERPROFILE%\.cache\torch\hub\checkpoints` (~1.4 GB total:
+the MMS_FA letter model, htdemucs, and 57 MB for the QMUL weights of the fused
+path). They come from type!beat's own mirror,
+`https://dl.typebeat.sh/aligner/models/` (its `NOTICE.txt` carries their
+licences: MMS_FA is CC BY-NC 4.0, htdemucs and QMUL are MIT), and from the
+original hosts only when the mirror fails; every download is checked against
+its full sha256 (`MODEL_FILES` in `align_lyrics.py`). The aligner puts each file
+in place under the name torchaudio and Demucs look up there, so neither library
+contacts its own host. A file already present is kept: setup and `--update`
+hash it in full, and a run checks the 1.2 GB file's size and hashes the others.
 
 ## Known limitations / future work
 

@@ -99,8 +99,8 @@ namespace typebeat.Game.Overlays.FirstRunSetup
                     if (!statusClaimed)
                     {
                         statusText.Text = gpu
-                            ? "An NVIDIA GPU was detected. The fast GPU build will be installed (~2.5 GB)."
-                            : "No NVIDIA GPU detected. The CPU build will be installed (~2 GB). Alignment will be slower but still fully local.";
+                            ? "An NVIDIA GPU was detected. The fast GPU build will be installed (~4 GB with its models)."
+                            : "No NVIDIA GPU detected. The CPU build will be installed (~3.5 GB with its models). Alignment will be slower but still fully local.";
                     }
                 });
             });

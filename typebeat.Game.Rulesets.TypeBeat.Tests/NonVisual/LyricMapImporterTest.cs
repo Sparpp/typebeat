@@ -287,8 +287,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(script, Does.Contain("ap.add_argument(\"--evidence\", choices=[\"mms\", \"fused\"]"));
                 Assert.That(script, Does.Contain("ap.add_argument(\"--lyrics-language\""));
 
-                // The weights fetch the setup scripts call (see ShippedSetupScriptsInstallTheFusedEvidencePackages).
-                Assert.That(script, Does.Contain("def qmul_weights_path():"));
+                // The model files fetch the setup scripts call (see ShippedSetupScriptsInstallTheFusedEvidencePackages).
+                Assert.That(script, Does.Contain("def ensure_model_files("));
             });
         }
 
@@ -1564,7 +1564,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <summary>
         /// Backlog 411: both shipped setup scripts install the same required set and the same
         /// version 10 fused-evidence pair (phonemizer, espeakng-loader) by its own call, and fetch
-        /// its weights through the aligner's own function; and the pair stays OUT of the import
+        /// the model files through the aligner's own function; and the pair stays OUT of the import
         /// check that gates the sentinel (and of the adoption probe, which shares it), so a platform
         /// without an espeakng-loader wheel still gets an installed aligner that runs the version 9
         /// path.
@@ -1584,8 +1584,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(sh, Does.Contain($"FUSED_PACKAGES='{AlignerEnvironment.FUSED_EVIDENCE_PACKAGES}'"));
                 Assert.That(ps1, Does.Contain("& $uvExe pip install --python $py $fusedPackages"));
                 Assert.That(sh, Does.Contain("\"$UV\" pip install --python \"$PY\" $FUSED_PACKAGES"));
-                Assert.That(ps1, Does.Contain("align_lyrics.qmul_weights_path()"));
-                Assert.That(sh, Does.Contain("align_lyrics.qmul_weights_path()"));
+                Assert.That(ps1, Does.Contain("align_lyrics.ensure_model_files()"));
+                Assert.That(sh, Does.Contain("align_lyrics.ensure_model_files()"));
                 Assert.That(ps1, Does.Contain("[switch]$Update"));
                 Assert.That(sh, Does.Contain("--update) UPDATE=1 ;;"));
 
@@ -1731,7 +1731,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     Assert.That(result.Success, Is.True, $"{result.Error}\n{string.Join("\n", lines)}");
                     Assert.That(lines, Has.Some.Contains("lyriclab environment updated"));
                     Assert.That(lines, Has.None.EqualTo(AlignerEnvironment.ENVIRONMENT_UPDATE_INCOMPLETE));
-                    Assert.That(lines, Has.Some.Contains("fetching the fused-evidence weights"));
+                    Assert.That(lines, Has.Some.Contains("fetching the model files"));
                     Assert.That(calls, Has.Length.EqualTo(2), string.Join("\n", calls));
                     Assert.That(calls.ElementAtOrDefault(0), Does.StartWith("pip install").And.EndWith(AlignerEnvironment.ALIGNER_PACKAGES));
                     Assert.That(calls.ElementAtOrDefault(1), Does.StartWith("pip install").And.EndWith(" " + AlignerEnvironment.FUSED_EVIDENCE_PACKAGES));

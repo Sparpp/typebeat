@@ -377,7 +377,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// adopted) install is not left as it stands: the setup script runs in its update mode
         /// (<c>-Update</c> / <c>--update</c>), which installs <see cref="ALIGNER_PACKAGES"/> and then
         /// <see cref="FUSED_EVIDENCE_PACKAGES"/> into the existing venv (torch is not re-run, what
-        /// is already satisfied is left alone) and fetches the fused-evidence weights. Without it the Update button would copy a version 10 script
+        /// is already satisfied is left alone) and fetches any model file not yet in place (the
+        /// aligner's ensure_model_files, from type!beat's own mirror first). Without it the Update button would copy a version 10 script
         /// over a venv that never got phonemizer and espeakng-loader, and every import would
         /// silently run the version 9 path. The update is best effort: a failure is logged and
         /// said, never returned as one, since the install still works (on that version 9 path).</para>
@@ -429,8 +430,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             }
 
             progress(device == "cuda"
-                ? "setting up the aligner environment (GPU), one-time download of packages (~2.5 GB), please wait..."
-                : "setting up the aligner environment, one-time download of packages (~2 GB), please wait...");
+                ? "setting up the aligner environment (GPU), one-time download of packages and models (~4 GB), please wait..."
+                : "setting up the aligner environment, one-time download of packages and models (~3.5 GB), please wait...");
 
             (int exitCode, string tail) = await ImportProcessRunner.RunProcessAsync(setupStartInfo(lyricLabDir, script, device, update: false), progress, token).ConfigureAwait(false);
 
@@ -492,7 +493,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 return LyricImportResult.Ok(string.Empty);
             }
 
-            progress("updating the aligner's packages in the existing environment (a short download)...");
+            progress("updating the aligner's packages and models in the existing environment...");
 
             (int exitCode, string tail) = await ImportProcessRunner.RunProcessAsync(setupStartInfo(lyricLabDir, script, device, update: true), progress, token).ConfigureAwait(false);
 
