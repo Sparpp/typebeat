@@ -34,7 +34,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             string text = unit.Text;
             var rests = RestsOf(unit, isCell);
-            var cuts = cutsOf(unit, rests.Count > 0, isCell).ToArray();
+            var cuts = CutsOf(unit, rests.Count > 0, isCell).ToArray();
             var kept = new List<WordHold>();
             int lastChar = -1;
             double lastEnd = unit.StartTime;
@@ -105,8 +105,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         internal static bool EndsAfterItsLetter(double holdEnd, double letterDue) => holdEnd > letterDue;
 
         /// <summary>
-        /// When character <paramref name="charIndex"/> is due without any hold: the later of the two target
-        /// eras, so a hold is honoured in both eras or neither.
+        /// When character <paramref name="charIndex"/> is due without any hold, in the current subdivision-aligned target
+        /// era every live play uses. Holds postdate the older era, so no replay of one plays it.
         /// </summary>
         internal static double LetterDueAt(TimedUnit unit, int charIndex, Func<char, bool>? isCell = null)
             => TypingLine.HoldFreeCellTarget(unit, charIndex, isCell ?? Typeability.IsCell);
@@ -115,7 +115,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// The word's cuts as (character, time). On a paused word, each stretch's own cuts against its own
         /// boundaries (<see cref="PausedWord.Of"/>); the rests themselves are <see cref="ClearOfRest"/>'s.
         /// </summary>
-        private static IEnumerable<(int Char, double Time)> cutsOf(TimedUnit unit, bool paused, Func<char, bool> isCell)
+        internal static IEnumerable<(int Char, double Time)> CutsOf(TimedUnit unit, bool paused, Func<char, bool> isCell)
         {
             if (paused && PausedWord.Of(unit.Text, unit.StartTime, unit.EndTime, unit, isCell) is PausedWord.Cut cut)
             {

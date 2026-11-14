@@ -14,8 +14,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>The closest two ticks may sit.</summary>
         public const double MIN_GAP_MS = 20;
 
-        /// <summary>The earliest a tick may sit: clear of the press.</summary>
-        public static double WindowStart(double start) => start + HoldTailRule.MIN_SLACK_MS;
+        /// <summary>The earliest a tick may sit: the hold's start. A head pressed after a tick still credits it.</summary>
+        public static double WindowStart(double start) => start;
 
         /// <summary>A tick must sit before this: clear of the Great release window.</summary>
         public static double WindowEnd(double start, double end) => end - HoldTailRule.Slack(start, end);

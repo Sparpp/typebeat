@@ -60,6 +60,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             return this with { Holds = Holds.Select(h => HoldTicks.Stretched(h, map(h.StartTime), map(h.EndTime))).ToArray() };
         }
 
+        /// <summary>
+        /// These objects moved whole by <paramref name="deltaMs"/>: the same sum as the word's dividers and rests, so a hold
+        /// edge on one of them stays exactly on it (<see cref="Retimed"/>'s scaling can land an ulp past).
+        /// </summary>
+        public WordObjects Shifted(double deltaMs)
+        {
+            if (Holds.Count == 0 || deltaMs == 0)
+                return this;
+
+            return this with
+            {
+                Holds = Holds.Select(h => h with
+                {
+                    StartTime = h.StartTime + deltaMs,
+                    EndTime = h.EndTime + deltaMs,
+                    Ticks = h.Ticks.Select(t => t + deltaMs).ToArray(),
+                }).ToArray()
+            };
+        }
+
         /// <summary>These objects for a retyped word: holds index characters, so a new spelling drops them.</summary>
         public WordObjects ForText(string oldText, string newText)
             => Holds.Count == 0 || string.Equals(oldText, newText, StringComparison.Ordinal)

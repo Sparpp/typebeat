@@ -158,6 +158,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>One column: an upper (original) box and, for a word, a lower (romanised) box.</summary>
         private partial class ScriptColumn : FillFlowContainer
         {
+            [Resolved]
+            private LyricEditState state { get; set; } = null!;
+
             private readonly List<OsuTextBox> boxes = new List<OsuTextBox>();
             private string? fontFamily;
 
@@ -215,7 +218,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                         return;
 
                     if (!commit(sender.Text))
+                    {
                         sender.Text = committed;
+                        state.Refuse();
+                    }
                 };
 
                 boxes.Add(textBox);

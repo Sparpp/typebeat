@@ -628,12 +628,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (targets.Length == 0)
                 return;
 
+            bool refused = false;
             editorBeatmap.BeginChange();
 
             foreach (int i in targets)
-                TypeBeatEditorOperations.RemoveNarrowestSyllableBoundary(editorBeatmap, line, i);
+            {
+                if (line.Line.Units[i].SyllableBoundaries.Count > 0
+                    && !TypeBeatEditorOperations.RemoveNarrowestSyllableBoundary(editorBeatmap, line, i))
+                    refused = true;
+            }
 
             editorBeatmap.EndChange();
+            if (refused)
+                state.Refuse();
         }
 
         /// <summary>

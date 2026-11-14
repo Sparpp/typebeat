@@ -1488,7 +1488,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             protected override bool OnDoubleClick(DoubleClickEvent e)
             {
-                TypeBeatEditorOperations.RemoveSyllableBoundary(editorBeatmap, hitObject, unitIndex, boundaryIndex);
+                if (!TypeBeatEditorOperations.RemoveSyllableBoundary(editorBeatmap, hitObject, unitIndex, boundaryIndex))
+                    state.Refuse();
                 return true;
             }
 
