@@ -662,11 +662,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public string ImeComposition => imeCompositionText.IsNotNull() && imeCompositionText.Alpha > 0 ? imeCompositionText.Text.ToString() : string.Empty;
 
         /// <summary>
-        /// A rejected wrong key never enters the line; instead the offending letter pops up
-        /// beside the caret (alternating sides), falls away and fades. Purely cosmetic juice;
-        /// transforms run on the gameplay clock like every other stage animation.
+        /// A rejected wrong key (Gatekeeper) never enters the line; instead the offending letter pops
+        /// up beside the caret. See <see cref="popWrongLetter"/>.
         /// </summary>
-        private void onWrongKeyRejected(char c)
+        private void onWrongKeyRejected(char c) => popWrongLetter(c);
+
+        /// <summary>
+        /// The letter a WRONG KEY typed pops up beside the caret (alternating sides) in red, falls away
+        /// and fades: Gatekeeper's rejection (<see cref="onWrongKeyRejected"/>), and since backlog 463
+        /// base gameplay's typed-through typo too (<see cref="onCharJudged"/>), whose cell otherwise
+        /// shows only the expected letter in red, never what was actually pressed. Purely cosmetic
+        /// juice; transforms run on the gameplay clock like every other stage animation.
+        /// </summary>
+        private void popWrongLetter(char c)
         {
             wrongKeyPopupDirection = -wrongKeyPopupDirection;
             int dir = wrongKeyPopupDirection;
@@ -706,9 +714,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 var d = displays[judgement.LineIndex];
                 d.RefreshCell(judgement.CellIndex);
                 d.PlayJudgementFeedback(judgement);
+
+                // A wrong key typed through (the default model) lands in its cell as a WrongChar,
+                // which the engine raises for that keypress alone: the key actually pressed is the
+                // cell's TypedChar, and it pops up exactly as a rejected one does under Gatekeeper.
+                if (judgement.Type == JudgementType.WrongChar && wrongTypedChar(judgement) is char typed)
+                    popWrongLetter(typed);
             }
 
             playerCaret.NotifyTyped();
+        }
+
+        /// <summary>The letters popping up for wrong keys right now, oldest first (test support).</summary>
+        internal IEnumerable<string> WrongKeyLetters => wrongKeyLayer.Children.OfType<OsuSpriteText>().Select(t => t.Text.ToString());
+
+        /// <summary>The key a WrongChar judgement's cell was typed with, or null when it holds none.</summary>
+        private char? wrongTypedChar(CharJudgement judgement)
+        {
+            var lines = engine.Lines;
+
+            if (judgement.LineIndex >= lines.Count)
+                return null;
+
+            var cells = lines[judgement.LineIndex].Cells;
+            return judgement.CellIndex >= 0 && judgement.CellIndex < cells.Count ? cells[judgement.CellIndex].TypedChar : null;
         }
 
         private void onHoldTickJudged(HoldTickJudgement judgement)
