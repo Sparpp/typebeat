@@ -239,21 +239,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         [Test]
-        public void TestTheDefaultStyleKeepsThePlayheadAndLightsTheGroupTooEvenUnderSyllableJudgement()
+        public void TestTheLineStyleKeepsThePlayheadAndLightsTheGroupTooEvenUnderSyllableJudgement()
         {
             // Two regressions in one, and they pull opposite ways. Backlog 174 let the engine flag
             // force the whole rendering, so the build that judged on spans lost its playhead whether
             // or not anyone asked: the flag is a judgement rule, so the caret and sweep must be alive
             // here with it ON, which since backlog 179 is the only state there is. Backlog 175 then
             // made the highlight a style, so the shipped default lost the lit group: since 177 the
-            // two ride together, and this asserts BOTH at once on the style every player actually
-            // gets.
-            setSungStyle(TypeBeatRulesetConfigManager.DEFAULT_SUNG_CARET_STYLE);
+            // two ride together, and this asserts BOTH at once on Line, the style every install that
+            // booted before backlog 465 was given (a new install now starts on None, which shows no
+            // playhead, so it cannot carry this test).
+            setSungStyle(CaretStyle.Line);
             AddAssert("the engine is judging on syllable spans", () => playfield.Engine.SyllableTiming);
             AddUntilStep("gameplay started", () => now > 0);
             AddUntilStep("line 0 active", () => playfield.Engine.ActiveLineIndex == 0);
 
-            AddAssert("the default style is Line", () => stage.SungCaretStyle == CaretStyle.Line);
+            AddAssert("the style is Line", () => stage.SungCaretStyle == CaretStyle.Line);
             AddUntilStep("sung caret is shown", () => stage.SungCaretVisible);
             AddUntilStep("the sweep is being fed", () => display.SweepFillWidth > 0);
             AddAssert("typing caret shown too", () => stage.PlayerCaretVisible);

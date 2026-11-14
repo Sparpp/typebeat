@@ -65,6 +65,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 config.SetValue(TypeBeatRulesetSetting.TextPopInAmount, TypeBeatRulesetConfigManager.DEFAULT_TEXT_POP_IN_AMOUNT);
                 config.SetValue(TypeBeatRulesetSetting.TextPopIn, true);
                 config.SetValue(TypeBeatRulesetSetting.SyllableBrightness, 50f);
+                // The caret checks watch the playhead; a new install's None draws none (backlog 465).
+                config.SetValue(TypeBeatRulesetSetting.SungCaretStyle, CaretStyle.Line);
                 var ruleset = new TypeBeatRuleset();
                 Mod[] mods = hardRock ? new Mod[] { new TypeBeatModHardRock() } : easy ? new Mod[] { new TypeBeatModEasy() } : Array.Empty<Mod>();
                 var line = source ?? new LyricLine

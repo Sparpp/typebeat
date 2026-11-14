@@ -95,11 +95,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// The two caret heads are dressed from two separate keys, and their defaults deliberately
-        /// disagree: the typing caret starts on Underline, the sung playhead on Line. Unlike the
-        /// settings above, the playhead's default is NOT harmless to change: its key is newer than
-        /// any shipped install, so nobody has a stored row for it yet and every player takes this
-        /// value on their next boot. Pinned here so a "make them symmetric" tidy-up has to be a
-        /// deliberate act.
+        /// disagree: the typing caret starts on Underline, the sung playhead on None (no playhead,
+        /// backlog 465; it was Line before). Both reach new installs only: every install that has
+        /// booted owns a stored row for each key, written from the default it booted with. Pinned
+        /// here so a "make them symmetric" tidy-up has to be a deliberate act.
         /// </summary>
         [Test]
         public void TheTwoCaretHeadsHaveSeparateDefaults()
@@ -109,7 +108,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(rulesetConfig.GetBindable<CaretStyle>(TypeBeatRulesetSetting.CaretStyle).Default,
                     Is.EqualTo(CaretStyle.Underline));
                 Assert.That(rulesetConfig.GetBindable<CaretStyle>(TypeBeatRulesetSetting.SungCaretStyle).Default,
-                    Is.EqualTo(CaretStyle.Line));
+                    Is.EqualTo(CaretStyle.None));
             }
         }
 

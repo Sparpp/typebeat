@@ -53,6 +53,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             base.SetUpSteps();
             AddStep("manual newlines at the shipped default", () =>
                 config.SetValue(Configuration.TypeBeatRulesetSetting.ManualNewlines, config.GetBindable<bool>(Configuration.TypeBeatRulesetSetting.ManualNewlines).Default));
+            // The playhead tests need one to watch; a new install's None draws none (backlog 465).
+            AddStep("Line playhead", () =>
+                config.SetValue(Configuration.TypeBeatRulesetSetting.SungCaretStyle, Configuration.CaretStyle.Line));
         }
 
         /// <summary>

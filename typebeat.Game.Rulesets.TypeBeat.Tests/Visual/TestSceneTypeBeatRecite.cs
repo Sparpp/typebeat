@@ -45,6 +45,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         [SetUpSteps]
         public void SetUpSteps()
         {
+            // The playhead must exist to be kept; a new install's None draws none (backlog 465).
+            AddStep("Line playhead", () =>
+                ((Configuration.TypeBeatRulesetConfigManager)RulesetConfigs.GetConfigFor(new TypeBeatRuleset())!)
+                    .SetValue(Configuration.TypeBeatRulesetSetting.SungCaretStyle, Configuration.CaretStyle.Line));
             AddStep("create drawable ruleset with Recite", () => create(new TypeBeatModRecite()));
             AddUntilStep("first line active", () => engine.ActiveLineIndex == 0);
         }

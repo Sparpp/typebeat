@@ -74,6 +74,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 config.SetValue(TypeBeatRulesetSetting.LyricFontSize, TypeBeatStyle.LYRIC_FONT_SIZE);
                 config.SetValue(TypeBeatRulesetSetting.LineSpacing, 96f);
                 config.SetValue(TypeBeatRulesetSetting.TextPopIn, true);
+                config.SetValue(TypeBeatRulesetSetting.SungCaretStyle, TypeBeatRulesetConfigManager.DEFAULT_SUNG_CARET_STYLE);
             });
         }
 
@@ -85,6 +86,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 config.SetValue(TypeBeatRulesetSetting.LineSpacing, min_line_spacing);
                 // Compare full-size glyph geometry with carets and rails, independently of pop-in.
                 config.SetValue(TypeBeatRulesetSetting.TextPopIn, false);
+                // A visible playhead to measure; a new install's None draws none (backlog 465).
+                config.SetValue(TypeBeatRulesetSetting.SungCaretStyle, CaretStyle.Line);
             });
 
             AddStep("create drawable ruleset", () =>

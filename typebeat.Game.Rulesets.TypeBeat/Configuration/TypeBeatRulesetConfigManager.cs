@@ -502,26 +502,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         public const CaretStyle DEFAULT_CARET_STYLE = CaretStyle.Underline;
 
         /// <summary>
-        /// The sung playhead's style on a NEW key, which is to say on EVERY install, existing players included.
-        /// Read the reasoning in <see cref="DEFAULT_CARET_STYLE"/> and then note that it does NOT transfer here:
-        /// that argument turns on every install already owning a databased row for that key, and
-        /// <see cref="TypeBeatRulesetSetting.SungCaretStyle"/> is a brand-new key, so no install anywhere has a
-        /// row for it. Every player therefore reads this value once, and the row that gets written from it pins
-        /// them to whatever it said at that moment. Changing this constant later moves nobody who has already
-        /// booted, but changing it BEFORE the next ship moves everybody.
+        /// The sung playhead's style for a NEW install: <see cref="CaretStyle.None"/>, no playhead, so the lit
+        /// syllable group alone shows where the vocals are (backlog 465).
         ///
         /// <para>
-        /// <see cref="CaretStyle.Line"/> is chosen so that shipping the split costs zero visual change. The
-        /// client has not been reshipped since the playhead first started following the caret-style setting, so
-        /// no player has ever seen a non-Line playhead; Line is also what <c>Caret.Style</c>'s own field
-        /// initialiser holds, which makes the playhead byte-identical to its long-standing behaviour for anyone
-        /// who never opens the dropdown. It also sidesteps the one bad pairing: <see cref="CaretStyle.Underline"/>
-        /// (the typing caret's default) draws a 3px bar under the playhead roughly 6px above the 3px sung sweep
-        /// rail <c>LyricLineDisplay.SetSungPosition</c> already draws in the same accent colour, so an
-        /// Underline playhead reads as a double bar. The new shapes stay available, just opt-in.
+        /// This reaches new players only, for the reason given on <see cref="DEFAULT_CARET_STYLE"/>: the key has
+        /// shipped since 2026-08 (backlog 175), so every install that has booted owns a databased row holding the
+        /// <see cref="CaretStyle.Line"/> it was given then, and that row is parsed back over this default on every
+        /// boot. Do not add a migration that rewrites those rows; existing players keep the playhead they have.
+        /// </para>
+        ///
+        /// <para>
+        /// Should this ever move back to a visible shape, avoid <see cref="CaretStyle.Underline"/>: it draws a 3px
+        /// bar roughly 6px above the 3px sung sweep rail <c>LyricLineDisplay.SetSungPosition</c> draws in the same
+        /// accent colour, so it reads as a double bar.
         /// </para>
         /// </summary>
-        public const CaretStyle DEFAULT_SUNG_CARET_STYLE = CaretStyle.Line;
+        public const CaretStyle DEFAULT_SUNG_CARET_STYLE = CaretStyle.None;
 
         public TypeBeatRulesetConfigManager(SettingsStore? settings, RulesetInfo ruleset, int? variant = null)
             : base(migratePaceBarReveal(migrateIndicatorDefaults(migratePaceColourMode(settings, ruleset, variant ?? 0), ruleset, variant ?? 0), ruleset, variant ?? 0), ruleset, variant)

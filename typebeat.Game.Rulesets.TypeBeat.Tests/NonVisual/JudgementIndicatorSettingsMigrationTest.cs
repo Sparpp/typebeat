@@ -151,6 +151,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             });
         }
 
+        /// <summary>
+        /// Backlog 465 moved the sung playhead's default from Line to None. A player who has already
+        /// booted owns the Line row written then, and keeps it; only an install with no row starts on None.
+        /// </summary>
+        [Test]
+        public void TheSungPlayheadDefaultReachesNewInstallsOnly()
+        {
+            withStore((access, settings, ruleset) =>
+            {
+                access.Write(r => r.Add(new RealmRulesetSetting { RulesetName = ruleset.ShortName, Variant = 7, Key = nameof(TypeBeatRulesetSetting.SungCaretStyle), Value = nameof(CaretStyle.Line) }));
+
+                using (var existing = new TypeBeatRulesetConfigManager(settings, ruleset.RulesetInfo, 7))
+                    Assert.That(existing.Get<CaretStyle>(TypeBeatRulesetSetting.SungCaretStyle), Is.EqualTo(CaretStyle.Line));
+
+                using (var fresh = new TypeBeatRulesetConfigManager(settings, ruleset.RulesetInfo, 8))
+                    Assert.That(fresh.Get<CaretStyle>(TypeBeatRulesetSetting.SungCaretStyle), Is.EqualTo(CaretStyle.None));
+            });
+        }
+
         private static void withStore(Action<RealmAccess, SettingsStore, TypeBeatRuleset> action)
         {
             using var context = new SynchronousRealmTestContext();
