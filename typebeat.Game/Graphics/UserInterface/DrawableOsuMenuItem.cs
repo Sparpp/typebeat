@@ -10,6 +10,7 @@ using osu.Framework.Bindables;
 using osu.Framework.Extensions.Color4Extensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
+using osu.Framework.Graphics.Cursor;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Graphics.UserInterface;
 using osu.Framework.Input.Events;
@@ -20,8 +21,10 @@ using osuTK.Graphics;
 
 namespace typebeat.Game.Graphics.UserInterface
 {
-    public partial class DrawableOsuMenuItem : Menu.DrawableMenuItem
+    public partial class DrawableOsuMenuItem : Menu.DrawableMenuItem, IHasTooltip
     {
+        public LocalisableString TooltipText => (Item as OsuMenuItem)?.TooltipText ?? default;
+
         public const int MARGIN_HORIZONTAL = 10;
         public const int MARGIN_VERTICAL = 4;
         public const int TEXT_SIZE = 17;

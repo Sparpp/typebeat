@@ -1492,10 +1492,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(File.ReadAllText(Path.Combine(lab, "setup.ps1")), Does.Contain($"$sentinel = '.venv\\{AlignerEnvironment.SETUP_SENTINEL_FILE}'"));
             Assert.That(File.ReadAllText(Path.Combine(lab, "setup.sh")), Does.Contain($"SENTINEL='.venv/{AlignerEnvironment.SETUP_SENTINEL_FILE}'"));
 
-            // And the setup's own import check is the adoption probe's, so a venv the game adopts
-            // passed exactly what a fresh setup would have required of it.
-            Assert.That(File.ReadAllText(Path.Combine(lab, "setup.ps1")), Does.Contain($"import {AlignerEnvironment.ALIGNER_IMPORTS}\""));
-            Assert.That(File.ReadAllText(Path.Combine(lab, "setup.sh")), Does.Contain($"import {AlignerEnvironment.ALIGNER_IMPORTS}\""));
+            // And the setup's own import check is the adoption probe's, for each component, so an
+            // install the game adopts passed exactly what a fresh setup would have required of it.
+            string ps1 = File.ReadAllText(Path.Combine(lab, "setup.ps1"));
+            string sh = File.ReadAllText(Path.Combine(lab, "setup.sh"));
+
+            Assert.That(ps1, Does.Contain($"$imports = if ($isDemucs) {{ '{AlignerEnvironment.DEMUCS_IMPORTS}' }} else {{ '{AlignerEnvironment.ALIGNER_IMPORTS}' }}"));
+            Assert.That(ps1, Does.Contain("& $py -c \"import $imports\""));
+            Assert.That(sh, Does.Contain($"IMPORTS='{AlignerEnvironment.DEMUCS_IMPORTS}'"));
+            Assert.That(sh, Does.Contain($"IMPORTS='{AlignerEnvironment.ALIGNER_IMPORTS}'"));
+            Assert.That(sh, Does.Contain("\"$PY\" -c \"import $IMPORTS\""));
+        }
+
+        /// <summary>
+        /// Aligner version 12: the aligner's install no longer carries Demucs, and Demucs is a
+        /// component of its own, with the package list both scripts spell the same way.
+        /// </summary>
+        [Test]
+        public void ShippedSetupScriptsInstallTheAlignerAndDemucsApart()
+        {
+            string lab = vendoredLyricLab();
+            string ps1 = File.ReadAllText(Path.Combine(lab, "setup.ps1"));
+            string sh = File.ReadAllText(Path.Combine(lab, "setup.sh"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(AlignerEnvironment.ALIGNER_PACKAGES, Does.Not.Contain("demucs"));
+                Assert.That(AlignerEnvironment.ALIGNER_IMPORTS, Does.Not.Contain("demucs").And.Contain("transformers"));
+                Assert.That(ps1, Does.Contain($"$demucsPackages = '{AlignerEnvironment.DEMUCS_PACKAGES}' -split ' '"));
+                Assert.That(sh, Does.Contain($"DEMUCS_PACKAGES='{AlignerEnvironment.DEMUCS_PACKAGES}'"));
+                Assert.That(ps1, Does.Contain("[ValidateSet('aligner', 'demucs')]"));
+                Assert.That(sh, Does.Contain("--component=aligner|--component=demucs) COMPONENT="));
+            });
         }
 
         [Test]
@@ -1584,8 +1612,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(sh, Does.Contain($"FUSED_PACKAGES='{AlignerEnvironment.FUSED_EVIDENCE_PACKAGES}'"));
                 Assert.That(ps1, Does.Contain("& $uvExe pip install --python $py $fusedPackages"));
                 Assert.That(sh, Does.Contain("\"$UV\" pip install --python \"$PY\" $FUSED_PACKAGES"));
-                Assert.That(ps1, Does.Contain("align_lyrics.ensure_model_files()"));
-                Assert.That(sh, Does.Contain("align_lyrics.ensure_model_files()"));
+                Assert.That(ps1, Does.Contain("align_lyrics.ensure_model_files(component='$Component')"));
+                Assert.That(sh, Does.Contain("align_lyrics.ensure_model_files(component='$COMPONENT')"));
                 Assert.That(ps1, Does.Contain("[switch]$Update"));
                 Assert.That(sh, Does.Contain("--update) UPDATE=1 ;;"));
 
@@ -1651,6 +1679,86 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(result.Success, Is.True, result.Error);
             Assert.That(AlignerEnvironment.EnvironmentReady(lab), Is.True);
             Assert.That(File.ReadAllText(Path.Combine(lab, "setup-args.txt")).Trim(), Does.EndWith(OperatingSystem.IsWindows() ? "-Update" : "--update"));
+        }
+
+        /// <summary>
+        /// The Demucs install (aligner version 12) runs the same scripts with their component switch;
+        /// the aligner's runs carry none (it is the scripts' default), so its command line is unchanged.
+        /// </summary>
+        [Test]
+        public async Task TheDemucsInstallRunsTheSetupWithItsComponentSwitch()
+        {
+            string lab = makeCompletedInstall();
+            writeRecordingSetupScripts(lab, exitCode: 0);
+            string argsFile = Path.Combine(lab, "setup-args.txt");
+
+            var demucs = await AlignerEnvironment.BootstrapEnvironmentAsync(lab, _ => { }, CancellationToken.None, "cpu", updateExisting: true,
+                component: LocalComponent.Demucs).ConfigureAwait(false);
+
+            Assert.That(demucs.Success, Is.True, demucs.Error);
+            Assert.That(File.ReadAllText(argsFile).Trim(), Does.Contain(OperatingSystem.IsWindows() ? "-Component demucs" : "--component=demucs"));
+
+            var aligner = await AlignerEnvironment.BootstrapEnvironmentAsync(lab, _ => { }, CancellationToken.None, "cpu", updateExisting: true).ConfigureAwait(false);
+
+            Assert.That(aligner.Success, Is.True, aligner.Error);
+            Assert.That(File.ReadAllText(argsFile), Does.Not.Contain("omponent"));
+        }
+
+        /// <summary>
+        /// Updating to aligner version 12 UNINSTALLS the previous aligner completely first: its
+        /// environment (which carried Demucs), caches and device marker, and the models only it used,
+        /// by name AND size, so a same-named file that is not ours stays. htdemucs stays while the
+        /// separate Demucs install uses it. An install already on version 12 is not removed.
+        /// </summary>
+        [Test]
+        public void UpdatingToVersion12RemovesThePreviousAlignerCompletely()
+        {
+            string lab = makeCompletedInstall();
+            File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), "ALIGNER_VERSION = \"11\"\n");
+            File.WriteAllText(Path.Combine(lab, AlignerEnvironment.DEVICE_MARKER_FILE), "cpu");
+            Directory.CreateDirectory(Path.Combine(lab, "work"));
+            Directory.CreateDirectory(Path.Combine(lab, "out"));
+
+            string checkpoints = Path.Combine(tempRoot, "checkpoints");
+            Directory.CreateDirectory(checkpoints);
+
+            void fake(string name, long size)
+            {
+                using var f = File.Create(Path.Combine(checkpoints, name));
+                f.SetLength(size);
+            }
+
+            fake("model.pt", 1_262_047_414);
+            fake("qmul_multilingual_baseline_ca1a3923d6.pt", 57_491_286);
+            fake("955717e8-8726e21a.th", 84_141_911);
+            fake("someone-elses.pt", 10);
+
+            Assert.That(AlignerEnvironment.MustRemovePreviousAligner(lab, "12"), Is.True);
+            Assert.That(AlignerEnvironment.MustRemovePreviousAligner(lab, "11"), Is.False, "a shipped copy before 12 updates in place as before");
+
+            var lines = new List<string>();
+            Assert.That(AlignerEnvironment.RemovePreviousAligner(lab, checkpoints, keepDemucsModel: true, lines.Add), Is.Null);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(Directory.Exists(Path.Combine(lab, ".venv")), Is.False, "the environment, Demucs and all");
+                Assert.That(Directory.Exists(Path.Combine(lab, "work")) || Directory.Exists(Path.Combine(lab, "out")), Is.False);
+                Assert.That(File.Exists(Path.Combine(lab, AlignerEnvironment.DEVICE_MARKER_FILE)), Is.False);
+                Assert.That(File.Exists(Path.Combine(checkpoints, "model.pt")), Is.False, "MMS_FA");
+                Assert.That(File.Exists(Path.Combine(checkpoints, "qmul_multilingual_baseline_ca1a3923d6.pt")), Is.False);
+                Assert.That(File.Exists(Path.Combine(checkpoints, "955717e8-8726e21a.th")), Is.True, "kept for the Demucs install");
+                Assert.That(File.Exists(Path.Combine(checkpoints, "someone-elses.pt")), Is.True);
+                Assert.That(lines, Has.Some.Contains("model.pt"));
+            });
+
+            // Without a Demucs install, htdemucs goes too; and a same-named file of another size is not ours.
+            fake("model.pt", 123);
+            Assert.That(AlignerEnvironment.RemovePreviousAligner(lab, checkpoints, keepDemucsModel: false, _ => { }), Is.Null);
+            Assert.That(File.Exists(Path.Combine(checkpoints, "955717e8-8726e21a.th")), Is.False);
+            Assert.That(File.Exists(Path.Combine(checkpoints, "model.pt")), Is.True);
+
+            File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), "ALIGNER_VERSION = \"12\"\n");
+            Assert.That(AlignerEnvironment.MustRemovePreviousAligner(lab, "12"), Is.False);
         }
 
         [Test]
@@ -2085,8 +2193,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// A line-stamped import with automatic alignment off never aligns, so it never had a stem.
-        /// Asked to isolate the vocals with a usable version 11 aligner installed, it runs the script's
-        /// --separate-only mode with the venv's python in UTF-8 and packages the stem it wrote.
+        /// Asked to isolate the vocals with local Demucs installed (its own install since aligner
+        /// version 12; the lab plays it here), it runs the script's --separate-only mode with that
+        /// install's python in UTF-8 and packages the stem it wrote.
         /// </summary>
         [Test]
         public async Task ALineStampedImportSeparatesTheVocalsWhenAsked()
@@ -2098,7 +2207,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var result = await LyricMapImporter.BuildOszAsync(audioPath, writeStampedLyrics(), "Some Artist", "Some Song", lab, Array.Empty<string>(),
                 line => { lock (lines) lines.Add(line); }, CancellationToken.None, useAutomaticAlignment: false, requiredAlignerVersion: separate_only_version,
-                isolateVocals: true, vocalsSeparationRunner: separation.Run).ConfigureAwait(false);
+                isolateVocals: true, demucsDir: lab, vocalsSeparationRunner: separation.Run).ConfigureAwait(false);
 
             try
             {
@@ -2148,7 +2257,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var result = await LyricMapImporter.BuildOszAsync(writeFakeAudio(), writeStampedLyrics(), "Some Artist", "Some Song", lab, Array.Empty<string>(),
                 _ => { }, CancellationToken.None, useAutomaticAlignment: false, requiredAlignerVersion: separate_only_version,
-                isolateVocals: false, vocalsSeparationRunner: separation.Run).ConfigureAwait(false);
+                isolateVocals: false, demucsDir: lab, vocalsSeparationRunner: separation.Run).ConfigureAwait(false);
 
             try
             {
@@ -2184,7 +2293,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var result = await LyricMapImporter.BuildOszAsync(writeFakeAudio(), lyricsPath, "Some Artist", "Some Song", lab, Array.Empty<string>(),
                 _ => { }, CancellationToken.None, useAutomaticAlignment: true, requiredAlignerVersion: separate_only_version,
-                isolateVocals: true, vocalsSeparationRunner: separation.Run).ConfigureAwait(false);
+                isolateVocals: true, demucsDir: lab, vocalsSeparationRunner: separation.Run).ConfigureAwait(false);
 
             try
             {
@@ -2209,7 +2318,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var result = await LyricMapImporter.BuildOszAsync(writeFakeAudio(), writeStampedLyrics(), "Some Artist", "Some Song", lab, Array.Empty<string>(),
                 _ => { }, CancellationToken.None, useAutomaticAlignment: true, requiredAlignerVersion: separate_only_version,
                 remoteAlign: (_, _, _) => Task.FromResult(RemoteAlignOutcome.Ok(server_timing)),
-                isolateVocals: true, vocalsSeparationRunner: separation.Run).ConfigureAwait(false);
+                isolateVocals: true, demucsDir: lab, vocalsSeparationRunner: separation.Run).ConfigureAwait(false);
 
             try
             {
@@ -2224,16 +2333,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// Without a usable local aligner (an older one without --separate-only, a version this build
-        /// does not ship, none at all) the separation never runs and the import still succeeds, its
-        /// notice saying why the map has no stem.
+        /// Without usable local Demucs (none at all, or one whose script has no --separate-only) the
+        /// separation never runs and the import still succeeds, its notice saying why the map has no
+        /// stem. The aligner's version is irrelevant: the separation is Demucs's.
         /// </summary>
-        [TestCase("10", "10", "vocals not isolated: the local auto-aligner is v10, which cannot isolate the vocals on its own (v11 or newer needed). "
-                              + "Update it in Settings > Experimental > Lyric timing.")]
-        [TestCase("9", "11", "vocals not isolated: your local auto-aligner is out of date (v9, this version of type!beat needs v11). "
-                             + "Update it in Settings > Experimental > Lyric timing to use automatic alignment.")]
-        [TestCase(null, "11", "vocals not isolated: " + LyricMapImporter.VOCALS_NEED_THE_ALIGNER)]
-        public async Task WithoutAUsableAlignerTheImportSucceedsWithoutAStem(string? installedVersion, string requiredVersion, string expectedNotice)
+        [TestCase("10", "12", "vocals not isolated: the Demucs install's script is v10, which cannot isolate the vocals (v11 or newer needed). "
+                              + "Reinstall Demucs in Settings > Experimental > Lyric timing.")]
+        [TestCase(null, "12", "vocals not isolated: " + LyricMapImporter.VOCALS_NEED_DEMUCS)]
+        public async Task WithoutUsableDemucsTheImportSucceedsWithoutAStem(string? installedVersion, string requiredVersion, string expectedNotice)
         {
             string? lab = installedVersion == null ? null : makeInstalledLab(installedVersion);
             var separation = new FakeSeparation();
@@ -2241,7 +2348,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var result = await LyricMapImporter.BuildOszAsync(writeFakeAudio(), writeStampedLyrics(), "Some Artist", "Some Song", lab, Array.Empty<string>(),
                 line => { lock (lines) lines.Add(line); }, CancellationToken.None, useAutomaticAlignment: false, requiredAlignerVersion: requiredVersion,
-                isolateVocals: true, vocalsSeparationRunner: separation.Run).ConfigureAwait(false);
+                isolateVocals: true, demucsDir: lab, vocalsSeparationRunner: separation.Run).ConfigureAwait(false);
 
             try
             {
@@ -2266,10 +2373,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), $"ALIGNER_VERSION = \"{separate_only_version}\"\n");
             writeFakePython(lab, importsLoad: true);
 
-            Assert.That(LyricMapImporter.VocalsIsolationRefusal(lab, separate_only_version), Is.EqualTo(LyricMapImporter.VOCALS_NEED_A_REPAIR));
+            Assert.That(LyricMapImporter.VocalsIsolationRefusal(lab), Is.EqualTo(LyricMapImporter.VOCALS_DEMUCS_NEEDS_REPAIR));
             File.WriteAllText(AlignerEnvironment.SetupSentinelFor(lab), "python=3.11\n");
-            Assert.That(LyricMapImporter.VocalsIsolationRefusal(lab, separate_only_version), Is.Null);
-            Assert.That(LyricMapImporter.VocalsIsolationRefusal(lab, null), Is.Null, "no required version checks only the flag's own version");
+            Assert.That(LyricMapImporter.VocalsIsolationRefusal(lab), Is.Null);
+            Assert.That(LyricMapImporter.VocalsIsolationRefusal(null), Is.EqualTo(LyricMapImporter.VOCALS_NEED_DEMUCS));
         }
 
         /// <summary>A separation that fails, writes nothing, or cannot start is never fatal: the map packages without a stem and says why.</summary>
@@ -2283,7 +2390,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var result = await LyricMapImporter.BuildOszAsync(writeFakeAudio(), writeStampedLyrics(), "Some Artist", "Some Song", lab, Array.Empty<string>(),
                 _ => { }, CancellationToken.None, useAutomaticAlignment: false, requiredAlignerVersion: separate_only_version,
-                isolateVocals: true, vocalsSeparationRunner: separation.Run).ConfigureAwait(false);
+                isolateVocals: true, demucsDir: lab, vocalsSeparationRunner: separation.Run).ConfigureAwait(false);
 
             try
             {
@@ -2309,7 +2416,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var result = await LyricMapImporter.BuildOszAsync(writeFakeAudio(), writeStampedLyrics(), "Some Artist", "Some Song", lab, Array.Empty<string>(),
                 _ => { }, CancellationToken.None, useAutomaticAlignment: false, requiredAlignerVersion: separate_only_version,
-                isolateVocals: true, vocalsSeparationRunner: new FakeSeparation("silent").Run).ConfigureAwait(false);
+                isolateVocals: true, demucsDir: lab, vocalsSeparationRunner: new FakeSeparation("silent").Run).ConfigureAwait(false);
 
             try
             {
@@ -2331,15 +2438,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var result = await LyricMapImporter.BuildOszAsync(writeFakeAudio(), writeStampedLyrics(), "Some Artist", "Some Song", lab, Array.Empty<string>(),
                 _ => { }, cancellation.Token, useAutomaticAlignment: false, requiredAlignerVersion: separate_only_version,
-                isolateVocals: true, vocalsSeparationRunner: new FakeSeparation("cancel", cancellation).Run).ConfigureAwait(false);
+                isolateVocals: true, demucsDir: lab, vocalsSeparationRunner: new FakeSeparation("cancel", cancellation).Run).ConfigureAwait(false);
 
             Assert.That(result.Success, Is.False);
             Assert.That(result.Error, Is.EqualTo("import cancelled"));
         }
 
         /// <summary>
-        /// A local alignment run already wrote the stem (backlog 392): it is packaged as it stands and
-        /// the vocals are not separated a second time, whatever the isolate choice says.
+        /// A local alignment run already wrote the stem (backlog 392; an aligner before version 12, or
+        /// one whose environment has Demucs): it is packaged as it stands and the vocals are not
+        /// separated a second time, whatever the isolate choice says.
         /// </summary>
         [Test]
         public async Task AnAlignmentRunsOwnStemIsNotSeparatedAgain()
@@ -2352,7 +2460,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var separation = new FakeSeparation();
 
             (string? stem, string? notice, bool cancelled) = await LyricMapImporter.VocalsStemForPackageAsync(producedStem, true, writeFakeAudio(), "A", "B", oszDir,
-                lab, Array.Empty<string>(), separate_only_version, _ => { }, CancellationToken.None, separation.Run).ConfigureAwait(false);
+                lab, Array.Empty<string>(), _ => { }, CancellationToken.None, separation.Run).ConfigureAwait(false);
 
             Assert.Multiple(() =>
             {

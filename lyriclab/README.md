@@ -4,6 +4,21 @@ Automatic **word- and syllable-level lyric timing** for type!beat. Given a song
 (mp3) and its lyrics, produces LRC/JSON timing files. Lives outside the game
 repo on purpose; nothing here touches the game build.
 
+## Version 12: the full-mix engine (default)
+
+Since version 12 the letter evidence comes from `mrfakename/w2v-bert-2.0-music-lyrics-ctc` (MIT),
+a model trained on full mixes, read through the same decoders. It aligns the song as it is: Demucs
+still runs when the environment has it, but only to write the vocals stem beside the outputs, and
+`--no-separate` skips it (the game installs Demucs on its own, see Environment). Word and inner syllable starts are moved earlier by the model's measured lag for their
+first sound. Measured on independent ranked maps, word starts within 200 ms (version 11 in
+brackets): English, 35 maps: exact stamps 95.6 % (94.1), plain lyrics 92.7 % (85.3), words over
+500 ms off under plain lyrics 3.9 % (10.5). Other languages, 24 maps, through the bench decoder:
+stamps 95.0 % (91.8), plain 85.5 % (80.9), with single maps much worse under plain lyrics (a
+romanised Cantonese map 99 to 42). Not yet measured: inner syllable starts and sparse stamps.
+`--engine mms` runs version 11 unchanged, and the aligner falls back to it with a warning when
+the `transformers` package or the model's files are missing. Details:
+`bench/altmodels/RESULTS.md`, fourth round.
+
 ## Quickstart
 
 ```powershell
@@ -427,7 +442,9 @@ Recreate with [uv](https://docs.astral.sh/uv/):
 ```powershell
 uv venv .venv --python 3.11
 uv pip install --python .venv\Scripts\python.exe --index-url https://download.pytorch.org/whl/cpu torch==2.5.1 torchaudio==2.5.1
-uv pip install --python .venv\Scripts\python.exe demucs==4.0.1 soundfile pyphen num2words tqdm
+uv pip install --python .venv\Scripts\python.exe soundfile pyphen num2words tqdm transformers==4.49.0
+# optional, and installed on its own by the game: Demucs, for the vocals stem
+uv pip install --python .venv\Scripts\python.exe demucs==4.0.1
 # optional, the fused evidence path (version 10); without it the aligner runs version 9's
 uv pip install --python .venv\Scripts\python.exe phonemizer espeakng-loader
 ```
@@ -448,16 +465,29 @@ up to the script's package set in place (torch untouched, nothing removed)
 and fetch any model file not yet in place; the game's Update button runs it
 after copying newer scripts.
 
-Models cache in `%USERPROFILE%\.cache\torch\hub\checkpoints` (~1.4 GB total:
-the MMS_FA letter model, htdemucs, and 57 MB for the QMUL weights of the fused
-path). They come from type!beat's own mirror,
-`https://dl.typebeat.sh/aligner/models/` (its `NOTICE.txt` carries their
-licences: MMS_FA is CC BY-NC 4.0, htdemucs and QMUL are MIT), and from the
-original hosts only when the mirror fails; every download is checked against
-its full sha256 (`MODEL_FILES` in `align_lyrics.py`). The aligner puts each file
-in place under the name torchaudio and Demucs look up there, so neither library
+**Two installs since version 12.** The aligner reads the full mix and no longer
+needs Demucs, so the setup scripts build one of two COMPONENTS, each in a
+folder of its own: `-Component aligner` / `--component=aligner` (the default:
+the packages above without `demucs`, plus `transformers`) or
+`-Component demucs` / `--component=demucs` (torch, `demucs==4.0.1`,
+`soundfile`, `tqdm`, `imageio-ffmpeg`), which the game installs separately for
+the editor's vocals waveform and an import's isolated vocals, and which runs
+`--separate-only`. An aligner run in an environment without Demucs reads the
+full mix and writes no vocals stem; `--separate-only` there exits with an
+error that says so.
+
+Models cache in `%USERPROFILE%\.cache\torch\hub\checkpoints`: the version 12
+model (2.3 GB, in a folder of its own) for the aligner, and htdemucs (84 MB)
+for Demucs. `--engine mms` (version 11) uses MMS_FA (1.2 GB) and, on its fused
+path, the QMUL weights (57 MB) instead; those are fetched only if that engine
+runs. Every file comes from type!beat's own mirror,
+`https://dl.typebeat.sh/aligner/models/` (its `NOTICE.txt` carries the
+licences: MMS_FA is CC BY-NC 4.0, the rest MIT), and from the original host
+only when the mirror fails; every download is checked against its full sha256
+(`MODEL_FILES` and `MODEL_COMPONENTS` in `align_lyrics.py`). Each file goes in
+place under the name its library looks up, so neither torchaudio nor Demucs
 contacts its own host. A file already present is kept: setup and `--update`
-hash it in full, and a run checks the 1.2 GB file's size and hashes the others.
+hash it in full, and a run checks the big files' sizes and hashes the others.
 
 ## Known limitations / future work
 

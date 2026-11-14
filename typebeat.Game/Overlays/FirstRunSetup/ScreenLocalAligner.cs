@@ -22,6 +22,10 @@ namespace typebeat.Game.Overlays.FirstRunSetup
     /// right here. Entirely skippable: with no aligner installed a signed-in player can opt in to the
     /// server aligner on the import screen (backlog 413), otherwise an import times itself from the
     /// lyrics' own [mm:ss.xx] line stamps, and the install stays available from Settings.
+    ///
+    /// <para>Below it, DEMUCS (aligner version 12, where it became an install of its own): what the
+    /// editor's vocals waveform is and that extracting the vocals needs Demucs, with its own install
+    /// button and status line.</para>
     /// </summary>
     [LocalisableDescription(typeof(FirstRunSetupOverlayStrings), nameof(FirstRunSetupOverlayStrings.LocalAligner))]
     public partial class ScreenLocalAligner : WizardScreen
@@ -37,6 +41,10 @@ namespace typebeat.Game.Overlays.FirstRunSetup
         private bool statusClaimed;
 
         private CancellationTokenSource installCancellation = null!;
+
+        private ProgressRoundedButton demucsButton = null!;
+        private OsuTextFlowContainer demucsStatusText = null!;
+        private CancellationTokenSource? demucsCancellation;
 
         [BackgroundDependencyLoader]
         private void load()
@@ -60,7 +68,26 @@ namespace typebeat.Game.Overlays.FirstRunSetup
                     RelativeSizeAxes = Axes.X,
                     AutoSizeAxes = Axes.Y,
                 },
+                new OsuTextFlowContainer(cp => cp.Font = OsuFont.Default.With(size: CONTENT_FONT_SIZE))
+                {
+                    Text = FirstRunSetupOverlayStrings.DemucsDescription,
+                    RelativeSizeAxes = Axes.X,
+                    AutoSizeAxes = Axes.Y,
+                },
+                demucsButton = new ProgressRoundedButton
+                {
+                    RelativeSizeAxes = Axes.X,
+                    Text = FirstRunSetupOverlayStrings.InstallDemucs,
+                    Action = startDemucsInstall,
+                },
+                demucsStatusText = new OsuTextFlowContainer(cp => cp.Font = OsuFont.Default.With(size: CONTENT_FONT_SIZE - 4))
+                {
+                    RelativeSizeAxes = Axes.X,
+                    AutoSizeAxes = Axes.Y,
+                },
             };
+
+            loadDemucs();
 
             if (alignerManager == null)
             {
@@ -99,10 +126,75 @@ namespace typebeat.Game.Overlays.FirstRunSetup
                     if (!statusClaimed)
                     {
                         statusText.Text = gpu
-                            ? "An NVIDIA GPU was detected. The fast GPU build will be installed (~4 GB with its models)."
-                            : "No NVIDIA GPU detected. The CPU build will be installed (~3.5 GB with its models). Alignment will be slower but still fully local.";
+                            ? "An NVIDIA GPU was detected. The fast GPU build will be installed (~5 GB with its model)."
+                            : "No NVIDIA GPU detected. The CPU build will be installed (~4.5 GB with its model). Alignment will be slower but still fully local.";
                     }
                 });
+            });
+        }
+
+        /// <summary>The Demucs button's starting state, independent of the aligner's (either can be installed without the other).</summary>
+        private void loadDemucs()
+        {
+            if (alignerManager == null)
+            {
+                demucsButton.Enabled.Value = false;
+                demucsStatusText.Text = "The Demucs installer is unavailable in this build.";
+                return;
+            }
+
+            if (alignerManager.DemucsInstalled)
+            {
+                demucsButton.Enabled.Value = false;
+                demucsButton.Complete();
+                demucsStatusText.Text = "Demucs is already installed.";
+                return;
+            }
+
+            demucsStatusText.Text = alignerManager.DemucsNeedsRepair
+                ? "An earlier install of Demucs did not finish. Press the button to repair it."
+                : "A download of roughly 2 GB, or less if the auto-aligner is installed too.";
+        }
+
+        private void startDemucsInstall()
+        {
+            var manager = alignerManager;
+
+            if (manager == null)
+                return;
+
+            demucsCancellation = new CancellationTokenSource();
+            var token = demucsCancellation.Token;
+
+            Task.Run(async () =>
+            {
+                try
+                {
+                    var result = await manager.InstallDemucsAsync(line => Schedule(() => demucsStatusText.Text = line), token).ConfigureAwait(false);
+
+                    Schedule(() =>
+                    {
+                        if (result.Success)
+                        {
+                            demucsButton.Complete();
+                            demucsStatusText.Text = "Demucs is installed. In the editor, View -> Vocals waveform now separates a song's vocals.";
+                        }
+                        else
+                        {
+                            demucsButton.Abort();
+                            demucsStatusText.Text = $"Install failed: {result.Error}. You can retry, or install Demucs later from Settings.";
+                        }
+                    });
+                }
+                catch (Exception e)
+                {
+                    Logger.Error(e, "Demucs install failed");
+                    Schedule(() =>
+                    {
+                        demucsButton.Abort();
+                        demucsStatusText.Text = "Install failed unexpectedly. You can install Demucs later from Settings.";
+                    });
+                }
             });
         }
 
@@ -154,6 +246,7 @@ namespace typebeat.Game.Overlays.FirstRunSetup
         {
             base.Dispose(isDisposing);
             installCancellation?.Cancel();
+            demucsCancellation?.Cancel();
         }
     }
 }

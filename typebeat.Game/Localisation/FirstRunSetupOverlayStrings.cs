@@ -60,7 +60,7 @@ type!beat is a very configurable game, and diving straight into the settings can
         public static LocalisableString LocalAlignerDescription => new TranslatableString(getKey(@"local_aligner_description"),
             @"When you create a map, type!beat can use an ML aligner to time the song's lyrics to the audio.
 
-The aligner runs on your own machine, it's a download of roughly 2-3 GB, and it is worth installing if you have a decent graphics card or a fast CPU.
+The aligner runs on your own machine, it's a download of roughly 4-5 GB, and it is worth installing if you have a decent graphics card or a fast CPU.
 
 You can always install the aligner later from Settings.");
 
@@ -68,6 +68,18 @@ You can always install the aligner later from Settings.");
         /// "Install the local auto-aligner"
         /// </summary>
         public static LocalisableString InstallLocalAligner => new TranslatableString(getKey(@"install_local_aligner"), @"Install the local auto-aligner");
+
+        /// <summary>
+        /// The Demucs paragraph shown under the aligner's install during first-run setup (aligner
+        /// version 12, where Demucs became an install of its own).
+        /// </summary>
+        public static LocalisableString DemucsDescription => new TranslatableString(getKey(@"demucs_description"),
+            @"In the editor, you can go to View -> Vocals waveform to toggle the waveform view between the full audio vs the audio with just the singing. To extract the track, the Demucs model is required to be installed locally.");
+
+        /// <summary>
+        /// "Install Demucs"
+        /// </summary>
+        public static LocalisableString InstallDemucs => new TranslatableString(getKey(@"install_demucs"), @"Install Demucs");
 
         private static string getKey(string key) => $@"{prefix}:{key}";
     }

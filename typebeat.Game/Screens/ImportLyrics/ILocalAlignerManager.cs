@@ -65,5 +65,43 @@ namespace typebeat.Game.Screens.ImportLyrics
         /// cleared, while the environment is kept. When <see cref="NeedsRepair"/>, this is the repair.
         /// </summary>
         Task<LyricImportResult> InstallAsync(Action<string> progress, CancellationToken token);
+
+        // ---------------------------------------------------------------------------------------------
+        // Demucs (aligner version 12): installed APART from the aligner, which reads the full mix and no
+        // longer needs it. Demucs isolates a song's vocals for the editor's vocals waveform and an
+        // import's "isolate vocals". The defaults describe a build that cannot install it.
+        // ---------------------------------------------------------------------------------------------
+
+        /// <summary>Whether a ready-to-run local Demucs exists: its environment built AND its setup completed.</summary>
+        bool DemucsInstalled => false;
+
+        /// <summary>A Demucs environment exists but its setup never completed; <see cref="InstallDemucsAsync"/> repairs it.</summary>
+        bool DemucsNeedsRepair => false;
+
+        /// <summary>
+        /// Installs (or repairs, or refreshes) local Demucs into the game's data directory, beside the
+        /// aligner and independent of it: its own Python environment (the CUDA build when
+        /// <see cref="GpuDetected"/>) and its model. Progress lines stream on a background thread.
+        /// </summary>
+        Task<LyricImportResult> InstallDemucsAsync(Action<string> progress, CancellationToken token)
+            => Task.FromResult(LyricImportResult.Fail("this build cannot install Demucs"));
+
+        /// <summary>
+        /// Isolates the vocals of the song at <paramref name="audioPath"/> with local Demucs, for the
+        /// editor's vocals waveform: the stem file (vocals.ogg, or vocals.wav without a Vorbis encoder)
+        /// in a temporary folder the caller may delete, or why there is none. Never throws.
+        /// </summary>
+        Task<VocalsSeparationResult> SeparateVocalsAsync(string audioPath, Action<string> progress, CancellationToken token)
+            => Task.FromResult(VocalsSeparationResult.Fail("this build cannot run Demucs"));
+    }
+
+    /// <summary>The outcome of <see cref="ILocalAlignerManager.SeparateVocalsAsync"/>: the stem file, or why there is none.</summary>
+    public readonly record struct VocalsSeparationResult(string? StemPath, string? Error, bool Cancelled = false)
+    {
+        public bool Success => StemPath != null;
+
+        public static VocalsSeparationResult Ok(string stemPath) => new VocalsSeparationResult(stemPath, null);
+        public static VocalsSeparationResult Fail(string error) => new VocalsSeparationResult(null, error);
+        public static VocalsSeparationResult Cancel() => new VocalsSeparationResult(null, "cancelled", true);
     }
 }

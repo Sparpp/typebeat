@@ -14,8 +14,14 @@
 # the pinned copy is), and a downloaded archive is unpacked only when its sha256 is the one pinned
 # for it below (the release's own .sha256 files). Both change with UV_VERSION, as do setup.ps1's.
 #
-# Usage: setup.sh [cpu|cuda] [--plan-only] [--update]
+# Usage: setup.sh [cpu|cuda] [--component=aligner|--component=demucs] [--plan-only] [--update]
 #   cpu (default) or cuda (CUDA 12.1 torch wheels).
+#   --component=aligner (default) | --component=demucs (aligner version 12): which INSTALL this
+#   folder becomes. Since version 12 the aligner reads the full mix and no longer needs Demucs, so
+#   the two are installed apart, each in a folder of its own (the game keeps one for each): the
+#   aligner's packages and its model, or Demucs and its model (htdemucs, 84 MB) for the editor's
+#   vocals waveform and an import's isolated vocals. Both build the same Python and torch, and each
+#   writes the sentinel for itself.
 #   --plan-only prints which uv would be used (or downloaded) and exits without changing anything.
 #   It decides by presence alone; a real run also checks that the chosen uv answers --version and
 #   falls through to the next candidate when it does not, so a stale uv on PATH or a damaged .uv/
@@ -75,17 +81,14 @@ uv_sha256() {
 PYTHON_VERSION='3.11'
 TORCH_VERSION='2.5.1'
 SENTINEL='.venv/.typebeat-setup-ok'
-# The required packages besides torch, and the optional fused-evidence pair (see the header). The
-# same lists, spelled the same way, are in setup.ps1; the game's tests pin both. Expanded unquoted,
-# so each splits into one argument per package.
-ALIGNER_PACKAGES='demucs==4.0.1 soundfile pyphen num2words tqdm imageio-ffmpeg'
+# The required packages besides torch for each component, and the aligner's optional fused-evidence
+# pair (see the header). The same lists, spelled the same way, are in setup.ps1; the game's tests
+# pin both. Expanded unquoted, so each splits into one argument per package.
+ALIGNER_PACKAGES='soundfile pyphen num2words tqdm transformers==4.49.0 imageio-ffmpeg'
+DEMUCS_PACKAGES='demucs==4.0.1 soundfile tqdm imageio-ffmpeg'
 FUSED_PACKAGES='phonemizer espeakng-loader'
 
-# What the player can do about a failure. Anything that downloads can fail on the network; the
-# rest can only be retried. Either way the game's Settings page offers the install again later.
-RETRY_NETWORK='check your internet connection and retry, or install the aligner later from Settings'
-RETRY_PLAIN='retry, or install the aligner later from Settings'
-
+COMPONENT='aligner'
 DEVICE='cpu'
 PLAN_ONLY=0
 UPDATE=0
@@ -96,9 +99,28 @@ for arg in "$@"; do
         cpu|cuda) DEVICE="$arg" ;;
         --plan-only) PLAN_ONLY=1 ;;
         --update) UPDATE=1 ;;
-        *) echo "setup failed: unknown argument '$arg' (expected cpu, cuda, --plan-only or --update)" >&2; exit 1 ;;
+        --component=aligner|--component=demucs) COMPONENT="${arg#--component=}" ;;
+        *) echo "setup failed: unknown argument '$arg' (expected cpu, cuda, --component=aligner, --component=demucs, --plan-only or --update)" >&2; exit 1 ;;
     esac
 done
+
+# The component's packages, import check (its own modules, never the optional pair) and words.
+if [ "$COMPONENT" = 'demucs' ]; then
+    PACKAGES="$DEMUCS_PACKAGES"
+    IMPORTS='torch, torchaudio, demucs, soundfile'
+    LABEL='Demucs'
+    DEPS='the Demucs dependencies'
+else
+    PACKAGES="$ALIGNER_PACKAGES"
+    IMPORTS='torch, torchaudio, soundfile, pyphen, num2words, transformers'
+    LABEL='the aligner'
+    DEPS='the aligner dependencies'
+fi
+
+# What the player can do about a failure. Anything that downloads can fail on the network; the
+# rest can only be retried. Either way the game's Settings page offers the install again later.
+RETRY_NETWORK="check your internet connection and retry, or install $LABEL later from Settings"
+RETRY_PLAIN="retry, or install $LABEL later from Settings"
 
 case "$DEVICE" in
     cpu)  TORCH_INDEX='https://download.pytorch.org/whl/cpu' ;;
@@ -181,8 +203,12 @@ install_fused_evidence() {
 # line on failure, after which the first import that needs a file fetches it itself.
 fetch_model_files() {
     local rc=0
-    echo 'fetching the model files the aligner needs (about 1.4 GB the first time)...'
-    "$PY" -c "import align_lyrics; align_lyrics.ensure_model_files()" || rc=$?
+    if [ "$COMPONENT" = 'demucs' ]; then
+        echo 'fetching the model files Demucs needs (84 MB the first time)...'
+    else
+        echo 'fetching the model files the aligner needs (about 2.3 GB the first time)...'
+    fi
+    "$PY" -c "import align_lyrics; align_lyrics.ensure_model_files(component='$COMPONENT')" || rc=$?
     if [ "$rc" -ne 0 ]; then
         echo "WARNING: the model files could not all be fetched (exit code $rc); the first import that needs one fetches it instead"
     fi
@@ -287,8 +313,10 @@ echo "using uv at $UV"
 if [ "$UPDATING" -eq 1 ]; then
     echo 'updating the aligner dependencies in the existing environment...'
     # shellcheck disable=SC2086
-    "$UV" pip install --python "$PY" $ALIGNER_PACKAGES || fail 'updating the aligner dependencies failed' "$RETRY_NETWORK" "exit code $?; the tool's own output is above"
-    install_fused_evidence || fail 'installing the fused-evidence packages failed' "$RETRY_NETWORK" 'the aligner keeps working on its version 9 path'
+    "$UV" pip install --python "$PY" $PACKAGES || fail "updating $DEPS failed" "$RETRY_NETWORK" "exit code $?; the tool's own output is above"
+    if [ "$COMPONENT" = 'aligner' ]; then
+        install_fused_evidence || fail 'installing the fused-evidence packages failed' "$RETRY_NETWORK" 'the aligner keeps working on its version 9 path'
+    fi
     fetch_model_files
     echo 'lyriclab environment updated'
     exit 0
@@ -300,7 +328,7 @@ echo "installing torch ($DEVICE), this is the big download..."
 "$UV" pip install --python "$PY" --index-url "$TORCH_INDEX" "torch==$TORCH_VERSION" "torchaudio==$TORCH_VERSION" || fail 'installing torch failed' "$RETRY_NETWORK" "exit code $?; the tool's own output is above"
 echo 'installing aligner dependencies...'
 # shellcheck disable=SC2086
-"$UV" pip install --python "$PY" $ALIGNER_PACKAGES || fail 'installing the aligner dependencies failed' "$RETRY_NETWORK" "exit code $?; the tool's own output is above"
+"$UV" pip install --python "$PY" $PACKAGES || fail "installing $DEPS failed" "$RETRY_NETWORK" "exit code $?; the tool's own output is above"
 
 [ -x "$PY" ] || fail 'the Python environment was not created' "$RETRY_PLAIN" "no $PY after uv venv"
 
@@ -308,11 +336,13 @@ echo 'provisioning ffmpeg into the venv...'
 "$PY" -c "import imageio_ffmpeg, os; src = imageio_ffmpeg.get_ffmpeg_exe(); dst = '.venv/bin/ffmpeg'; os.path.lexists(dst) and os.remove(dst); os.symlink(src, dst)" || fail 'provisioning ffmpeg failed' "$RETRY_PLAIN" "exit code $?; the tool's own output is above"
 
 echo 'verifying the installed packages import...'
-"$PY" -c "import torch, torchaudio, demucs, soundfile, pyphen, num2words" || fail 'the installed packages do not import' "$RETRY_PLAIN" "exit code $?; the tool's own output is above"
+"$PY" -c "import $IMPORTS" || fail 'the installed packages do not import' "$RETRY_PLAIN" "exit code $?; the tool's own output is above"
 
-install_fused_evidence || true
+if [ "$COMPONENT" = 'aligner' ]; then
+    install_fused_evidence || true
+fi
 fetch_model_files
 
 # LAST act, after every step above checked out: the sentinel the game reads as "installed".
-printf 'python=%s\ntorch=%s\ndevice=%s\ncreated=%s\n' "$PYTHON_VERSION" "$TORCH_VERSION" "$DEVICE" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$SENTINEL" || fail 'writing the setup sentinel failed'
+printf 'python=%s\ntorch=%s\ndevice=%s\ncomponent=%s\ncreated=%s\n' "$PYTHON_VERSION" "$TORCH_VERSION" "$DEVICE" "$COMPONENT" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$SENTINEL" || fail 'writing the setup sentinel failed'
 echo 'lyriclab environment ready'

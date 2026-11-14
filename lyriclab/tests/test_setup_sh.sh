@@ -72,7 +72,7 @@ check "setup.sh never builds a venv from the system python" $? "$bad"
 # 'uv venv' writes .venv/bin/python as a script exiting 0 (every python -c step "succeeds") or,
 # with FAKE_PY_BROKEN, exiting 1 (the first python step fails, as a venv without torch does).
 # 'uv pip' succeeds unless FAKE_UV_FAIL_TORCH is set and the call installs torch, FAKE_UV_FAIL_DEPS
-# is set and it installs the aligner dependencies (demucs), or FAKE_UV_FAIL_FUSED is set and it
+# is set and it installs a component's dependencies (soundfile), or FAKE_UV_FAIL_FUSED is set and it
 # installs the fused-evidence pair (phonemizer). Every call is logged to uv-calls.txt in the lab.
 # The venv python fails the model files fetch alone under FAKE_PY_NO_WEIGHTS. '--version' answers
 # FAKE_UV_VERSION, the pinned version unless a case says otherwise.
@@ -88,7 +88,7 @@ case "$1" in
         if [ -n "${FAKE_PY_BROKEN:-}" ]; then printf '#!/bin/sh\nexit 1\n'; else printf '#!/bin/sh\ncase "$*" in *ensure_model_files*) [ -z "${FAKE_PY_NO_WEIGHTS:-}" ] || exit 1 ;; esac\nexit 0\n'; fi > .venv/bin/python
         chmod +x .venv/bin/python ;;
     pip)
-        if [ -n "${FAKE_UV_FAIL_DEPS:-}" ]; then case "$*" in *demucs*) exit 1 ;; esac; fi
+        if [ -n "${FAKE_UV_FAIL_DEPS:-}" ]; then case "$*" in *soundfile*) exit 1 ;; esac; fi
         if [ -n "${FAKE_UV_FAIL_FUSED:-}" ]; then case "$*" in *phonemizer*) exit 1 ;; esac; fi
         if [ -n "${FAKE_UV_FAIL_TORCH:-}" ]; then case "$*" in *torch==*) exit 1 ;; esac; fi ;;
 esac
@@ -114,7 +114,8 @@ sentinel: $content"
 calls="$(cat "$work/run-ok/uv-calls.txt" 2>/dev/null)"
 pips="$(printf '%s\n' "$calls" | grep '^pip install' | grep -v 'torch==')"
 [ "$(printf '%s\n' "$pips" | grep -c .)" -eq 2 ] \
-    && printf '%s\n' "$pips" | sed -n 1p | grep -qE 'demucs==4\.0\.1 soundfile pyphen num2words tqdm imageio-ffmpeg$' \
+    && printf '%s\n' "$pips" | sed -n 1p | grep -qE ' soundfile pyphen num2words tqdm transformers==4\.49\.0 imageio-ffmpeg$' \
+    && ! printf '%s\n' "$pips" | grep -q demucs \
     && printf '%s\n' "$pips" | sed -n 2p | grep -qE ' phonemizer espeakng-loader$' \
     && printf '%s' "$out" | grep -q 'fetching the model files'
 check "fused: a full setup installs the pair by its own call after the aligner dependencies" $? "$calls
@@ -174,6 +175,26 @@ out="$(FAKE_UV_FAIL_FUSED=1 run_lab run-no-fused)"; rc=$?
 check "fused: a full setup without the pair still completes" $? "$out"
 
 # --update with no completed install is an ordinary full setup.
+# The Demucs component (aligner version 12): one package line, Demucs's, with none of the aligner's
+# and no fused pair; its own model files; and the component in its sentinel.
+new_lab run-demucs
+out="$(PATH="$work/fakeuv:$base_path" bash "$work/run-demucs/setup.sh" --component=demucs 2>&1)"; rc=$?
+calls="$(cat "$work/run-demucs/uv-calls.txt" 2>/dev/null)"
+pips="$(printf '%s\n' "$calls" | grep '^pip install' | grep -v 'torch==')"
+[ $rc -eq 0 ] && printf '%s' "$out" | grep -q 'lyriclab environment ready' \
+    && [ "$(printf '%s\n' "$pips" | grep -c .)" -eq 1 ] \
+    && printf '%s\n' "$pips" | grep -qE ' demucs==4\.0\.1 soundfile tqdm imageio-ffmpeg$' \
+    && ! printf '%s\n' "$calls" | grep -qE 'pyphen|transformers|phonemizer' \
+    && printf '%s' "$out" | grep -q 'fetching the model files Demucs needs' \
+    && grep -qx 'component=demucs' "$work/run-demucs/.venv/.typebeat-setup-ok"
+check "demucs: --component=demucs installs Demucs alone, none of the aligner's packages" $? "$calls
+$out"
+
+out="$(FAKE_UV_FAIL_DEPS=1 PATH="$work/fakeuv:$base_path" bash "$work/run-demucs/setup.sh" --component=demucs --update 2>&1)"; rc=$?
+[ $rc -eq 1 ] && printf '%s' "$out" | grep -q '^setup failed: updating the Demucs dependencies failed; check your internet connection and retry, or install Demucs later from Settings' \
+    && [ -f "$work/run-demucs/.venv/.typebeat-setup-ok" ]
+check "demucs: a failed --update names Demucs and keeps the install" $? "$out"
+
 new_lab run-update-fresh
 out="$(update_lab run-update-fresh)"; rc=$?
 [ $rc -eq 0 ] && printf '%s' "$out" | grep -q 'creating venv' && printf '%s' "$out" | grep -q 'lyriclab environment ready' \

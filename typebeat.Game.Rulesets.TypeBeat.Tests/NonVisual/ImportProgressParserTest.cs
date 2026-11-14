@@ -71,9 +71,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         // "extractor available" must not read as the aligner handover's "unavailable" either).
         [TestCase("no audio extractor available (no ffmpeg found on this machine), keeping the video file as the map's audio")]
         // Backlog 414: an import that could not isolate the vocals packages the map anyway. Its reason
-        // names the aligner (and could say "unavailable"), which must not read as an alignment
-        // starting or as the aligner handover.
-        [TestCase(ImportProgressParser.VOCALS_NOT_ISOLATED_PREFIX + LyricMapImporter.VOCALS_NEED_THE_ALIGNER)]
+        // names Demucs (and could say "unavailable"), which must not read as a separation or an
+        // alignment starting, or as the aligner handover.
+        [TestCase(ImportProgressParser.VOCALS_NOT_ISOLATED_PREFIX + LyricMapImporter.VOCALS_NEED_DEMUCS)]
+        [TestCase(ImportProgressParser.VOCALS_NOT_ISOLATED_PREFIX + LyricMapImporter.VOCALS_DEMUCS_NEEDS_REPAIR)]
+        // Aligner version 12 without Demucs in its install reads the mix and writes no stem.
+        [TestCase("[12:34:57] vocals stem: not written, vocal isolation is not part of this install; reading the full mix")]
         [TestCase("vocals not isolated: the separation failed (aligner unavailable, trying next option).")]
         [TestCase(@"[12:36:40] vocals stem written to C:\lyriclab\out\typebeat_vocals_Some Artist - A Song\vocals.wav")]
         public void TestUnknownLinesClaimNoStage(string line)

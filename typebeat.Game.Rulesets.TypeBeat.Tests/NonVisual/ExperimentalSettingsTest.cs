@@ -224,13 +224,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(config.Get<bool>(TypeBeatRulesetSetting.LocalAlignerHighQuality), Is.True);
 
                 // The high-accuracy checkbox is meaningless without the installer, so they sit together.
-                var installButton = controls.OfType<Container>().Select(c => c.Child).OfType<FormButton>().Single();
+                var buttons = controls.OfType<Container>().Select(c => c.Child).OfType<FormButton>().ToArray();
+                var installButton = buttons.First();
 
-                Assert.That(installButton.Caption.ToString(), Is.EqualTo("Install local auto-aligner (~3.5 GB)"));
+                Assert.That(installButton.Caption.ToString(), Is.EqualTo("Install local auto-aligner (~4.5 GB)"));
+
+                // Demucs (aligner version 12) right under it, installed on its own.
+                Assert.That(buttons.Select(b => b.Caption.ToString()), Is.EqualTo(new[] { "Install local auto-aligner (~4.5 GB)", "Install Demucs (~2 GB)" }));
 
                 // ILocalAlignerManager is resolved CanBeNull and is absent here, exactly as it is in a
-                // headless scene: the button must go dead rather than throw on a click nothing services.
-                Assert.That(installButton.Enabled.Value, Is.False);
+                // headless scene: the buttons must go dead rather than throw on a click nothing services.
+                Assert.That(buttons.All(b => !b.Enabled.Value), Is.True);
             }
         }
 
@@ -286,7 +290,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(TypeBeatExperimentalSettingsSubsection.InstallButtonText(new FakeAlignerManager { NeedsRepair = true }),
                 Is.EqualTo("Repair local auto-aligner"));
             Assert.That(TypeBeatExperimentalSettingsSubsection.InstallButtonText(new FakeAlignerManager()),
-                Is.EqualTo("Install local auto-aligner (~3.5 GB)"));
+                Is.EqualTo("Install local auto-aligner (~4.5 GB)"));
             Assert.That(TypeBeatExperimentalSettingsSubsection.InstallButtonText(new FakeAlignerManager { IsInstalled = true }),
                 Is.EqualTo("Reinstall local auto-aligner"));
         }
@@ -314,10 +318,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(TypeBeatExperimentalSettingsSubsection.InstallButtonTooltip(matching), Does.Not.Contain("unavailable"));
         }
 
+        /// <summary>The Demucs button (aligner version 12) offers Install, Repair or Reinstall, independently of the aligner's.</summary>
+        [Test]
+        public void TheDemucsButtonOffersInstallRepairOrReinstall()
+        {
+            Assert.That(TypeBeatExperimentalSettingsSubsection.DemucsButtonText(new FakeAlignerManager()), Is.EqualTo("Install Demucs (~2 GB)"));
+            Assert.That(TypeBeatExperimentalSettingsSubsection.DemucsButtonText(new FakeAlignerManager { DemucsNeedsRepair = true }), Is.EqualTo("Repair Demucs"));
+            Assert.That(TypeBeatExperimentalSettingsSubsection.DemucsButtonText(new FakeAlignerManager { DemucsInstalled = true }), Is.EqualTo("Reinstall Demucs"));
+            Assert.That(TypeBeatExperimentalSettingsSubsection.DemucsButtonText(new FakeAlignerManager { IsInstalled = true }), Is.EqualTo("Install Demucs (~2 GB)"),
+                "the aligner being installed says nothing about Demucs");
+            Assert.That(TypeBeatExperimentalSettingsSubsection.DemucsButtonTooltip(new FakeAlignerManager()), Does.Contain("Vocals waveform"));
+        }
+
         private class FakeAlignerManager : ILocalAlignerManager
         {
             public bool IsInstalled { get; init; }
             public bool NeedsRepair { get; init; }
+            public bool DemucsInstalled { get; init; }
+            public bool DemucsNeedsRepair { get; init; }
             public string? InstalledDevice => null;
             public bool GpuDetected => false;
             public string? InstalledVersion { get; init; }

@@ -475,8 +475,10 @@ namespace typebeat.Game.Screens.Edit
             Mode.Value = isNewBeatmap ? EditorScreenMode.SongSetup : EditorScreenMode.Compose;
             Mode.BindValueChanged(onModeChanged, true);
 
-            // Vocals Waveform only works for a map that carries a vocals stem (backlog 392).
-            Beatmap.BindValueChanged(b => timingMenuItems.SetVocalsStemAvailable(b.NewValue.VocalsStemWaveform != null), true);
+            // Vocals Waveform shows the map's vocals stem (backlog 392), and separates one with local
+            // Demucs for a map that has none (aligner version 12); it also decides when the toggle is
+            // available and what its tooltip says.
+            AddInternal(new VocalsWaveformSeparation(timingMenuItems, timingSettings, Beatmap));
 
             MutationTracker.InProgress.BindValueChanged(_ =>
             {

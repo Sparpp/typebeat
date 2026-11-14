@@ -83,13 +83,35 @@ namespace typebeat.Game.Screens.ImportLyrics
         public const string SERVER_ALIGNER_ALTERNATIVE_GUEST = "Or sign in and tick \"use server aligner\" below to time the words on the type!beat server instead.";
 
         /// <summary>
-        /// The isolate vocals choice's label (backlog 414): separate the vocals with the local aligner
-        /// even when nothing aligns them, so the editor's vocals waveform has a stem.
+        /// The isolate vocals choice's label (backlog 414): separate the vocals with local Demucs, so the
+        /// editor's vocals waveform has a stem. Since aligner version 12 Demucs is an install of its own
+        /// and an alignment no longer isolates the vocals, so the choice applies to every import.
         /// </summary>
         public const string ISOLATE_VOCALS_LABEL = "isolate vocals (for the editor's vocals waveform, adds a few minutes)";
 
-        /// <summary>Tooltip on the isolate vocals choice while local automatic alignment is on, which isolates them anyway.</summary>
-        public const string ISOLATE_VOCALS_UNDER_ALIGNMENT_TOOLTIP = "Automatic alignment already isolates the vocals.";
+        /// <summary>The greyed-out isolate vocals choice's tooltip when Demucs is not installed.</summary>
+        public const string ISOLATE_VOCALS_NEEDS_DEMUCS_TOOLTIP = "Isolating the vocals needs Demucs. Install it in " + LocalAlignerVersion.SETTINGS_PATH + ".";
+
+        /// <summary>The greyed-out isolate vocals choice's tooltip when Demucs's install never finished.</summary>
+        public const string ISOLATE_VOCALS_DEMUCS_NEEDS_REPAIR_TOOLTIP = "Demucs's install did not finish. Repair it in " + LocalAlignerVersion.SETTINGS_PATH + " to isolate the vocals.";
+
+        /// <summary>The greyed-out isolate vocals choice's tooltip in a build that cannot install Demucs.</summary>
+        public const string ISOLATE_VOCALS_UNAVAILABLE_TOOLTIP = "Isolating the vocals is unavailable in this build.";
+
+        /// <summary>
+        /// Why the isolate vocals choice cannot run, as its tooltip, or null when it can: local Demucs is
+        /// installed. Neither the aligner nor a login matters (the separation is Demucs's, and local).
+        /// </summary>
+        public static string? IsolateVocalsUnavailableReason(ILocalAlignerManager? manager)
+        {
+            if (manager == null)
+                return ISOLATE_VOCALS_UNAVAILABLE_TOOLTIP;
+
+            if (manager.DemucsInstalled)
+                return null;
+
+            return manager.DemucsNeedsRepair ? ISOLATE_VOCALS_DEMUCS_NEEDS_REPAIR_TOOLTIP : ISOLATE_VOCALS_NEEDS_DEMUCS_TOOLTIP;
+        }
 
         [Resolved]
         private OsuGameBase game { get; set; } = null!;
@@ -434,13 +456,12 @@ namespace typebeat.Game.Screens.ImportLyrics
         }
 
         /// <summary>
-        /// Sets the isolate vocals choice (backlog 414) from what can run, after the alignment choices.
-        /// The separation is the LOCAL aligner's, so it greys out (and shows unticked) for exactly the
-        /// reasons automatic alignment's local path does (<see cref="AlignerUnavailableReason"/>:
-        /// backlogs 409/410), with that reason as its tooltip and no server alternative, since the
-        /// server never sends a stem. While LOCAL automatic alignment is on it shows ticked and
-        /// disabled: that run isolates the vocals anyway. Otherwise it is the player's remembered
-        /// choice. None of these writes reaches the stored choice.
+        /// Sets the isolate vocals choice (backlog 414) from what can run. The separation is local
+        /// DEMUCS's (aligner version 12: installed on its own, and an alignment no longer isolates
+        /// anything), so it greys out (and shows unticked) while Demucs is not installed
+        /// (<see cref="IsolateVocalsUnavailableReason"/>), with that reason as its tooltip and no server
+        /// alternative, since the server never sends a stem. Otherwise it is the player's remembered
+        /// choice, whatever the alignment choices. None of these writes reaches the stored choice.
         /// </summary>
         private void refreshIsolateVocals()
         {
@@ -453,8 +474,7 @@ namespace typebeat.Game.Screens.ImportLyrics
             try
             {
                 var isolate = isolateVocalsCheckbox.Current;
-                string? reason = AlignerUnavailableReason(alignerManager);
-                bool localAlignment = automaticAlignmentCheckbox.Current.Value && !serverAlignerCheckbox.Current.Value;
+                string? reason = IsolateVocalsUnavailableReason(alignerManager);
 
                 isolate.Disabled = false;
 
@@ -463,12 +483,6 @@ namespace typebeat.Game.Screens.ImportLyrics
                     isolate.Value = false;
                     isolate.Disabled = true;
                     isolateVocalsCheckbox.TooltipText = reason;
-                }
-                else if (localAlignment)
-                {
-                    isolate.Value = true;
-                    isolate.Disabled = true;
-                    isolateVocalsCheckbox.TooltipText = ISOLATE_VOCALS_UNDER_ALIGNMENT_TOOLTIP;
                 }
                 else
                 {

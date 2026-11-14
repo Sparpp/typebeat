@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics.UserInterface;
+using osu.Framework.Localisation;
 using typebeat.Game.Graphics.UserInterface;
 
 namespace typebeat.Game.Screens.Edit.Timing
@@ -33,8 +34,10 @@ namespace typebeat.Game.Screens.Edit.Timing
         public IReadOnlyList<MenuItem> Items { get; }
 
         /// <summary>
-        /// The Vocals Waveform toggle, shown in the View menu rather than in <see cref="Items"/>. It only
-        /// works for a map that carries a vocals stem (backlog 392); see <see cref="SetVocalsStemAvailable"/>.
+        /// The Vocals Waveform toggle, shown in the View menu rather than in <see cref="Items"/>. It shows
+        /// the map's vocals stem (backlog 392); a map without one has it separated by local Demucs when
+        /// the toggle is turned on (see <see cref="VocalsWaveformSeparation"/>, which also decides when the
+        /// toggle is available, through <see cref="SetVocalsWaveformAvailability"/>).
         /// </summary>
         public ToggleMenuItem VocalsWaveform { get; }
 
@@ -84,16 +87,17 @@ namespace typebeat.Game.Screens.Edit.Timing
         }
 
         /// <summary>
-        /// Enables the Vocals Waveform toggle only for a map that carries a vocals stem. A setting left
-        /// on by a stem-carrying map is cleared for one without, so the toggle never reads on while the
-        /// timeline actually draws the full mix.
+        /// Enables or disables the Vocals Waveform toggle, with what its tooltip says (why it is
+        /// disabled, or what turning it on will do). A disabled toggle is also turned off, so it never
+        /// reads on while the timeline actually draws the full mix.
         /// </summary>
-        public void SetVocalsStemAvailable(bool available)
+        public void SetVocalsWaveformAvailability(bool available, LocalisableString tooltip)
         {
             if (!available)
                 settings.VocalsWaveform.Value = false;
 
             VocalsWaveform.Action.Disabled = !available;
+            VocalsWaveform.TooltipText = tooltip;
         }
 
         /// <summary>The option the grid is on now: a negative beat multiple, or the divisor.</summary>

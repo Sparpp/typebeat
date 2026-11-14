@@ -179,10 +179,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// container keeps doing both jobs, as it always did.</para>
         ///
         /// <para>ISOLATED VOCALS (backlog 414). With <paramref name="isolateVocals"/> an import whose
-        /// timing step produced no vocals stem (line stamps, a TTML or word-stamped LRC, the server
-        /// aligner, a blank map) runs the local aligner's <c>--separate-only</c> mode after it, so the
-        /// editor's vocals waveform has a stem; see <see cref="VocalsIsolationRefusal"/> for when it
-        /// can. A LOCAL alignment run already wrote one and is not repeated. Failure is never fatal:
+        /// timing step produced no vocals stem runs local DEMUCS (<paramref name="demucsDir"/>, its own
+        /// install since aligner version 12) in <c>--separate-only</c> mode after it, so the editor's
+        /// vocals waveform has a stem; see <see cref="VocalsIsolationRefusal"/> for when it can. Since
+        /// version 12 a local alignment writes no stem (its install has no Demucs), so this is how every
+        /// import gets one; an older aligner that still wrote one is not repeated. Failure is never fatal:
         /// the map packages without a stem and the result's notice says why. Cancelling still cancels
         /// the import. <paramref name="vocalsSeparationRunner"/> replaces the process runner for that
         /// one step (tests); null runs the real subprocess.</para>
@@ -193,7 +194,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             Action<string> progress, CancellationToken token,
             bool useAutomaticAlignment = true, IAudioTrackExtractor? audioExtractor = null, string? language = null,
             bool highQualityAlignment = false, AlignerVocalMode vocalMode = AlignerVocalMode.Aligned, string? requiredAlignerVersion = null,
-            RemoteAligner? remoteAlign = null, bool isolateVocals = false, ProcessRunner? vocalsSeparationRunner = null)
+            RemoteAligner? remoteAlign = null, bool isolateVocals = false, ProcessRunner? vocalsSeparationRunner = null, string? demucsDir = null)
         {
             if (!File.Exists(audioPath))
                 return LyricImportResult.Fail($"audio file not found: {audioPath}");
@@ -254,7 +255,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 progress("no lyrics, creating a blank map");
 
                 (string? blankStem, string? blankNotice, bool blankCancelled) = await VocalsStemForPackageAsync(null, isolateVocals, effectiveAudioPath, artist, title, oszDir,
-                    configuredLyricLabPath, startDirectories, requiredAlignerVersion, progress, token, vocalsSeparationRunner).ConfigureAwait(false);
+                    demucsDir, startDirectories, progress, token, vocalsSeparationRunner).ConfigureAwait(false);
 
                 if (blankCancelled)
                     return LyricImportResult.Fail("import cancelled");
@@ -276,7 +277,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 return result;
 
             (string? vocalsStemSourceFile, string? vocalsNotice, bool cancelled) = await VocalsStemForPackageAsync(vocalsStemSource, isolateVocals, effectiveAudioPath, artist, title,
-                oszDir, configuredLyricLabPath, startDirectories, requiredAlignerVersion, progress, token, vocalsSeparationRunner).ConfigureAwait(false);
+                oszDir, demucsDir, startDirectories, progress, token, vocalsSeparationRunner).ConfigureAwait(false);
 
             if (cancelled)
                 return LyricImportResult.Fail("import cancelled");
@@ -306,9 +307,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         }
 
         /// <summary>
-        /// The vocals stem file the .osz carries, from the stem the timing step produced (a local
-        /// alignment run's, backlog 392) or, failing that and with <paramref name="isolateVocals"/>,
-        /// a <c>--separate-only</c> run of the local aligner (backlog 414). The 16 kHz mono wav is
+        /// The vocals stem file the .osz carries, from the stem the timing step produced (an aligner
+        /// before version 12, backlog 392) or, failing that and with <paramref name="isolateVocals"/>,
+        /// a <c>--separate-only</c> run of local Demucs in <paramref name="demucsDir"/> (backlog 414). The 16 kHz mono wav is
         /// re-encoded to Ogg Vorbis beside the .osz when an encoder is available, because a map a
         /// mapper downloads should not carry ~1.9 MB a minute for a view-only surface; with no
         /// encoder the wav is packaged as it stands (the editor reads either).
@@ -320,20 +321,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// </summary>
         internal static async Task<(string? StemFile, string? Notice, bool Cancelled)> VocalsStemForPackageAsync(
             string? producedStem, bool isolateVocals, string audioPath, string artist, string title, string oszDir,
-            string? configuredLyricLabPath, IEnumerable<string> startDirectories, string? requiredAlignerVersion,
-            Action<string> progress, CancellationToken token, ProcessRunner? runner)
+            string? demucsDir, IEnumerable<string> startDirectories, Action<string> progress, CancellationToken token, ProcessRunner? runner)
         {
             string? stem = producedStem;
             string? notice = null;
 
             if (stem == null && isolateVocals)
             {
-                string? lyricLabDir = AlignerEnvironment.ResolveLyricLabDir(configuredLyricLabPath, startDirectories);
-                string? failure = VocalsIsolationRefusal(lyricLabDir, requiredAlignerVersion);
+                string? failure = VocalsIsolationRefusal(demucsDir);
 
                 if (failure == null)
                 {
-                    (string? separated, string? separationFailure, bool cancelled) = await separateVocalsAsync(lyricLabDir!, audioPath, artist, title, progress, token, runner)
+                    (string? separated, string? separationFailure, bool cancelled) = await separateVocalsAsync(demucsDir!, audioPath, artist, title, progress, token, runner)
                         .ConfigureAwait(false);
 
                     if (cancelled)
@@ -354,43 +353,85 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             if (stem == null)
                 return (null, notice, false);
 
-            string stemFile = await OszPackager.EncodedVocalsStemAsync(stem, oszDir, configuredLyricLabPath, startDirectories, token).ConfigureAwait(false) ?? stem;
+            string stemFile = await OszPackager.EncodedVocalsStemAsync(stem, oszDir, demucsDir, startDirectories, token).ConfigureAwait(false) ?? stem;
             return (stemFile, notice, false);
         }
 
         /// <summary>
-        /// Why the local aligner in <paramref name="lyricLabDir"/> cannot isolate the vocals for an
-        /// import, as the reason the import's note gives; null when it can: it is installed (the setup
-        /// sentinel, <see cref="AlignerEnvironment.EnvironmentReady"/>; a sentinel-less venv is not probed here), it is
-        /// the version this build ships (backlog 410's rule, <see cref="AlignerEnvironment.AlignerVersionRefusal"/>) and
-        /// it has <c>--separate-only</c> (<see cref="AlignerEnvironment.AlignerSeparatesOnly"/>). Signing in is irrelevant:
-        /// the separation is local only (the server never sends a stem).
+        /// The editor's separation (aligner version 12): local Demucs in <paramref name="demucsDir"/>
+        /// isolates the vocals of the song at <paramref name="audioPath"/>, and the stem is encoded as
+        /// an import's is (Ogg Vorbis when an encoder is available) into a fresh temporary folder.
+        /// Returns the stem file, or why there is none, or a cancellation; never throws.
         /// </summary>
-        public static string? VocalsIsolationRefusal(string? lyricLabDir, string? requiredAlignerVersion)
+        public static async Task<VocalsSeparationResult> SeparateVocalsForEditorAsync(string? demucsDir, string audioPath, IEnumerable<string> startDirectories,
+                                                                                       Action<string> progress, CancellationToken token, ProcessRunner? runner = null)
         {
-            if (lyricLabDir == null || !AlignerEnvironment.EnvironmentPresent(lyricLabDir))
-                return VOCALS_NEED_THE_ALIGNER;
+            string? refusal = VocalsIsolationRefusal(demucsDir);
 
-            if (!AlignerEnvironment.EnvironmentReady(lyricLabDir))
-                return VOCALS_NEED_A_REPAIR;
+            if (refusal != null)
+                return VocalsSeparationResult.Fail(refusal);
 
-            string? versionRefusal = AlignerEnvironment.AlignerVersionRefusal(lyricLabDir, requiredAlignerVersion);
+            string name = Path.GetFileNameWithoutExtension(audioPath);
+            (string? stem, string? failure, bool cancelled) = await separateVocalsAsync(demucsDir!, audioPath, name, name, progress, token, runner).ConfigureAwait(false);
 
-            if (versionRefusal != null)
-                return versionRefusal;
+            if (cancelled)
+                return VocalsSeparationResult.Cancel();
 
-            if (!AlignerEnvironment.AlignerSeparatesOnly(lyricLabDir))
-                return $"the local auto-aligner is v{AlignerEnvironment.ReadAlignerVersion(lyricLabDir) ?? "1"}, which cannot isolate the vocals on its own "
-                       + $"(v{AlignerEnvironment.SEPARATE_ONLY_ALIGNER_VERSION} or newer needed). Update it in {LocalAlignerVersion.SETTINGS_PATH}.";
+            if (stem == null)
+                return VocalsSeparationResult.Fail(failure ?? "the separation wrote no vocals");
+
+            try
+            {
+                string destination = Path.Combine(Path.GetTempPath(), "typebeat_vocals_stem", Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(destination);
+
+                string? encoded = await OszPackager.EncodedVocalsStemAsync(stem, destination, demucsDir, startDirectories, token).ConfigureAwait(false);
+
+                if (encoded != null)
+                    return VocalsSeparationResult.Ok(encoded);
+
+                string copy = Path.Combine(destination, VocalsStem.WAV_FILENAME);
+                File.Copy(stem, copy, overwrite: true);
+                return VocalsSeparationResult.Ok(copy);
+            }
+            catch (Exception e)
+            {
+                if (token.IsCancellationRequested)
+                    return VocalsSeparationResult.Cancel();
+
+                Logger.Error(e, "The separated vocals could not be prepared");
+                return VocalsSeparationResult.Fail($"the separated vocals could not be prepared ({e.Message})");
+            }
+        }
+
+        /// <summary>
+        /// Why local Demucs in <paramref name="demucsDir"/> cannot isolate the vocals, as the reason the
+        /// import's note (or the editor) gives; null when it can: it is installed (the setup sentinel,
+        /// <see cref="AlignerEnvironment.EnvironmentReady"/>; a sentinel-less venv is not probed here)
+        /// and its script has <c>--separate-only</c> (<see cref="AlignerEnvironment.AlignerSeparatesOnly"/>;
+        /// the install service keeps that script this build's own, so no version check is needed).
+        /// Neither the aligner nor a login matters: the separation is Demucs's, and local only.
+        /// </summary>
+        public static string? VocalsIsolationRefusal(string? demucsDir)
+        {
+            if (demucsDir == null || !AlignerEnvironment.EnvironmentPresent(demucsDir))
+                return VOCALS_NEED_DEMUCS;
+
+            if (!AlignerEnvironment.EnvironmentReady(demucsDir))
+                return VOCALS_DEMUCS_NEEDS_REPAIR;
+
+            if (!AlignerEnvironment.AlignerSeparatesOnly(demucsDir))
+                return $"the Demucs install's script is v{AlignerEnvironment.ReadAlignerVersion(demucsDir) ?? "1"}, which cannot isolate the vocals "
+                       + $"(v{AlignerEnvironment.SEPARATE_ONLY_ALIGNER_VERSION} or newer needed). Reinstall Demucs in {LocalAlignerVersion.SETTINGS_PATH}.";
 
             return null;
         }
 
-        /// <summary>The isolation note's reason when no local auto-aligner is installed.</summary>
-        public const string VOCALS_NEED_THE_ALIGNER = "the local auto-aligner is not installed. Install it in " + LocalAlignerVersion.SETTINGS_PATH + ".";
+        /// <summary>The isolation note's reason when local Demucs is not installed.</summary>
+        public const string VOCALS_NEED_DEMUCS = "Demucs is not installed. Install it in " + LocalAlignerVersion.SETTINGS_PATH + ".";
 
-        /// <summary>The isolation note's reason when the local auto-aligner's install never finished.</summary>
-        public const string VOCALS_NEED_A_REPAIR = "the local auto-aligner's install is incomplete. Repair it in " + LocalAlignerVersion.SETTINGS_PATH + ".";
+        /// <summary>The isolation note's reason when Demucs's install never finished.</summary>
+        public const string VOCALS_DEMUCS_NEEDS_REPAIR = "Demucs's install is incomplete. Repair it in " + LocalAlignerVersion.SETTINGS_PATH + ".";
 
         /// <summary>
         /// The progress line said as the separation starts. Worded to claim the separating vocals

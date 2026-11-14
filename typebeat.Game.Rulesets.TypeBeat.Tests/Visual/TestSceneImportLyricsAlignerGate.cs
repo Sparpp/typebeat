@@ -52,6 +52,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 importer.Preference.Value = false;
                 importer.IsolatePreference.Value = true;
                 importer.CallQueue.Clear();
+                aligner.DemucsInstalled = true;
+                aligner.DemucsNeedsRepair = false;
             });
         }
 
@@ -319,64 +321,58 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         /// <summary>
-        /// The separation is the local aligner's, so the choice greys out for the reasons automatic
-        /// alignment's local path does (backlogs 409/410), with the local reason alone as its tooltip,
-        /// and the stored choice is left alone.
+        /// The separation is local DEMUCS's (aligner version 12: its own install), so the choice greys
+        /// out while Demucs is not installed or its install never finished, with that reason as its
+        /// tooltip whatever the aligner's state, and the stored choice is left alone.
         /// </summary>
-        [TestCase(false, false, "9", ImportLyricsScreen.ALIGNER_NOT_INSTALLED_TOOLTIP)]
-        [TestCase(false, true, "9", ImportLyricsScreen.ALIGNER_NEEDS_REPAIR_TOOLTIP)]
-        [TestCase(true, false, "8", "Your local auto-aligner is out of date (v8, this version of type!beat needs v9). "
-                                    + "Update it in Settings > Experimental > Lyric timing to use automatic alignment.")]
-        public void IsolateVocalsGreysOutWithTheLocalReason(bool installed, bool needsRepair, string installedVersion, string expectedTooltip)
+        [TestCase(false, false, ImportLyricsScreen.ISOLATE_VOCALS_NEEDS_DEMUCS_TOOLTIP)]
+        [TestCase(false, true, ImportLyricsScreen.ISOLATE_VOCALS_DEMUCS_NEEDS_REPAIR_TOOLTIP)]
+        public void IsolateVocalsGreysOutWithoutDemucs(bool demucsInstalled, bool demucsNeedsRepair, string expectedTooltip)
         {
-            loadImportScreen(installed, needsRepair, installedVersion, "9");
+            AddStep("Demucs", () =>
+            {
+                aligner.DemucsInstalled = demucsInstalled;
+                aligner.DemucsNeedsRepair = demucsNeedsRepair;
+            });
+            loadImportScreen(installed: true);
 
             AddAssert("disabled", () => screen.IsolateVocals.Current.Disabled);
             AddAssert("unticked", () => !screen.IsolateVocals.Current.Value);
-            AddAssert("tooltip is the local reason", () => isolateTooltipOf(screen), () => Is.EqualTo(expectedTooltip));
+            AddAssert("tooltip is the Demucs reason", () => isolateTooltipOf(screen), () => Is.EqualTo(expectedTooltip));
             AddAssert("the stored choice is left alone", () => importer.IsolatePreference.Value);
 
             // The server aligner sends no stem, so ticking it changes nothing here.
             AddStep("tick the server choice", () => screen.ServerAligner.Current.Value = true);
             AddAssert("still disabled and unticked", () => screen.IsolateVocals.Current.Disabled && !screen.IsolateVocals.Current.Value);
 
-            // Fixing the aligner and coming back brings the remembered choice back.
+            // Installing Demucs and coming back brings the remembered choice back.
             coverAndResume(() =>
             {
-                aligner.IsInstalled = true;
-                aligner.NeedsRepair = false;
-                aligner.InstalledVersion = "9";
+                aligner.DemucsInstalled = true;
+                aligner.DemucsNeedsRepair = false;
             });
             AddAssert("enabled and ticked again", () => !screen.IsolateVocals.Current.Disabled && screen.IsolateVocals.Current.Value);
             AddAssert("tooltip cleared", () => string.IsNullOrEmpty(isolateTooltipOf(screen)));
         }
 
         /// <summary>
-        /// Local automatic alignment isolates the vocals anyway: the choice shows ticked and disabled
-        /// with a tooltip saying so, without touching the stored choice, which comes back when
-        /// automatic alignment goes off or moves to the server.
+        /// The aligner no longer matters (aligner version 12): with Demucs installed the choice is the
+        /// player's even when the local aligner is not installed, and local automatic alignment no
+        /// longer forces it on, since a version 12 alignment writes no stem.
         /// </summary>
         [Test]
-        public void LocalAutomaticAlignmentShowsIsolateVocalsTickedAndDisabled()
+        public void IsolateVocalsFollowsDemucsNotTheAligner()
         {
             AddStep("untick remembered", () => importer.IsolatePreference.Value = false);
             loadImportScreen(installed: true);
             AddAssert("unticked from the stored choice", () => !screen.IsolateVocals.Current.Value);
 
             AddStep("tick automatic alignment", () => screen.AutomaticAlignment.Current.Value = true);
-            AddAssert("ticked and disabled", () => screen.IsolateVocals.Current.Value && screen.IsolateVocals.Current.Disabled);
-            AddAssert("tooltip says alignment isolates them", () => isolateTooltipOf(screen), () => Is.EqualTo("Automatic alignment already isolates the vocals."));
-            AddAssert("the stored choice is left alone", () => !importer.IsolatePreference.Value);
-
-            AddStep("tick the server choice", () => screen.ServerAligner.Current.Value = true);
-            AddAssert("the server leaves it the player's choice", () => !screen.IsolateVocals.Current.Value && !screen.IsolateVocals.Current.Disabled);
+            AddAssert("still the player's choice", () => !screen.IsolateVocals.Current.Value && !screen.IsolateVocals.Current.Disabled);
             AddAssert("no tooltip", () => string.IsNullOrEmpty(isolateTooltipOf(screen)));
 
-            AddStep("untick the server choice", () => screen.ServerAligner.Current.Value = false);
-            AddAssert("local again: ticked and disabled", () => screen.IsolateVocals.Current.Value && screen.IsolateVocals.Current.Disabled);
-
-            AddStep("untick automatic alignment", () => screen.AutomaticAlignment.Current.Value = false);
-            AddAssert("back to the stored choice", () => !screen.IsolateVocals.Current.Value && !screen.IsolateVocals.Current.Disabled);
+            coverAndResume(() => aligner.IsInstalled = false);
+            AddAssert("without the aligner, still available", () => !screen.IsolateVocals.Current.Disabled);
             AddAssert("still not overwritten", () => !importer.IsolatePreference.Value);
         }
 
@@ -402,6 +398,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         [Test]
         public void AGreyedOutIsolateVocalsChoiceIsNotAskedFor()
         {
+            AddStep("no Demucs", () => aligner.DemucsInstalled = false);
             loadImportScreen(installed: false);
 
             AddStep("add audio and choose a language", () =>
@@ -447,6 +444,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         {
             public bool IsInstalled { get; set; }
             public bool NeedsRepair { get; set; }
+
+            /// <summary>On by default, so the isolate vocals choice is available unless a case says otherwise.</summary>
+            public bool DemucsInstalled { get; set; } = true;
+
+            public bool DemucsNeedsRepair { get; set; }
             public string? InstalledDevice => null;
             public bool GpuDetected => false;
             public string? InstalledVersion { get; set; }

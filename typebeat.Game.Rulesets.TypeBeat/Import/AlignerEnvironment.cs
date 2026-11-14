@@ -133,15 +133,134 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// The modules the aligner imports, checked by the setup scripts and by the adoption probe
         /// alike. Deliberately NOT the fused-evidence modules (phonemizer, espeakng_loader, aligner
         /// version 10): the aligner falls back to its version 9 path without them, so a platform
-        /// with no espeakng-loader wheel must still read as installed.
+        /// with no espeakng-loader wheel must still read as installed. Since version 12 not Demucs
+        /// either (<see cref="DEMUCS_IMPORTS"/>), and transformers, which its full-mix model runs on.
         /// </summary>
-        public const string ALIGNER_IMPORTS = "torch, torchaudio, demucs, soundfile, pyphen, num2words";
+        public const string ALIGNER_IMPORTS = "torch, torchaudio, soundfile, pyphen, num2words, transformers";
 
         /// <summary>
         /// The REQUIRED packages the setup scripts install besides torch, in the order and spelling
         /// both scripts carry (a test pins them). A failure to install them fails the setup.
         /// </summary>
-        public const string ALIGNER_PACKAGES = "demucs==4.0.1 soundfile pyphen num2words tqdm imageio-ffmpeg";
+        public const string ALIGNER_PACKAGES = "soundfile pyphen num2words tqdm transformers==4.49.0 imageio-ffmpeg";
+
+        /// <summary>
+        /// The modules the DEMUCS install imports (aligner version 12, where Demucs became an install of
+        /// its own, <see cref="LocalComponent.Demucs"/>), checked by its setup and its adoption probe.
+        /// </summary>
+        public const string DEMUCS_IMPORTS = "torch, torchaudio, demucs, soundfile";
+
+        /// <summary>The packages the Demucs install puts in besides torch, as both setup scripts spell them (a test pins them).</summary>
+        public const string DEMUCS_PACKAGES = "demucs==4.0.1 soundfile tqdm imageio-ffmpeg";
+
+        /// <summary>The import check of <paramref name="component"/>'s install.</summary>
+        public static string ImportsOf(LocalComponent component) => component == LocalComponent.Demucs ? DEMUCS_IMPORTS : ALIGNER_IMPORTS;
+
+        /// <summary>
+        /// The aligner version that dropped Demucs and MMS_FA for a model of its own. An install from
+        /// before it is not updated in place but REMOVED WHOLE first (<see cref="RemovePreviousAligner"/>):
+        /// its environment carries Demucs, and the models only it used would otherwise sit in the cache.
+        /// </summary>
+        public const int SPLIT_DEMUCS_ALIGNER_VERSION = 12;
+
+        /// <summary>
+        /// The model files only an aligner before <see cref="SPLIT_DEMUCS_ALIGNER_VERSION"/> put in torch
+        /// hub's checkpoint dir, with their sizes (a file of another size under the same name is not
+        /// ours, so it is left alone), and whether it is Demucs's, which the Demucs install still uses.
+        /// </summary>
+        private static readonly (string Name, long Size, bool Demucs)[] previous_aligner_models =
+        {
+            ("model.pt", 1_262_047_414, false), // MMS_FA, the letter model before version 12
+            ("qmul_multilingual_baseline_ca1a3923d6.pt", 57_491_286, false),
+            ("955717e8-8726e21a.th", 84_141_911, true), // htdemucs
+        };
+
+        /// <summary>
+        /// torch hub's checkpoint dir, where the aligner's (and Demucs's) models live, worked out as torch
+        /// works it out: TORCH_HOME, else XDG_CACHE_HOME/torch, else ~/.cache/torch; then hub/checkpoints.
+        /// The aligner runs with the game's environment, so it is the same directory.
+        /// </summary>
+        public static string TorchHubCheckpointsDir()
+        {
+            string? torchHome = Environment.GetEnvironmentVariable("TORCH_HOME");
+
+            if (string.IsNullOrEmpty(torchHome))
+            {
+                string? xdg = Environment.GetEnvironmentVariable("XDG_CACHE_HOME");
+                string cache = string.IsNullOrEmpty(xdg) ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache") : xdg;
+                torchHome = Path.Combine(cache, "torch");
+            }
+
+            return Path.Combine(torchHome, "hub", "checkpoints");
+        }
+
+        /// <summary>
+        /// Whether the aligner installed in <paramref name="lyricLabDir"/> predates
+        /// <see cref="SPLIT_DEMUCS_ALIGNER_VERSION"/> while the one this build ships does not, so an
+        /// install must remove it whole rather than update it. False for no install, an unreadable
+        /// version, or a shipped copy that is itself older.
+        /// </summary>
+        public static bool MustRemovePreviousAligner(string lyricLabDir, string? shippedVersion)
+            => IsLyricLabDir(lyricLabDir)
+               && int.TryParse(ReadAlignerVersion(lyricLabDir), NumberStyles.None, CultureInfo.InvariantCulture, out int installed)
+               && int.TryParse(shippedVersion, NumberStyles.None, CultureInfo.InvariantCulture, out int shipped)
+               && installed < SPLIT_DEMUCS_ALIGNER_VERSION && shipped >= SPLIT_DEMUCS_ALIGNER_VERSION;
+
+        /// <summary>
+        /// UNINSTALLS an aligner from before <see cref="SPLIT_DEMUCS_ALIGNER_VERSION"/> completely, ahead
+        /// of a fresh install of the new one: its Python environment (which carries Demucs), its caches
+        /// (work/, out/) and device marker, and the models only it used in <paramref name="checkpointsDir"/>
+        /// (MMS_FA and the QMUL weights; htdemucs too unless <paramref name="keepDemucsModel"/>, when the
+        /// separate Demucs install is using it). The scripts are left for the install to overwrite.
+        /// Returns null, or why the environment could not be removed (something has it open).
+        /// </summary>
+        public static string? RemovePreviousAligner(string lyricLabDir, string checkpointsDir, bool keepDemucsModel, Action<string> progress)
+        {
+            try
+            {
+                foreach (string folder in new[] { ".venv", "work", "out" })
+                {
+                    string path = Path.Combine(lyricLabDir, folder);
+
+                    if (Directory.Exists(path))
+                        Directory.Delete(path, recursive: true);
+                }
+
+                string marker = Path.Combine(lyricLabDir, DEVICE_MARKER_FILE);
+
+                if (File.Exists(marker))
+                    File.Delete(marker);
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Could not remove the previous aligner at {lyricLabDir}: {e}", LoggingTarget.Runtime, LogLevel.Important);
+                return "the previous aligner could not be removed (close anything that might be using it and retry; the details are in the game log)";
+            }
+
+            foreach (var (name, size, demucs) in previous_aligner_models)
+            {
+                if (demucs && keepDemucsModel)
+                    continue;
+
+                string path = Path.Combine(checkpointsDir, name);
+
+                try
+                {
+                    if (File.Exists(path) && new FileInfo(path).Length == size)
+                    {
+                        File.Delete(path);
+                        progress($"removed the previous aligner's {name}");
+                    }
+                }
+                catch (Exception e)
+                {
+                    // A cache file left behind costs disk space, never correctness.
+                    Logger.Log($"Could not remove the previous aligner's {path}: {e.Message}", LoggingTarget.Runtime, LogLevel.Important);
+                }
+            }
+
+            return null;
+        }
 
         /// <summary>
         /// The OPTIONAL fused-evidence pair (aligner version 10), installed by its own uv call after
@@ -165,7 +284,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// a re-download. True when the environment is (now) ready; false when there is no venv or
         /// the imports fail, in which case nothing is changed. Never deletes anything.
         /// </summary>
-        public static async Task<bool> TryAdoptEnvironmentAsync(string lyricLabDir, CancellationToken token)
+        public static async Task<bool> TryAdoptEnvironmentAsync(string lyricLabDir, CancellationToken token, LocalComponent component = LocalComponent.Aligner)
         {
             if (EnvironmentReady(lyricLabDir))
                 return true;
@@ -173,7 +292,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             if (!EnvironmentPresent(lyricLabDir))
                 return false;
 
-            if (!await probeImportsAsync(lyricLabDir, token).ConfigureAwait(false))
+            if (!await probeImportsAsync(lyricLabDir, token, ImportsOf(component)).ConfigureAwait(false))
                 return false;
 
             try
@@ -191,7 +310,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             return true;
         }
 
-        private static async Task<bool> probeImportsAsync(string lyricLabDir, CancellationToken token)
+        private static async Task<bool> probeImportsAsync(string lyricLabDir, CancellationToken token, string imports)
         {
             var psi = new ProcessStartInfo
             {
@@ -206,7 +325,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
             RunPythonInUtf8(psi);
             psi.ArgumentList.Add("-c");
-            psi.ArgumentList.Add($"import {ALIGNER_IMPORTS}");
+            psi.ArgumentList.Add($"import {imports}");
 
             try
             {
@@ -384,21 +503,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// said, never returned as one, since the install still works (on that version 9 path).</para>
         /// </summary>
         public static async Task<LyricImportResult> BootstrapEnvironmentAsync(string lyricLabDir, Action<string> progress, CancellationToken token, string device = "cpu",
-                                                                              bool updateExisting = false)
+                                                                              bool updateExisting = false, LocalComponent component = LocalComponent.Aligner)
         {
             if (EnvironmentReady(lyricLabDir))
-                return updateExisting ? await updateEnvironmentAsync(lyricLabDir, progress, token, device).ConfigureAwait(false) : LyricImportResult.Ok(string.Empty);
+                return updateExisting ? await updateEnvironmentAsync(lyricLabDir, progress, token, device, component).ConfigureAwait(false) : LyricImportResult.Ok(string.Empty);
 
             if (EnvironmentPresent(lyricLabDir))
             {
-                progress("checking the existing aligner environment...");
+                progress(component == LocalComponent.Demucs ? "checking the existing Demucs environment..." : "checking the existing aligner environment...");
 
-                if (await TryAdoptEnvironmentAsync(lyricLabDir, token).ConfigureAwait(false))
+                if (await TryAdoptEnvironmentAsync(lyricLabDir, token, component).ConfigureAwait(false))
                 {
                     if (updateExisting)
-                        return await updateEnvironmentAsync(lyricLabDir, progress, token, device).ConfigureAwait(false);
+                        return await updateEnvironmentAsync(lyricLabDir, progress, token, device, component).ConfigureAwait(false);
 
-                    progress("aligner environment ready");
+                    progress(readyMessage(component));
                     return LyricImportResult.Ok(string.Empty);
                 }
 
@@ -429,11 +548,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 }
             }
 
-            progress(device == "cuda"
-                ? "setting up the aligner environment (GPU), one-time download of packages and models (~4 GB), please wait..."
-                : "setting up the aligner environment, one-time download of packages and models (~3.5 GB), please wait...");
+            progress(component == LocalComponent.Demucs
+                ? device == "cuda"
+                    ? "setting up Demucs (GPU), one-time download of packages and its model (~2.5 GB), please wait..."
+                    : "setting up Demucs, one-time download of packages and its model (~2 GB), please wait..."
+                : device == "cuda"
+                    ? "setting up the aligner environment (GPU), one-time download of packages and models (~5 GB), please wait..."
+                    : "setting up the aligner environment, one-time download of packages and models (~4.5 GB), please wait...");
 
-            (int exitCode, string tail) = await ImportProcessRunner.RunProcessAsync(setupStartInfo(lyricLabDir, script, device, update: false), progress, token).ConfigureAwait(false);
+            (int exitCode, string tail) = await ImportProcessRunner.RunProcessAsync(setupStartInfo(lyricLabDir, script, device, update: false, component), progress, token).ConfigureAwait(false);
 
             if (exitCode == ImportProcessRunner.CANCELLED_EXIT_CODE)
                 return LyricImportResult.Fail("environment setup cancelled");
@@ -464,9 +587,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 // Non-fatal: alignment falls back to CPU without the marker.
             }
 
-            progress("aligner environment ready");
+            progress(readyMessage(component));
             return LyricImportResult.Ok(string.Empty);
         }
+
+        private static string readyMessage(LocalComponent component) => component == LocalComponent.Demucs ? "Demucs ready" : "aligner environment ready";
 
         /// <summary>
         /// Said when the update mode of the setup could not bring a completed install up to date
@@ -482,20 +607,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// update mode on a completed install. Never fails the install over it (see
         /// <see cref="ENVIRONMENT_UPDATE_INCOMPLETE"/>); only a cancellation is returned as one.
         /// </summary>
-        private static async Task<LyricImportResult> updateEnvironmentAsync(string lyricLabDir, Action<string> progress, CancellationToken token, string device)
+        private static async Task<LyricImportResult> updateEnvironmentAsync(string lyricLabDir, Action<string> progress, CancellationToken token, string device,
+                                                                         LocalComponent component = LocalComponent.Aligner)
         {
             string script = Path.Combine(lyricLabDir, SetupScriptName);
 
             if (!File.Exists(script))
             {
                 Logger.Log($"Aligner environment kept as it is: no {SetupScriptName} in {lyricLabDir} to update it with", LoggingTarget.Runtime, LogLevel.Important);
-                progress("aligner environment ready");
+                progress(readyMessage(component));
                 return LyricImportResult.Ok(string.Empty);
             }
 
-            progress("updating the aligner's packages and models in the existing environment...");
+            progress(component == LocalComponent.Demucs
+                ? "updating Demucs's packages and model in the existing environment..."
+                : "updating the aligner's packages and models in the existing environment...");
 
-            (int exitCode, string tail) = await ImportProcessRunner.RunProcessAsync(setupStartInfo(lyricLabDir, script, device, update: true), progress, token).ConfigureAwait(false);
+            (int exitCode, string tail) = await ImportProcessRunner.RunProcessAsync(setupStartInfo(lyricLabDir, script, device, update: true, component), progress, token).ConfigureAwait(false);
 
             if (exitCode == ImportProcessRunner.CANCELLED_EXIT_CODE)
                 return LyricImportResult.Fail("environment setup cancelled");
@@ -507,15 +635,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 return LyricImportResult.Ok(string.Empty);
             }
 
-            progress("aligner environment ready");
+            progress(readyMessage(component));
             return LyricImportResult.Ok(string.Empty);
         }
 
         /// <summary>
         /// The setup script's process: powershell on Windows, bash elsewhere, with the torch
-        /// flavour and, for <paramref name="update"/>, the script's update switch.
+        /// flavour, for <paramref name="update"/> the script's update switch, and for Demucs its
+        /// component switch (the aligner is the scripts' default, so its command line is unchanged).
         /// </summary>
-        private static ProcessStartInfo setupStartInfo(string lyricLabDir, string script, string device, bool update)
+        private static ProcessStartInfo setupStartInfo(string lyricLabDir, string script, string device, bool update, LocalComponent component)
         {
             var psi = new ProcessStartInfo
             {
@@ -538,6 +667,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 psi.ArgumentList.Add("-Device");
                 psi.ArgumentList.Add(device);
 
+                if (component == LocalComponent.Demucs)
+                {
+                    psi.ArgumentList.Add("-Component");
+                    psi.ArgumentList.Add("demucs");
+                }
+
                 if (update)
                     psi.ArgumentList.Add("-Update");
             }
@@ -549,6 +684,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 psi.FileName = "bash";
                 psi.ArgumentList.Add(script);
                 psi.ArgumentList.Add(device);
+
+                if (component == LocalComponent.Demucs)
+                    psi.ArgumentList.Add("--component=demucs");
 
                 if (update)
                     psi.ArgumentList.Add("--update");
@@ -819,5 +957,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// </summary>
         public const string HIGH_QUALITY_NEEDS_UPDATE = "high-accuracy mode needs a newer install, update it in Settings > Experimental; "
                                                         + "this import runs at the normal speed";
+    }
+
+    /// <summary>
+    /// The two local installs (aligner version 12): the AUTO-ALIGNER and DEMUCS, each in a folder of
+    /// its own with its own environment, built by the same setup scripts with their component switch.
+    /// </summary>
+    public enum LocalComponent
+    {
+        Aligner,
+        Demucs,
     }
 }

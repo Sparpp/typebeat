@@ -213,6 +213,12 @@ Shinigiwa class: Shinigiwa Satellite 55.0% -> 75.2% (exact) and 51.3% -> 59.3% (
 but 54.3% -> 52.4% human, so its value tracks stamp quality. The first pass earns its cost: without
 it (80 ms a letter, no lead) Shinigiwa falls to 54.6% (exact) and 10.9% (human). Without the flag
 every output is version 6's; the version is bumped so the game knows the flag exists.
+
+Version 12 (2026-11-13): --engine w2vbert, the default. The letter evidence is a model trained on
+full mixes (mrfakename/w2v-bert-2.0-music-lyrics-ctc, MIT), read from the song as it is through the
+same decoders, with the crammed-line test off and the model's start lag removed; see the notes
+above W2VBERT_REPO. --engine mms is version 11, and the fallback when the transformers package or
+the model's files are missing. Needs transformers (setup installs it); 2.3 GB of weights once.
 """
 
 import os
@@ -267,7 +273,7 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
 
 # Bumped when the output of the same inputs changes. The game compares the shipped copy's
 # version with the installed one and offers a reinstall; `--version` prints it.
-ALIGNER_VERSION = "11"
+ALIGNER_VERSION = "12"
 
 SAMPLE_RATE = 16000
 FRAME_SAMPLES = 320          # wav2vec2 stride: 20 ms at 16 kHz
@@ -1072,10 +1078,14 @@ def evidence_emissions(quality, wav, audio_key, work: Path, device: str, window_
     missing = [v for v in views if v not in got]
     model = None
     if missing:
-        log("loading MMS_FA aligner model (first run downloads ~1.2 GB)...")
-        # in place from our mirror first, so torchaudio finds it and makes no request (MODEL_FILES)
-        model_file_path("mms_fa", prefix="loading MMS_FA aligner model: ")
-        model = torchaudio.pipelines.MMS_FA.get_model(with_star=True).to(device).eval()
+        if LETTER_MODEL is not None:      # version 12: the full-mix model, in MMS_FA's layout
+            log("loading the full-mix aligner model (first run downloads ~2.3 GB)...")
+            model = LETTER_MODEL().to(device).eval()
+        else:
+            log("loading MMS_FA aligner model (first run downloads ~1.2 GB)...")
+            # in place from our mirror first, so torchaudio finds it and makes no request (MODEL_FILES)
+            model_file_path("mms_fa", prefix="loading MMS_FA aligner model: ")
+            model = torchaudio.pipelines.MMS_FA.get_model(with_star=True).to(device).eval()
         if prec == "int8":
             try:
                 qmodel = quantize_int8(model)
@@ -4357,7 +4367,13 @@ def self_test_model_files() -> int:
          [("mms_fa", True), ("htdemucs", True)]),
         ("table: every file has a mirror copy under MODEL_MIRROR",
          all(m.mirror.startswith(MODEL_MIRROR + "/") for m in MODEL_FILES.values()), True),
-        ("table: only the big file skips the hash at use", [k for k, m in MODEL_FILES.items() if not m.hash_at_use], ["mms_fa"]),
+        ("table: only the big files skip the hash at use", [k for k, m in MODEL_FILES.items() if not m.hash_at_use], ["mms_fa", "w2vbert_model"]),
+        ("table: each component names files the table has", all(k in MODEL_FILES for c in MODEL_COMPONENTS.values() for k in c), True),
+        ("table: the aligner's install fetches its own model and not Demucs's",
+         ("w2vbert_model" in MODEL_COMPONENTS["aligner"], "htdemucs" in MODEL_COMPONENTS["aligner"]), (True, False)),
+        ("table: version 12's files sit in their own folder, under their Hugging Face names",
+         {MODEL_FILES[k].subdir for k in MODEL_COMPONENTS["aligner"]} == {W2VBERT_DIR}
+         and all(MODEL_FILES[k].upstream.endswith("/" + MODEL_FILES[k].name) for k in MODEL_COMPONENTS["aligner"]), True),
     ])
 
 
@@ -5203,7 +5219,9 @@ class ModelFile:
     upstream: str         # the original, tried when ours fails
     what: str             # how the log names it
     hash_at_use: bool     # hash a file already present on every use, not only at setup and update
-                          # (cheap for the small two; the 1.2 GB one has its size checked instead)
+                          # (cheap for the small ones; the big ones have their size checked instead)
+    subdir: str = ""      # a folder of its own inside the checkpoint dir (version 12's model, which
+                          # transformers loads from a directory), or "" for the dir itself
 
 
 MODEL_FILES = {m.key: m for m in (
@@ -5265,6 +5283,8 @@ def model_file_path(key: str, *, verify=None, progress: bool = True, prefix: str
         download = download or torch.hub.download_url_to_file
         hub_dir = hub_dir or torch.hub.get_dir()
     d = Path(hub_dir) / "checkpoints"
+    if m.subdir:
+        d = d / m.subdir
     path = d / m.name
     if path.exists():
         problem = model_file_problem(path, m, m.hash_at_use if verify is None else verify)
@@ -5295,13 +5315,14 @@ def model_file_path(key: str, *, verify=None, progress: bool = True, prefix: str
     raise RuntimeError(f"{m.name} could not be fetched ({'; '.join(failures)})")
 
 
-def ensure_model_files(keys=None, *, verify: bool = True, progress: bool = False) -> list:
-    """Every file in MODEL_FILES (or those keys) in place and checked, for the setup scripts, their
-    update mode and the server worker: each is hashed in full when verify, and fetched when missing
-    or wrong. Tries every file before raising, so one failure does not hold the others back, then
-    raises naming the ones that failed. Returns the paths."""
+def ensure_model_files(keys=None, *, component: str = "aligner", verify: bool = True, progress: bool = False) -> list:
+    """The files one install COMPONENT runs on (MODEL_COMPONENTS: "aligner", the default, or
+    "demucs"), or exactly `keys`, in place and checked, for the setup scripts, their update mode
+    and the server worker: each is hashed in full when verify, and fetched when missing or wrong.
+    Tries every file before raising, so one failure does not hold the others back, then raises
+    naming the ones that failed. Returns the paths."""
     paths, failed = [], []
-    for key in (keys or MODEL_FILES):
+    for key in (keys or MODEL_COMPONENTS[component]):
         try:
             paths.append(model_file_path(key, verify=verify, progress=progress))
         except Exception as exc:
@@ -5526,6 +5547,229 @@ def fused_stage(plan: dict, lines, mode: str, ref_end_ms, wav, audio_key: str, w
 # Main
 # --------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------
+# Version 12: the full-mix letter model (--engine w2vbert, the default)
+# --------------------------------------------------------------------------
+# mrfakename/w2v-bert-2.0-music-lyrics-ctc (MIT): w2v-BERT 2.0 pretrained further on music, then
+# letter CTC on full mixes. It hears the words through the band, so the alignment reads the song as
+# it is and not the separated vocals. Measured on the ranked corpus (bench/altmodels/RESULTS.md,
+# fourth round; 35 independent English maps, word starts within 200 ms, through these decoders):
+# exact stamps 95.6 % (version 11: 94.1), plain lyrics 92.7 % (85.3), words over 500 ms off under
+# plain lyrics 3.9 % (10.5). 24 maps in other languages: stamps 95.0 % (91.8), plain 85.5 % (80.9).
+#
+# What the engine changes, and nothing else:
+#   - the letter evidence is this model's, one fp32 pass over the MIX in 26 s windows with 2 s of
+#     context (it was trained on windows of up to 30 s), mapped into MMS_FA's label layout: a
+#     letter's column adds every Latin character of the model's inventory that folds to it, and
+#     the blank takes everything else (the model's blank, its word delimiter, other scripts);
+#   - GARBAGE_CRAMMED_FRAC is off: this model's posteriors are sharp, one frame per letter, which
+#     is exactly what the "crammed" test reads as an evidence-free line (with it on, 15 of 34
+#     lines of a clean song were replaced by even pacing);
+#   - the QMUL evidence (--evidence fused) is not run: it needs the stem and was tuned as MMS_FA's
+#     partner;
+#   - every word start is moved earlier by the model's own lag for the word's first sound
+#     (START_LAG_MS, measured on the 35 maps, the same in both anchor modes), and inner syllable
+#     starts likewise.
+# Separation still runs unless --no-separate is given, only so that the vocals stem is written
+# beside the outputs as before; the alignment does not read it. --engine mms is version 11.
+W2VBERT_REPO = "mrfakename/w2v-bert-2.0-music-lyrics-ctc"
+W2VBERT_REV = "1be91455793f86de803ac0707303a0998e423ce1"
+W2VBERT_FILES = {   # name: (bytes, sha256)
+    "config.json": (1863, "e6783eb91bda47dac26e32c7ed0abf8cbaf8d558b28fa3e85788030b76b11e55"),
+    "preprocessor_config.json": (275, "8e6281aad64f97e40534135a59dcc5d33571efae376f2a25adf5551951897ab4"),
+    "vocab.json": (12488, "2d9fa2ffb8a0b24ddc33cd30b6a7217dcda08a0a55115d50df9cd9ee23aae6ff"),
+    "model.safetensors": (2325850852, "4293e75411c7fca47d553a0237fefe37694bf004253e9e4fe6fd7c84483d5b9d"),
+}
+W2VBERT_DIR = f"w2v-bert-2.0-music-lyrics-ctc-{W2VBERT_REV[:10]}"
+# The four files in the mirrored table (MODEL_FILES): type!beat's copy first, then the pinned
+# revision on Hugging Face, every download checked against its full sha256.
+MODEL_FILES.update({m.key: m for m in (
+    ModelFile(f"w2vbert_{key}", name, W2VBERT_FILES[name][0], W2VBERT_FILES[name][1],
+              f"{MODEL_MIRROR}/w2vbert/{W2VBERT_REV[:10]}/{name}",
+              f"https://huggingface.co/{W2VBERT_REPO}/resolve/{W2VBERT_REV}/{name}",
+              what, W2VBERT_FILES[name][0] <= (1 << 24), W2VBERT_DIR)
+    for key, name, what in (("config", "config.json", "the full-mix aligner model's config"),
+                            ("preprocessor", "preprocessor_config.json", "the full-mix aligner model's audio settings"),
+                            ("vocab", "vocab.json", "the full-mix aligner model's letters"),
+                            ("model", "model.safetensors", "the full-mix aligner model (2.3 GB)"))
+)})
+
+# What each install component puts in place (the setup scripts, their update mode and the server
+# worker call ensure_model_files with one): the aligner's version 12 engine, and Demucs's model for
+# the vocals stem. MMS_FA and the QMUL weights are fetched on first use only, by a run that falls
+# back to --engine mms.
+MODEL_COMPONENTS = {
+    "aligner": ("w2vbert_config", "w2vbert_preprocessor", "w2vbert_vocab", "w2vbert_model"),
+    "demucs": ("htdemucs",),
+}
+W2VBERT_WINDOW_S, W2VBERT_CONTEXT_S = 26.0, 2.0
+# ms the model's word starts sit after the ranked start, by the word's first sound (median of the
+# words within 150 ms; ref and auto agree to within 2 ms)
+START_LAG_MS = {"vowel": 68, "stop": 42, "fricative": 36, "affricate": 36, "nasal": 45, "liquid/glide": 50}
+START_LAG_DEFAULT_MS = 49
+LETTER_MODEL = None          # set by main() for the version 12 engine: a callable returning the model
+
+
+def demucs_installed() -> bool:
+    """Whether this environment can run Demucs (version 12: it is installed on its own). Standard library only."""
+    import importlib.util
+    return importlib.util.find_spec("demucs") is not None
+
+
+def w2vbert_missing():
+    """Why the version 12 engine cannot run in this environment, or None."""
+    try:
+        import transformers  # noqa: F401
+    except Exception as exc:
+        return f"the transformers package is not installed ({type(exc).__name__}: {exc})"
+    return None
+
+
+def w2vbert_weights_dir():
+    """The model's four files in torch hub's checkpoint dir, in a folder of their own: fetched on
+    first use from type!beat's mirror, else the pinned revision (see MODEL_FILES), every download
+    checked against its sha256 and deleted on a mismatch; afterwards the small files are re-checked
+    on each call and the 2.3 GB one by its size. Raises on failure. Returns the folder."""
+    path = None
+    for key in MODEL_COMPONENTS["aligner"]:
+        path = model_file_path(key, prefix="loading the full-mix aligner model: ", progress=MODEL_FILES[key].size > (1 << 24))
+    return path.parent
+
+
+def load_w2vbert():
+    """The model behind MMS_FA's interface: forward(waveform [1, N]) -> (log-probabilities
+    [1, frames, 28 labels + the star column], None), frame g starting at sample g * 320."""
+    import json
+    import unicodedata
+
+    import torch
+    import torchaudio
+    from transformers import SeamlessM4TFeatureExtractor, Wav2Vec2BertForCTC
+
+    d = w2vbert_weights_dir()
+    vocab = json.loads((d / "vocab.json").read_text(encoding="utf-8"))
+    extractor = SeamlessM4TFeatureExtractor.from_pretrained(str(d))
+    net = Wav2Vec2BertForCTC.from_pretrained(str(d)).eval()
+    labels = torchaudio.pipelines.MMS_FA.get_labels(star=None)
+    folded = {}
+    for tok, i in vocab.items():
+        if len(tok) != 1:
+            continue
+        base = "".join(c for c in unicodedata.normalize("NFKD", tok).lower() if not unicodedata.combining(c))
+        base = {"’": "'", "‘": "'", "`": "'"}.get(base, base)
+        if len(base) == 1:
+            folded.setdefault(base, []).append(i)
+    groups = [torch.tensor(folded.get(ch, []), dtype=torch.long) for ch in labels[1:]]
+
+    class AsMmsFa(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.net = net
+
+        def forward(self, waveforms, lengths=None):
+            n = waveforms.size(1)
+            feats = extractor(waveforms[0].detach().cpu().numpy(), sampling_rate=SAMPLE_RATE, return_tensors="pt")
+            dev = next(self.net.parameters()).device
+            lp = torch.log_softmax(self.net(**{k: v.to(dev) for k, v in feats.items()}).logits[0].float(), dim=-1)
+            cols = [torch.logsumexp(lp[:, g.to(dev)], dim=-1) if len(g) else lp.new_full((lp.size(0),), -30.0)
+                    for g in groups]
+            letters = torch.stack(cols, dim=-1)
+            rest = torch.log1p(-torch.exp(torch.logsumexp(letters, dim=-1)).clamp(max=1.0 - 1e-6))
+            out = torch.cat([rest[:, None], letters, torch.zeros_like(rest)[:, None]], dim=-1)
+            want = max(1, (n - 400) // FRAME_SAMPLES + 1)
+            if out.size(0) < want:                         # the stacked filterbank can be a frame short
+                pad = out.new_full((want - out.size(0), out.size(1)), -30.0)
+                pad[:, 0] = 0.0
+                pad[:, -1] = 0.0
+                out = torch.cat([out, pad], dim=0)
+            return out[:want][None], None
+
+    return AsMmsFa().eval()
+
+
+def first_sound(word: str) -> str:
+    """The class of a word's (or syllable's) first sound, by its letters."""
+    w = re.sub(r"[^a-z']", "", word.lower()).lstrip("'")
+    if not w:
+        return "other"
+    if w[0] in "aeiou":
+        return "vowel"
+    if w[:2] in ("th", "sh") or w[0] in "fsvzh":
+        return "fricative"
+    if w[:2] == "ch" or w[0] == "j":
+        return "affricate"
+    if w[0] in "bdgkptcq":
+        return "stop"
+    if w[0] in "mn":
+        return "nasal"
+    if w[0] in "lrwy":
+        return "liquid/glide"
+    return "other"
+
+
+def remove_start_lag(lines: list) -> int:
+    """Moves every aligned word start, and every inner syllable start, earlier by START_LAG_MS for
+    its first sound. A start never passes the one before it, a word that now begins inside the
+    previous word's span shortens that span, and lines the decoder paced (estimated) are left as
+    they are: their starts are not the model's. Returns how many word starts moved. Pure."""
+    moved = 0
+    prev = None
+    for ln in lines:
+        for w in ln.words:
+            if w.untimed:
+                continue
+            if not ln.estimated:
+                lag = START_LAG_MS.get(first_sound(w.norm or w.display), START_LAG_DEFAULT_MS)
+                new = max(prev.start_ms + 1 if prev is not None else 0, w.start_ms - lag)
+                if new < w.start_ms:
+                    w.start_ms = new
+                    moved += 1
+                    if prev is not None and prev.end_ms > new:
+                        prev.end_ms = new
+                        if prev.syllables:
+                            prev.syllables[-1]["end_ms"] = new
+                if w.syllables:
+                    w.syllables[0]["start_ms"] = w.start_ms
+                    for k in range(1, len(w.syllables)):
+                        s = w.syllables[k]
+                        lag = START_LAG_MS.get(first_sound(s["text"]), START_LAG_DEFAULT_MS)
+                        s["start_ms"] = max(w.syllables[k - 1]["start_ms"] + 1, s["start_ms"] - lag)
+                        w.syllables[k - 1]["end_ms"] = s["start_ms"]
+            prev = w
+        timed = [w for w in ln.words if not w.untimed]
+        if timed and not ln.estimated:
+            ln.start_ms = timed[0].start_ms
+    return moved
+
+
+def self_test_lag() -> int:
+    """Pins remove_start_lag (standard library only)."""
+    def mk(text, a, b, syl=None):
+        return Word(display=text, norm=text, start_ms=a, end_ms=b, syllables=[dict(x) for x in (syl or [])])
+
+    a = mk("and", 1000, 1200)
+    b = mk("tomorrow", 1200, 2000, [{"text": "to", "start_ms": 1200, "end_ms": 1400},
+                                    {"text": "mor", "start_ms": 1400, "end_ms": 1700},
+                                    {"text": "row", "start_ms": 1700, "end_ms": 2000}])
+    c = mk("be", 2010, 2300)
+    d = mk("x", 2011, 2400)
+    paced = Line(display="paced", words=[mk("oh", 5000, 5200)], estimated=True)
+    ln = Line(display="l", words=[a, b, c, d])
+    n = remove_start_lag([ln, paced])
+    got = [("moved", n, 4), ("vowel start", a.start_ms, 932), ("stop start", b.start_ms, 1158),
+           ("previous span shortened", a.end_ms, 1158),
+           ("syllable starts", [s["start_ms"] for s in b.syllables], [1158, 1355, 1650]),
+           ("syllable ends follow", [s["end_ms"] for s in b.syllables], [1355, 1650, 1968]),
+           ("a shortened word ends at the next start", b.end_ms, 1968),
+           ("stop after a long word", c.start_ms, 1968), ("never before the previous start", d.start_ms, 1969),
+           ("line start follows", ln.start_ms, 932), ("paced line untouched", paced.words[0].start_ms, 5000)]
+    failed = [(k, v, want) for k, v, want in got if v != want]
+    for k, v, want in failed:
+        print(f"lag self-test FAILED: {k}: {v!r}, expected {want!r}")
+    print(f"lag self-test: {len(got) - len(failed)}/{len(got)}")
+    return 1 if failed else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """The command line. A function of its own so the self-test can parse with it."""
     ap = argparse.ArgumentParser(description="Word/syllable-level lyric aligner")
@@ -5539,6 +5783,11 @@ def build_parser() -> argparse.ArgumentParser:
                          "work dir like an alignment run's)")
     ap.add_argument("-o", "--out-dir", type=Path, default=None)
     ap.add_argument("--work-dir", type=Path, default=Path(__file__).parent / "work")
+    ap.add_argument("--engine", choices=["w2vbert", "mms"], default="w2vbert",
+                    help="w2vbert (default, version 12): a letter model trained on full mixes reads "
+                         "the song as it is; mms: version 11 (MMS_FA on the separated vocals, with "
+                         "--evidence fused the QMUL model beside it). Falls back to mms, with a "
+                         "warning, when the transformers package or the model's files are missing")
     ap.add_argument("--no-separate", action="store_true",
                     help="align against the full mix (faster, less accurate)")
     ap.add_argument("--demucs-model", default="htdemucs")
@@ -5613,6 +5862,7 @@ def resolve_device(device: str, torch) -> str:
 
 
 def main():
+    global LETTER_MODEL, GARBAGE_CRAMMED_FRAC
     args = parse_arguments()
 
     t0 = time.time()
@@ -5620,6 +5870,8 @@ def main():
     os.environ["MKL_NUM_THREADS"] = str(args.threads)
 
     if args.separate_only:
+        if not demucs_installed():
+            raise SystemExit("--separate-only needs Demucs, which this environment does not have (it is installed on its own)")
         # Demucs runs in a child process, but on the device this one decides, so the CUDA check is
         # the alignment run's. torch is in every environment that can run Demucs at all.
         import torch
@@ -5671,11 +5923,34 @@ def main():
         log(f"WARNING: --vocal-mode estimated needs line stamps (anchor mode ref, here {mode}); aligning as usual")
         vocal_mode = "aligned"
     # version 10: decided (and logged) here, before the lyrics are normalised for MMS_FA
-    fused = fused_plan(lines, mode, vocal_mode, args.lyrics_language, args.fuse) if args.evidence == "fused" else None
+    # version 12: the engine is decided here, so that a missing package or model costs a warning
+    # and version 11's result, never the import
+    engine = args.engine
+    if engine == "w2vbert":
+        why = w2vbert_missing()
+        if why is None:
+            try:
+                w2vbert_weights_dir()
+            except Exception as exc:
+                why = f"the model's files could not be fetched ({type(exc).__name__}: {exc})"
+        if why is not None:
+            log(f"WARNING: the full-mix engine is unavailable: {why}; aligning with version 11's engine (--engine mms)")
+            engine = "mms"
+    fused = None
+    if args.evidence == "fused" and engine == "mms":
+        fused = fused_plan(lines, mode, vocal_mode, args.lyrics_language, args.fuse)
+    elif args.evidence == "fused":
+        log("fused evidence: not run by the full-mix engine (it belongs to --engine mms)")
     if fused is not None:
         fused["paths_file"] = args.fused_paths
 
     # ---- audio prep
+    # Demucs is installed on its own since version 12 (the aligner's install no longer carries it):
+    # without it there is nothing to separate, so the run reads the mix and writes no vocals stem.
+    # Worded to claim no import screen stage.
+    if not args.no_separate and not demucs_installed():
+        log("vocals stem: not written, vocal isolation is not part of this install; reading the full mix")
+        args.no_separate = True
     song_wav = work / f"{stem}.wav"
     ensure_wav(args.audio, song_wav, 44100, 2)
     if args.no_separate:
@@ -5686,12 +5961,17 @@ def main():
                                     args.device, args.threads)
         wav16 = work / f"{stem}.vocals16k.wav"
     ensure_wav(align_src, wav16, SAMPLE_RATE, 1)
+    # version 12 reads the mix; the stem above is then only kept for persist_vocals_stem
+    src16 = wav16
+    if engine == "w2vbert" and not args.no_separate:
+        src16 = work / f"{stem}.mix16k.wav"
+        ensure_wav(song_wav, src16, SAMPLE_RATE, 1)
 
-    data, sr = sf.read(wav16, dtype="float32")
+    data, sr = sf.read(src16, dtype="float32")
     assert sr == SAMPLE_RATE
     wav = torch.from_numpy(data).unsqueeze(0)
     dur_s = wav.size(1) / SAMPLE_RATE
-    log(f"audio: {dur_s:.1f}s at 16k mono ({wav16.name})")
+    log(f"audio: {dur_s:.1f}s at 16k mono ({src16.name})")
 
     # ---- dictionary (the model itself is loaded only if an emission view is not cached)
     dictionary = torchaudio.pipelines.MMS_FA.get_dict()
@@ -5723,8 +6003,14 @@ def main():
         return torch.from_numpy(mdata).unsqueeze(0)
 
     # the tier line is logged inside, after the model load when there is one (see its Log order)
-    log_probs, evidence = evidence_emissions(args.quality, wav, audio_key, work, args.device, args.window_s,
-                                             args.context_s, None if args.no_separate else mix_wav, args.quant)
+    if engine == "w2vbert":
+        LETTER_MODEL = load_w2vbert
+        GARBAGE_CRAMMED_FRAC = 2.0                 # never: see the version 12 notes
+        log_probs, evidence = evidence_emissions("single", wav, "wb" + audio_key[:14], work, args.device,
+                                                 W2VBERT_WINDOW_S, W2VBERT_CONTEXT_S, None, "fp32")
+    else:
+        log_probs, evidence = evidence_emissions(args.quality, wav, audio_key, work, args.device, args.window_s,
+                                                 args.context_s, None if args.no_separate else mix_wav, args.quant)
     log(f"emissions: {log_probs.size(0)} frames x {log_probs.size(1)} labels")
 
     rms = frame_rms(wav)
@@ -5750,6 +6036,12 @@ def main():
     repairs = validate_and_repair(lines, song_end_ms)
     for note in repairs:
         log(f"validator: {note}")
+    if engine == "w2vbert" and vocal_mode == "aligned":
+        moved = remove_start_lag(lines)
+        log(f"start lag: {moved} word starts moved earlier by the model's lag for their first sound")
+        for note in validate_and_repair(lines, song_end_ms):
+            repairs.append(note)
+            log(f"validator: {note}")
     report_extra = None
     if fused is not None and fused["apply"]:
         lines, report_extra = fused_stage(fused, lines, mode, ref_end_ms, wav, audio_key, work, args.device, voiced,
@@ -5757,7 +6049,9 @@ def main():
                                           dict_chars, num2words)
     meta = {
         "separator": ("none" if args.no_separate else args.demucs_model),
-        "aligner": "torchaudio MMS_FA (wav2vec2 CTC forced alignment)",
+        "aligner": ("w2v-BERT 2.0 music lyrics CTC on the full mix (forced alignment)" if engine == "w2vbert"
+                    else "torchaudio MMS_FA (wav2vec2 CTC forced alignment)"),
+        "letter_model": engine,
         "aligner_version": ALIGNER_VERSION,
         "anchor_mode": mode,
         # only when it ran, so an aligned run's engine block carries no new key
@@ -5821,9 +6115,11 @@ if __name__ == "__main__":
         sys.exit(self_test_separate_only())
     if "--self-test-model-files" in sys.argv:
         sys.exit(self_test_model_files())
+    if "--self-test-lag" in sys.argv:
+        sys.exit(self_test_lag())
     if "--self-test" in sys.argv:
         sys.exit(max(self_test_syllables(), self_test_normalize(), self_test_sections(), self_test_garbage(),
                      self_test_even_letters(), self_test_estimated(), self_test_spacing(), self_test_late(), self_test_band(),
                      self_test_dup(), self_test_cache(), self_test_fused(), self_test_espeak(), self_test_separate_only(),
-                     self_test_model_files()))
+                     self_test_model_files(), self_test_lag()))
     main()

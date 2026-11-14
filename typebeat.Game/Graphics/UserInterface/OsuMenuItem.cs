@@ -16,6 +16,12 @@ namespace typebeat.Game.Graphics.UserInterface
 
         public IconUsage Icon { get; init; }
 
+        /// <summary>
+        /// Shown while the item is hovered, disabled or not (a disabled item can say why). Settable,
+        /// since what an item can do may change while its menu exists.
+        /// </summary>
+        public LocalisableString TooltipText { get; set; }
+
         public OsuMenuItem(LocalisableString text, MenuItemType type = MenuItemType.Standard)
             : this(text, type, null)
         {

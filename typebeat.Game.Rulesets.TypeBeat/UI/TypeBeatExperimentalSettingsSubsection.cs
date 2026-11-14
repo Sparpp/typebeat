@@ -46,6 +46,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private INotificationOverlay? notifications { get; set; }
 
         private InstallAlignerButton installButton = null!;
+        private InstallAlignerButton demucsButton = null!;
 
         /// <summary>
         /// The aligner's quality tier, stated as the trade a player is actually making: the time an
@@ -177,12 +178,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                         Action = startInstall,
                     },
                 },
+                // Demucs, under the aligner (version 12): installed on its own, for the editor's vocals
+                // waveform and an import's isolated vocals.
+                new Container
+                {
+                    RelativeSizeAxes = Axes.X,
+                    AutoSizeAxes = Axes.Y,
+                    Padding = SettingsPanel.CONTENT_PADDING,
+                    Child = demucsButton = new InstallAlignerButton
+                    {
+                        Caption = DemucsButtonText(alignerManager),
+                        TooltipText = DemucsButtonTooltip(alignerManager),
+                        Action = startDemucsInstall,
+                    },
+                },
             };
 
             // ILocalAlignerManager is registered CanBeNull (headless scenes have no installer), so
-            // the button has to be dead rather than throwing when nothing can service the click.
+            // the buttons have to be dead rather than throwing when nothing can service the click.
             if (alignerManager == null)
+            {
                 installButton.Enabled.Value = false;
+                demucsButton.Enabled.Value = false;
+            }
 
             return controls.ToArray();
         }
@@ -245,7 +263,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 return "Repair local auto-aligner";
 
             if (manager?.IsInstalled != true)
-                return "Install local auto-aligner (~3.5 GB)";
+                return "Install local auto-aligner (~4.5 GB)";
 
             var status = manager.VersionStatus;
 
@@ -284,12 +302,84 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                    + "If your machine cannot run it, sign in and tick \"use server aligner\" on the import screen instead.";
         }
 
+        /// <summary>
+        /// What the Demucs button offers (aligner version 12): a first install, a REPAIR of an
+        /// environment whose setup never completed, or a reinstall. Public static, as
+        /// <see cref="InstallButtonText"/> is, so the test can pin it without a manager to resolve.
+        /// </summary>
+        public static string DemucsButtonText(ILocalAlignerManager? manager)
+        {
+            if (manager?.DemucsNeedsRepair == true)
+                return "Repair Demucs";
+
+            return manager?.DemucsInstalled == true ? "Reinstall Demucs" : "Install Demucs (~2 GB)";
+        }
+
+        /// <summary>The Demucs button's hint: what Demucs is for, and that it is separate from the aligner.</summary>
+        public static string DemucsButtonTooltip(ILocalAlignerManager? manager)
+        {
+            if (manager?.DemucsNeedsRepair == true)
+                return "Demucs's environment on this machine never finished installing. Repair tests it first and keeps it if it works; if it does not, it is downloaded again.";
+
+            return "Demucs separates a song's vocals from the music, on your own machine. The editor's View > Vocals waveform uses it to show just the singing, "
+                   + "and an import uses it when \"isolate vocals\" is ticked. Installed on its own, apart from the auto-aligner, which no longer needs it. "
+                   + "Installs the GPU build automatically when an NVIDIA card is detected.";
+        }
+
         // The tooltip is FormButton's own (it covers the row and its button), so the filter reads it.
         private partial class InstallAlignerButton : FormButton, IFilterable
         {
             public IEnumerable<LocalisableString> FilterTerms => new[] { Caption, TooltipText };
             public bool FilteringActive { get; set; }
             public bool MatchingFilter { set => this.FadeTo(value ? 1 : 0); }
+        }
+
+        private void startDemucsInstall()
+        {
+            if (alignerManager == null)
+                return;
+
+            demucsButton.Enabled.Value = false;
+
+            var notification = new ProgressNotification
+            {
+                Text = alignerManager.DemucsNeedsRepair ? "Repairing Demucs..." : "Installing Demucs...",
+                CompletionText = "Demucs ready. View > Vocals waveform in the editor can now separate a song's vocals.",
+                State = ProgressNotificationState.Active,
+            };
+
+            notifications?.Post(notification);
+
+            Task.Run(async () =>
+            {
+                try
+                {
+                    var result = await alignerManager.InstallDemucsAsync(line => notification.Text = line, notification.CancellationToken).ConfigureAwait(false);
+
+                    // Driven off the worker thread as the aligner's notification is (see startInstall).
+                    if (result.Success)
+                        notification.State = ProgressNotificationState.Completed;
+                    else
+                    {
+                        notification.State = ProgressNotificationState.Cancelled;
+                        notifications?.Post(new SimpleErrorNotification { Text = $"Demucs install failed: {result.Error}" });
+                    }
+
+                    Schedule(() =>
+                    {
+                        demucsButton.Caption = DemucsButtonText(alignerManager);
+                        demucsButton.TooltipText = DemucsButtonTooltip(alignerManager);
+                        demucsButton.Enabled.Value = true;
+                    });
+                }
+                catch (Exception e)
+                {
+                    Logger.Error(e, "Demucs install failed");
+                    notification.Text = "Demucs install failed unexpectedly, see logs.";
+                    notification.State = ProgressNotificationState.Cancelled;
+                    Schedule(() => demucsButton.Enabled.Value = true);
+                }
+            });
         }
 
         private void startInstall()

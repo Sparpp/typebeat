@@ -34,6 +34,12 @@
 # the pinned copy is), and the downloaded zip is unpacked only when its sha256 is $uvSha256 (the
 # release's own .sha256 file). Both change with $uvVersion, as do setup.sh's.
 #
+# -Component aligner (default) | demucs (aligner version 12): which INSTALL this folder becomes.
+#          Since version 12 the aligner reads the full mix and no longer needs Demucs, so the two
+#          are installed apart, each in a folder of its own (the game keeps one for each): the
+#          aligner's packages and its model, or Demucs and its model (htdemucs, 84 MB) for the
+#          editor's vocals waveform and an import's isolated vocals. Both build the same Python and
+#          torch, and each writes the sentinel below for itself.
 # -Device cpu  (default): CPU-only torch wheels (~200 MB download).
 # -Device cuda: CUDA 12.1 torch wheels (~2.5 GB download) - alignment runs on an NVIDIA GPU
 #               (align_lyrics.py --device cuda). Requires a reasonably recent NVIDIA driver.
@@ -58,11 +64,12 @@
 # path when they are missing, so a platform with no espeakng-loader wheel (or a resolver that
 # rejects them) still gets a working aligner instead of a failed setup.
 #
-# Model files: the aligner's three checkpoints (MMS_FA 1.2 GB, htdemucs 84 MB, the fused path's
-# QMUL 57 MB) are fetched by align_lyrics.ensure_model_files into torch hub's checkpoint dir, from
-# type!beat's own mirror first and the original hosts second, each checked against its full sha256
-# (the table, URLs and hashes live in align_lyrics.py alone, MODEL_FILES). Best effort like the pair:
-# a failure is one WARNING line, and the first import that needs a file fetches it the same way.
+# Model files: the component's checkpoints (the aligner's version 12 model, 2.3 GB; Demucs's
+# htdemucs, 84 MB) are fetched by align_lyrics.ensure_model_files into torch hub's checkpoint dir,
+# from type!beat's own mirror first and the original hosts second, each checked against its full
+# sha256 (the table, URLs and hashes live in align_lyrics.py alone, MODEL_FILES and
+# MODEL_COMPONENTS). Best effort like the pair: a failure is one WARNING line, and the first run
+# that needs a file fetches it the same way.
 #
 # Failure output: one plain sentence on stderr that starts "setup failed:", says what failed and
 # what the player can do (retry, check the connection, or install later from Settings), then the
@@ -77,6 +84,8 @@
 param(
     [ValidateSet('cpu', 'cuda')]
     [string]$Device = 'cpu',
+    [ValidateSet('aligner', 'demucs')]
+    [string]$Component = 'aligner',
     [switch]$PlanOnly,
     [switch]$Update
 )
@@ -92,18 +101,25 @@ $uvSha256 = 'ee2468e40320a0a2a36435e66bbd0d861228c4c06767f22d97876528138f4ba0'
 $pythonVersion = '3.11'
 $torchVersion = '2.5.1'
 $sentinel = '.venv\.typebeat-setup-ok'
-# The required packages besides torch, and the optional fused-evidence pair (see the header). The
-# same lists, spelled the same way, are in setup.sh; the game's tests pin both.
-$alignerPackages = 'demucs==4.0.1 soundfile pyphen num2words tqdm imageio-ffmpeg' -split ' '
+# The required packages besides torch for each component, and the aligner's optional fused-evidence
+# pair (see the header). The same lists, spelled the same way, are in setup.sh; the game's tests pin
+# both. The import check is each component's own modules, never the optional pair.
+$alignerPackages = 'soundfile pyphen num2words tqdm transformers==4.49.0 imageio-ffmpeg' -split ' '
+$demucsPackages = 'demucs==4.0.1 soundfile tqdm imageio-ffmpeg' -split ' '
 $fusedPackages = 'phonemizer espeakng-loader' -split ' '
+$isDemucs = $Component -eq 'demucs'
+$packages = if ($isDemucs) { $demucsPackages } else { $alignerPackages }
+$imports = if ($isDemucs) { 'torch, torchaudio, demucs, soundfile' } else { 'torch, torchaudio, soundfile, pyphen, num2words, transformers' }
+$label = if ($isDemucs) { 'Demucs' } else { 'the aligner' }
+$deps = if ($isDemucs) { 'the Demucs dependencies' } else { 'the aligner dependencies' }
 # True while -Update refreshes a completed install, which a failure must leave in place.
 $updating = $false
 $py = '.venv\Scripts\python.exe'
 
 # What the player can do about a failure. Anything that downloads can fail on the network; the
 # rest can only be retried. Either way the game's Settings page offers the install again later.
-$retryNetwork = 'check your internet connection and retry, or install the aligner later from Settings'
-$retryPlain = 'retry, or install the aligner later from Settings'
+$retryNetwork = "check your internet connection and retry, or install $label later from Settings"
+$retryPlain = "retry, or install $label later from Settings"
 
 # The failure report (see the header): the sentence, then up to five lines of raw detail, on
 # stderr. Drops any half-built venv so the next attempt starts clean (the sentinel is inside
@@ -174,8 +190,9 @@ function Install-FusedEvidence {
 # full, so a file already in place is kept and a damaged one is replaced. Best effort: one WARNING
 # line on failure, after which the first import that needs a file fetches it itself.
 function Get-ModelFiles {
-    Write-Output 'fetching the model files the aligner needs (about 1.4 GB the first time)...'
-    & $py -c "import align_lyrics; align_lyrics.ensure_model_files()"
+    if ($isDemucs) { Write-Output 'fetching the model files Demucs needs (84 MB the first time)...' }
+    else { Write-Output 'fetching the model files the aligner needs (about 2.3 GB the first time)...' }
+    & $py -c "import align_lyrics; align_lyrics.ensure_model_files(component='$Component')"
     if ($LASTEXITCODE -ne 0) {
         Write-Output "WARNING: the model files could not all be fetched (exit code $LASTEXITCODE); the first import that needs one fetches it instead"
     }
@@ -266,12 +283,14 @@ Write-Output "using uv at $uvExe"
 # torch included, alone) and the weights, then out. Nothing below this block runs. Unlike a full
 # setup, the update reports the fused-evidence pair failing: installing it is what it is for.
 if ($updating) {
-    Write-Output 'updating the aligner dependencies in the existing environment...'
-    $step = 'updating the aligner dependencies'
+    Write-Output "updating $deps in the existing environment..."
+    $step = "updating $deps"
     $stepAdvice = $retryNetwork
-    Invoke-Native 'updating the aligner dependencies failed' $retryNetwork { & $uvExe pip install --python $py $alignerPackages }
-    Install-FusedEvidence
-    if (-not $fusedInstalled) { Stop-Setup 'installing the fused-evidence packages failed' $retryNetwork 'the aligner keeps working on its version 9 path' }
+    Invoke-Native "updating $deps failed" $retryNetwork { & $uvExe pip install --python $py $packages }
+    if (-not $isDemucs) {
+        Install-FusedEvidence
+        if (-not $fusedInstalled) { Stop-Setup 'installing the fused-evidence packages failed' $retryNetwork 'the aligner keeps working on its version 9 path' }
+    }
     Get-ModelFiles
     Write-Output 'lyriclab environment updated'
     exit 0
@@ -285,9 +304,9 @@ Invoke-Native "creating the Python $pythonVersion environment failed" $retryNetw
 Write-Output "installing torch ($Device) - this is the big download..."
 $step = 'installing torch'
 Invoke-Native 'installing torch failed' $retryNetwork { & $uvExe pip install --python $py --index-url $torchIndex "torch==$torchVersion" "torchaudio==$torchVersion" }
-Write-Output 'installing aligner dependencies...'
-$step = 'installing the aligner dependencies'
-Invoke-Native 'installing the aligner dependencies failed' $retryNetwork { & $uvExe pip install --python $py $alignerPackages }
+Write-Output $(if ($isDemucs) { 'installing Demucs...' } else { 'installing aligner dependencies...' })
+$step = "installing $deps"
+Invoke-Native "installing $deps failed" $retryNetwork { & $uvExe pip install --python $py $packages }
 
 if (-not (Test-Path $py)) { Stop-Setup 'the Python environment was not created' $retryPlain "no $py after uv venv" }
 
@@ -297,9 +316,9 @@ Invoke-Native 'provisioning ffmpeg failed' $retryPlain { & $py -c "import imagei
 
 Write-Output 'verifying the installed packages import...'
 $step = 'verifying the installed packages'
-Invoke-Native 'the installed packages do not import' $retryPlain { & $py -c "import torch, torchaudio, demucs, soundfile, pyphen, num2words" }
+Invoke-Native 'the installed packages do not import' $retryPlain { & $py -c "import $imports" }
 
-Install-FusedEvidence
+if (-not $isDemucs) { Install-FusedEvidence }
 Get-ModelFiles
 
 if ($Device -eq 'cuda') {
@@ -313,5 +332,5 @@ if ($Device -eq 'cuda') {
 # LAST act, after every step above checked out: the sentinel the game reads as "installed".
 $step = 'writing the setup sentinel'
 $stamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-[IO.File]::WriteAllText((Join-Path $PSScriptRoot $sentinel), "python=$pythonVersion`ntorch=$torchVersion`ndevice=$Device`ncreated=$stamp`n")
+[IO.File]::WriteAllText((Join-Path $PSScriptRoot $sentinel), "python=$pythonVersion`ntorch=$torchVersion`ndevice=$Device`ncomponent=$Component`ncreated=$stamp`n")
 Write-Output 'lyriclab environment ready'

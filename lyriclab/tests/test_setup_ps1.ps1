@@ -120,7 +120,7 @@ Write-Output "probe survived LASTEXITCODE=$LASTEXITCODE"
     # exits 0 whatever it is given, so every python -c step "succeeds") or, with FAKE_PY_BROKEN,
     # of where.exe (which exits 1, so the first python step fails the way a venv without torch
     # does). 'pip' succeeds unless FAKE_UV_FAIL_TORCH is set and the call installs torch,
-    # FAKE_UV_FAIL_DEPS is set and it installs the aligner dependencies (demucs), or
+    # FAKE_UV_FAIL_DEPS is set and it installs a component's dependencies (soundfile), or
     # FAKE_UV_FAIL_FUSED is set and it installs the fused-evidence pair (phonemizer). Every call is
     # logged to uv-calls.txt in the lab (the redirect comes first so a trailing digit in the
     # arguments cannot read as a handle number).
@@ -144,7 +144,7 @@ Write-Output "probe survived LASTEXITCODE=$LASTEXITCODE"
         'exit /b %errorlevel%'
         ':pip'
         'if not defined FAKE_UV_FAIL_DEPS goto fused'
-        'echo %* | findstr /c:"demucs" >nul'
+        'echo %* | findstr /c:"soundfile" >nul'
         'if not errorlevel 1 exit /b 1'
         ':fused'
         'if not defined FAKE_UV_FAIL_FUSED goto torch'
@@ -182,7 +182,7 @@ Write-Output "probe survived LASTEXITCODE=$LASTEXITCODE"
     $calls = @(Get-Content (Join-Path $l 'uv-calls.txt'))
     $pips = @($calls | Where-Object { $_ -match '^pip install' -and $_ -notmatch 'torch==' })
     Check 'fused: a full setup installs the pair by its own call after the aligner dependencies' (
-        $pips.Count -eq 2 -and $pips[0] -match 'demucs==4\.0\.1 soundfile pyphen num2words tqdm imageio-ffmpeg$' -and
+        $pips.Count -eq 2 -and $pips[0] -match ' soundfile pyphen num2words tqdm transformers==4\.49\.0 imageio-ffmpeg$' -and $pips[0] -notmatch 'demucs' -and
         $pips[1] -match ' phonemizer espeakng-loader$' -and
         $r.Output -match 'fetching the model files') (($calls -join "`n") + "`n" + $r.Output)
 
@@ -231,6 +231,24 @@ Write-Output "probe survived LASTEXITCODE=$LASTEXITCODE"
         $r.Output -match 'fetching the model files') $r.Output
 
     # -Update with no completed install is an ordinary full setup.
+    # The Demucs component (aligner version 12): one package line, Demucs's, with none of the
+    # aligner's and no fused pair; its own model files; and the component in its sentinel.
+    $l = New-Lab 'run-demucs'
+    $r = Invoke-Child (Join-Path $l 'setup.ps1') '-Component demucs' $fakeUv
+    $calls = @(if (Test-Path (Join-Path $l 'uv-calls.txt')) { Get-Content (Join-Path $l 'uv-calls.txt') })
+    $pips = @($calls | Where-Object { $_ -match '^pip install' -and $_ -notmatch 'torch==' })
+    $content = if (Test-Path (Join-Path $l $sentinelName)) { [IO.File]::ReadAllText((Join-Path $l $sentinelName)) } else { '' }
+    Check 'demucs: -Component demucs installs Demucs alone, none of the aligner''s packages' (
+        $r.ExitCode -eq 0 -and $r.Output -match 'lyriclab environment ready' -and
+        $pips.Count -eq 1 -and $pips[0] -match ' demucs==4\.0\.1 soundfile tqdm imageio-ffmpeg$' -and
+        -not ($calls -match 'pyphen|transformers|phonemizer') -and
+        $r.Output -match 'fetching the model files Demucs needs' -and $content -match '(?m)^component=demucs$') (($calls -join "`n") + "`n" + $r.Output)
+
+    $r = Invoke-Child (Join-Path $l 'setup.ps1') '-Component demucs -Update' $fakeUv @{ FAKE_UV_FAIL_DEPS = '1' }
+    Check 'demucs: a failed -Update names Demucs and keeps the install' (
+        $r.ExitCode -eq 1 -and $r.Output -match 'setup failed: updating the Demucs dependencies failed; check your internet connection and retry, or install Demucs later from Settings' -and
+        (Test-Path (Join-Path $l $sentinelName))) $r.Output
+
     $l = New-Lab 'run-update-fresh'
     $r = Invoke-Child (Join-Path $l 'setup.ps1') '-Update' $fakeUv
     Check 'update: -Update without a sentinel runs the full setup' (

@@ -13,6 +13,7 @@ using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Extensions;
 using osu.Framework.Graphics;
+using osu.Framework.Logging;
 using osu.Framework.Platform;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Online.API;
@@ -36,12 +37,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
     ///
     /// Also implements <see cref="ILocalAlignerManager"/>: installing the local auto-aligner into
     /// the game's DATA directory (so its multi-GB environment survives Velopack updates, which
-    /// replace the application directory wholesale).
+    /// replace the application directory wholesale), and, since aligner version 12, local DEMUCS
+    /// beside it in a folder of its own (<see cref="DEMUCS_FOLDER_NAME"/>), which the editor's vocals
+    /// waveform and an import's isolated vocals run.
     /// </summary>
     public partial class LyricMapImportService : Component, ILyricMapImporter, ILocalAlignerManager
     {
         /// <summary>The managed install folder inside the game's data directory.</summary>
         public const string INSTALL_FOLDER_NAME = "lyriclab";
+
+        /// <summary>The managed Demucs install's folder inside the game's data directory: the same scripts, its own environment.</summary>
+        public const string DEMUCS_FOLDER_NAME = "demucs";
 
         /// <summary>Component files copied from the shipped/dev checkout into the managed install.</summary>
         private static readonly string[] component_files = { "align_lyrics.py", "setup.ps1", "setup.sh", "debug_decode.py", "README.md" };
@@ -65,7 +71,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 ? Task.FromResult(LyricImportResult.Fail("select a language before importing"))
                 : LyricMapImporter.BuildOszAsync(audioPath, lyricsPath, artist, title, effectiveConfiguredPath(), startDirectories(), progress, token,
                     useAutomaticAlignment, language: language.ToCanonicalName(), highQualityAlignment: HighQualityAlignment(config()), vocalMode: vocalMode,
-                    requiredAlignerVersion: ShippedVersion, remoteAlign: useServerAligner ? ServerAligner(api) : null, isolateVocals: isolateVocals);
+                    requiredAlignerVersion: ShippedVersion, remoteAlign: useServerAligner ? ServerAligner(api) : null, isolateVocals: isolateVocals,
+                    demucsDir: isolateVocals ? demucsDirForRun() : null);
 
         public Task<(LyricImportResult Result, string? TimingJson)> ProduceTimingJsonAsync(
             string audioPath, string lyricsContent, string artist, string title,
@@ -144,11 +151,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         // ILocalAlignerManager
         // ---------------------------------------------------------------------------------------------
 
-        private string? managedInstallDir()
+        private string? managedInstallDir() => managedDir(INSTALL_FOLDER_NAME);
+
+        private string? managedDemucsDir() => managedDir(DEMUCS_FOLDER_NAME);
+
+        private string? managedDir(string name)
         {
             try
             {
-                return storage?.GetFullPath(INSTALL_FOLDER_NAME);
+                return storage?.GetFullPath(name);
             }
             catch
             {
@@ -262,6 +273,179 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// </summary>
         private readonly SemaphoreSlim installLock = new SemaphoreSlim(1, 1);
 
+        // ---------------------------------------------------------------------------------------------
+        // Demucs (aligner version 12)
+        // ---------------------------------------------------------------------------------------------
+
+        public bool DemucsInstalled
+        {
+            get
+            {
+                string? dir = managedDemucsDir();
+                return dir != null && AlignerEnvironment.EnvironmentReady(dir);
+            }
+        }
+
+        public bool DemucsNeedsRepair
+        {
+            get
+            {
+                string? dir = managedDemucsDir();
+                return dir != null && AlignerEnvironment.EnvironmentNeedsRepair(dir);
+            }
+        }
+
+        /// <summary>Held for the whole of a Demucs install, as <see cref="installLock"/> is for the aligner's.</summary>
+        private readonly SemaphoreSlim demucsInstallLock = new SemaphoreSlim(1, 1);
+
+        public async Task<LyricImportResult> InstallDemucsAsync(Action<string> progress, CancellationToken token)
+        {
+            if (!demucsInstallLock.Wait(0))
+                return LyricImportResult.Fail("Demucs is already being installed, wait for that install to finish");
+
+            try
+            {
+                string? target = managedDemucsDir();
+
+                if (target == null)
+                    return LyricImportResult.Fail("no game storage available to install into");
+
+                string? copyFailure = copyComponent(target, progress, "copying Demucs's scripts...");
+
+                if (copyFailure != null)
+                    return LyricImportResult.Fail(copyFailure);
+
+                string device = await prepareDevice(target, progress).ConfigureAwait(false);
+
+                progress(device == "cuda" ? "NVIDIA GPU detected, installing the GPU build of Demucs" : "no NVIDIA GPU detected, installing the CPU build of Demucs");
+
+                return await AlignerEnvironment.BootstrapEnvironmentAsync(target, progress, token, device, updateExisting: true, component: LocalComponent.Demucs)
+                                               .ConfigureAwait(false);
+            }
+            finally
+            {
+                demucsInstallLock.Release();
+            }
+        }
+
+        public Task<VocalsSeparationResult> SeparateVocalsAsync(string audioPath, Action<string> progress, CancellationToken token)
+            => LyricMapImporter.SeparateVocalsForEditorAsync(demucsDirForRun(), audioPath, startDirectories(), progress, token);
+
+        /// <summary>
+        /// The managed Demucs install a separation runs in, or null when there is none. Its script is
+        /// brought up to this build's first when the game has been updated since Demucs was installed:
+        /// the script is all a separation needs from it, and the environment is kept.
+        /// </summary>
+        private string? demucsDirForRun()
+        {
+            string? dir = managedDemucsDir();
+
+            if (dir == null || !AlignerEnvironment.IsLyricLabDir(dir))
+                return null;
+
+            string? source = AlignerEnvironment.ResolveLyricLabDir(null, startDirectories());
+
+            if (source != null && !string.Equals(Path.GetFullPath(source), Path.GetFullPath(dir), StringComparison.OrdinalIgnoreCase)
+                               && AlignerEnvironment.ReadAlignerVersion(source) != AlignerEnvironment.ReadAlignerVersion(dir))
+            {
+                try
+                {
+                    File.Copy(Path.Combine(source, "align_lyrics.py"), Path.Combine(dir, "align_lyrics.py"), overwrite: true);
+                }
+                catch (Exception e)
+                {
+                    Logger.Log($"Could not bring the Demucs install's script up to date: {e.Message}", LoggingTarget.Runtime, LogLevel.Important);
+                }
+            }
+
+            return dir;
+        }
+
+        /// <summary>
+        /// Copies the shipped component's scripts into <paramref name="target"/> (an install's folder),
+        /// clearing that install's caches when a newer script replaces an older one's. Null, or why it
+        /// could not.
+        /// </summary>
+        private string? copyComponent(string target, Action<string> progress, string message)
+        {
+            // Source of the component scripts: the copy shipped beside the executable (deployed
+            // builds) or a dev checkout found by discovery. The managed install itself also counts
+            // (repair-after-update with the shipped copy still preferred for freshness).
+            string? source = AlignerEnvironment.ResolveLyricLabDir(null, startDirectories());
+
+            if (source == null && !AlignerEnvironment.IsLyricLabDir(target))
+                return "this build did not ship the aligner component, update the game and try again";
+
+            try
+            {
+                Directory.CreateDirectory(target);
+
+                if (source != null && !string.Equals(Path.GetFullPath(source), Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
+                {
+                    progress(message);
+
+                    foreach (string name in component_files)
+                    {
+                        string from = Path.Combine(source, name);
+
+                        if (File.Exists(from))
+                            File.Copy(from, Path.Combine(target, name), overwrite: true);
+                    }
+
+                    // A reinstall is how an existing install picks up a newer aligner, so the OLD
+                    // one has to go with it: its cached model output (work/) was produced by the
+                    // previous script and would be trusted by the new one, and its per-import
+                    // outputs (out/) are stale. The environment (.venv) is the multi-GB part and
+                    // is deliberately kept; the device marker stays with it.
+                    foreach (string stale in new[] { "work", "out" })
+                    {
+                        string dir = Path.Combine(target, stale);
+
+                        if (Directory.Exists(dir))
+                        {
+                            progress($"clearing the previous {stale}/ cache...");
+                            Directory.Delete(dir, recursive: true);
+                        }
+                    }
+                }
+
+                return null;
+            }
+            catch (Exception e)
+            {
+                return $"could not copy the aligner component: {e.Message}";
+            }
+        }
+
+        /// <summary>
+        /// The torch flavour an install in <paramref name="target"/> gets ("cuda" with an NVIDIA GPU,
+        /// else "cpu"), dropping an environment built for the other one: the venv pins CPU or CUDA
+        /// wheels at install time. Checked on the venv's PRESENCE, not on a completed setup, so a
+        /// sentinel-less venv of the wrong flavour is rebuilt rather than adopted by the repair probe.
+        /// </summary>
+        private Task<string> prepareDevice(string target, Action<string> progress)
+        {
+            string device = GpuDetected ? "cuda" : "cpu";
+
+            try
+            {
+                string marker = Path.Combine(target, AlignerEnvironment.DEVICE_MARKER_FILE);
+
+                if (AlignerEnvironment.EnvironmentPresent(target) && File.Exists(marker)
+                    && !File.ReadAllText(marker).Trim().Equals(device, StringComparison.OrdinalIgnoreCase))
+                {
+                    progress("switching the device flavour, rebuilding the environment...");
+                    Directory.Delete(Path.Combine(target, ".venv"), recursive: true);
+                }
+            }
+            catch
+            {
+                // Best effort; bootstrap will report anything fatal.
+            }
+
+            return Task.FromResult(device);
+        }
+
         public async Task<LyricImportResult> InstallAsync(Action<string> progress, CancellationToken token)
         {
             // A second install while one runs fails at once rather than queueing to redo the same work.
@@ -285,73 +469,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             if (target == null)
                 return LyricImportResult.Fail("no game storage available to install into");
 
-            // Source of the component scripts: the copy shipped beside the executable (deployed
-            // builds) or a dev checkout found by discovery. The managed install itself also counts
-            // (repair-after-update with the shipped copy still preferred for freshness).
-            string? source = AlignerEnvironment.ResolveLyricLabDir(null, startDirectories());
-
-            if (source == null && !AlignerEnvironment.IsLyricLabDir(target))
-                return LyricImportResult.Fail("this build did not ship the aligner component, update the game and try again");
-
-            try
+            // Version 12 left Demucs and MMS_FA behind for a model of its own: an install from before it
+            // is UNINSTALLED WHOLE, its environment and the models only it used, before the new one is
+            // installed fresh (Demucs, should the player want it, is its own install now).
+            if (AlignerEnvironment.MustRemovePreviousAligner(target, ShippedVersion))
             {
-                Directory.CreateDirectory(target);
+                progress($"removing the previous auto-aligner (v{AlignerEnvironment.ReadAlignerVersion(target)}) completely...");
 
-                if (source != null && !string.Equals(Path.GetFullPath(source), Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
-                {
-                    progress("copying aligner component...");
+                string? removal = AlignerEnvironment.RemovePreviousAligner(target, AlignerEnvironment.TorchHubCheckpointsDir(), keepDemucsModel: DemucsInstalled, progress);
 
-                    foreach (string name in component_files)
-                    {
-                        string from = Path.Combine(source, name);
-
-                        if (File.Exists(from))
-                            File.Copy(from, Path.Combine(target, name), overwrite: true);
-                    }
-
-                    // A reinstall is how an existing install picks up a newer aligner, so the OLD
-                    // one has to go with it: its cached model output (work/) was produced by the
-                    // previous script and would be trusted by the new one, and its per-import
-                    // outputs (out/) are stale. The environment (.venv) is the multi-GB part and
-                    // is deliberately kept; the device marker stays with it.
-                    foreach (string stale in new[] { "work", "out" })
-                    {
-                        string dir = Path.Combine(target, stale);
-
-                        if (Directory.Exists(dir))
-                        {
-                            progress($"clearing the previous aligner's {stale}/ cache...");
-                            Directory.Delete(dir, recursive: true);
-                        }
-                    }
-                }
-            }
-            catch (Exception e)
-            {
-                return LyricImportResult.Fail($"could not copy the aligner component: {e.Message}");
+                if (removal != null)
+                    return LyricImportResult.Fail(removal);
             }
 
-            string device = GpuDetected ? "cuda" : "cpu";
+            string? copyFailure = copyComponent(target, progress, "copying aligner component...");
 
-            // A previously built environment of the other torch flavour must be rebuilt; the venv
-            // pins CPU or CUDA wheels at install time. Checked on the venv's PRESENCE, not on a
-            // completed setup, so a sentinel-less venv of the wrong flavour is rebuilt rather than
-            // adopted by the repair probe.
-            try
-            {
-                string marker = Path.Combine(target, AlignerEnvironment.DEVICE_MARKER_FILE);
+            if (copyFailure != null)
+                return LyricImportResult.Fail(copyFailure);
 
-                if (AlignerEnvironment.EnvironmentPresent(target) && File.Exists(marker)
-                    && !File.ReadAllText(marker).Trim().Equals(device, StringComparison.OrdinalIgnoreCase))
-                {
-                    progress("switching aligner device flavour, rebuilding the environment...");
-                    Directory.Delete(Path.Combine(target, ".venv"), recursive: true);
-                }
-            }
-            catch
-            {
-                // Best effort; bootstrap will report anything fatal.
-            }
+            string device = await prepareDevice(target, progress).ConfigureAwait(false);
 
             progress(device == "cuda"
                 ? "NVIDIA GPU detected, installing the GPU aligner"
