@@ -152,6 +152,99 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// Backlog 475 revived Indicator Alignment under a NEW key. An install that ran a build between
+        /// 2026-10-04 and 2026-10-25 still holds a stored SyllableFadeInEnd row, often at 0 (that era's
+        /// shipped default); it must stay orphaned, so the new setting starts on the centre and neither
+        /// alignment moves. Choices made on the new keys survive a restart, independently of each other.
+        /// </summary>
+        [TestCase("0")]
+        [TestCase("30")]
+        public void AStoredRetiredAlignmentRowDoesNotReachTheNewSettings(string retired)
+        {
+            withStore((access, settings, ruleset) =>
+            {
+                access.Write(r =>
+                {
+                    r.Add(new RealmRulesetSetting { RulesetName = ruleset.ShortName, Variant = 7, Key = nameof(TypeBeatRulesetSetting.IndicatorDefaultsApplied), Value = "True" });
+                    r.Add(new RealmRulesetSetting { RulesetName = ruleset.ShortName, Variant = 7, Key = "SyllableFadeInEnd", Value = retired });
+                    r.Add(new RealmRulesetSetting { RulesetName = ruleset.ShortName, Variant = 7, Key = "IndicatorAlignmentCentreApplied", Value = "True" });
+                });
+
+                using (var config = new TypeBeatRulesetConfigManager(settings, ruleset.RulesetInfo, 7))
+                {
+                    Assert.That(config.Get<float>(TypeBeatRulesetSetting.IndicatorAlignment), Is.EqualTo(100f));
+                    Assert.That(config.Get<float>(TypeBeatRulesetSetting.ApproachBarAlignment), Is.EqualTo(100f));
+
+                    config.SetValue(TypeBeatRulesetSetting.IndicatorAlignment, 40f);
+                    config.SetValue(TypeBeatRulesetSetting.ApproachBars, true);
+                    config.SetValue(TypeBeatRulesetSetting.ApproachBarAlignment, 0f);
+                    config.Save();
+                }
+
+                // The retired row is untouched (orphaned, never rewritten), and the new rows are separate.
+                Assert.That(access.Realm.All<RealmRulesetSetting>().Single(s => s.Variant == 7 && s.Key == "SyllableFadeInEnd").Value, Is.EqualTo(retired));
+
+                using var reloaded = new TypeBeatRulesetConfigManager(settings, ruleset.RulesetInfo, 7);
+                Assert.That(reloaded.Get<float>(TypeBeatRulesetSetting.IndicatorAlignment), Is.EqualTo(40f));
+                Assert.That(reloaded.Get<float>(TypeBeatRulesetSetting.ApproachBarAlignment), Is.Zero);
+            });
+        }
+
+        /// <summary>
+        /// The alignments are greyed out (never rewritten) while they have nothing to move, following the
+        /// pace colour gradient's convention: Approach Bar Alignment while Approach bars are off, and
+        /// Indicator Alignment while the Judgement Indicator is None AND Text pop-in is off (it also
+        /// times the pop-in). A persisted gate takes effect on load.
+        /// </summary>
+        [Test]
+        public void AlignmentsAreDisabledOnlyWhileTheyHaveNothingToMove()
+        {
+            withStore((access, settings, ruleset) =>
+            {
+                access.Write(r =>
+                {
+                    r.Add(new RealmRulesetSetting { RulesetName = ruleset.ShortName, Variant = 7, Key = nameof(TypeBeatRulesetSetting.IndicatorDefaultsApplied), Value = "True" });
+                    r.Add(new RealmRulesetSetting { RulesetName = ruleset.ShortName, Variant = 7, Key = nameof(TypeBeatRulesetSetting.ApproachBars), Value = "False" });
+                    r.Add(new RealmRulesetSetting { RulesetName = ruleset.ShortName, Variant = 7, Key = nameof(TypeBeatRulesetSetting.ApproachBarAlignment), Value = "25" });
+                    r.Add(new RealmRulesetSetting { RulesetName = ruleset.ShortName, Variant = 7, Key = nameof(TypeBeatRulesetSetting.JudgementIndicator), Value = "None" });
+                    r.Add(new RealmRulesetSetting { RulesetName = ruleset.ShortName, Variant = 7, Key = nameof(TypeBeatRulesetSetting.TextPopIn), Value = "False" });
+                    r.Add(new RealmRulesetSetting { RulesetName = ruleset.ShortName, Variant = 7, Key = nameof(TypeBeatRulesetSetting.IndicatorAlignment), Value = "60" });
+                });
+
+                using var config = new TypeBeatRulesetConfigManager(settings, ruleset.RulesetInfo, 7);
+                var bar = config.GetBindable<float>(TypeBeatRulesetSetting.ApproachBarAlignment);
+                var indicator = config.GetBindable<float>(TypeBeatRulesetSetting.IndicatorAlignment);
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(bar.Disabled, Is.True);
+                    Assert.That(bar.Value, Is.EqualTo(25f), "a disabled alignment keeps its stored value");
+                    Assert.That(indicator.Disabled, Is.True);
+                    Assert.That(indicator.Value, Is.EqualTo(60f), "a disabled alignment keeps its stored value");
+                });
+
+                config.SetValue(TypeBeatRulesetSetting.ApproachBars, true);
+                Assert.That(bar.Disabled, Is.False);
+                Assert.That(indicator.Disabled, Is.True, "approach bars do not gate the indicator alignment");
+
+                config.SetValue(TypeBeatRulesetSetting.TextPopIn, true);
+                Assert.That(indicator.Disabled, Is.False, "the pop-in alone still follows Indicator Alignment");
+                config.SetValue(TypeBeatRulesetSetting.TextPopIn, false);
+                Assert.That(indicator.Disabled, Is.True);
+                config.SetValue(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.FadeIn);
+                Assert.That(indicator.Disabled, Is.False);
+                config.SetValue(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.BottomToTopFill);
+                Assert.That(indicator.Disabled, Is.False);
+
+                config.SetValue(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.None);
+                Assert.That(bar.Disabled, Is.False, "the text indicator does not gate the bar alignment");
+                Assert.That(config.ResetToDefaults(), Is.GreaterThan(0));
+                Assert.That(bar.Value, Is.EqualTo(100f), "reset reaches a gated alignment");
+                Assert.That(indicator.Value, Is.EqualTo(100f), "reset reaches a gated alignment");
+            });
+        }
+
+        /// <summary>
         /// Backlog 465 moved the sung playhead's default from Line to None. A player who has already
         /// booted owns the Line row written then, and keeps it; only an install with no row starts on None.
         /// </summary>

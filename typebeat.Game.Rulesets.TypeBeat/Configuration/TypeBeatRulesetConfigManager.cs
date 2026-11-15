@@ -253,10 +253,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// <summary>Replace the syllable brightness fade with a bottom-to-top glyph fill. Display only.</summary>
         SyllableColourFill,
 
-        // NOTE (2026-10-25): SyllableFadeInEnd ("Indicator Alignment") was retired. The fade and fill now
-        // always complete at the centre of the Great window (LyricLineDisplay.indicatorCompletion). A
-        // stored row is orphaned and harmless: rows are looked up by member name and nothing asks for
-        // that name any more. Do not reuse the name.
+        // NOTE (2026-10-25): SyllableFadeInEnd (the first "Indicator Alignment") was retired. A stored row
+        // is orphaned and harmless: rows are looked up by member name and nothing asks for that name any
+        // more. Do not reuse the name. Backlog 475 brought the slider back under a NEW key,
+        // IndicatorAlignment (see there), precisely so these orphaned rows stay unread: installs that ran
+        // a build between 2026-10-04 and 2026-10-25 still hold one, often at 0 (the shipped default then),
+        // and reviving the name would silently move their indicators off the centre.
 
         /// <summary>Duration of the syllable brightness fade or fill in milliseconds. Display only.</summary>
         SyllableFadeInDuration,
@@ -267,7 +269,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// <summary>Blend between pace colour bands, from sharp edges (0%) to smooth transitions (100%). Display only.</summary>
         PaceColourGradient,
 
-        /// <summary>Independent bars approaching the sung target at the centre of the Great window.</summary>
+        /// <summary>Independent bars approaching the sung target, arriving where <see cref="ApproachBarAlignment"/> sets (the Great window's centre by default).</summary>
         ApproachBars,
 
         /// <summary>Records the one-time application of the revised indicator and pace defaults.</summary>
@@ -356,6 +358,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// only, live, and never in the replay CONFIG frame (backing vocals are never typed or judged).
         /// </summary>
         ShowBackingVocals,
+
+        /// <summary>
+        /// "Indicator Alignment" (backlog 475): when the judgement indicator's fade or bottom-to-top fill
+        /// and the text pop-in COMPLETE, from the opening of the Great window (0%, the target minus
+        /// GreatEarly) to its centre (100%, the target, the default). Each indicator keeps its own
+        /// completion time at 100% (the judged span's start for the fade and pop-in, each letter's own
+        /// target for the fill) and moves earlier by the rest of GreatEarly below it. Display only: no
+        /// judgement, score, replay or autoplay reads it.
+        ///
+        /// <para>A NEW key, not the retired <c>SyllableFadeInEnd</c>: see the note where that member
+        /// used to be. Defaulting to 100 keeps every display exactly as it was until a player moves the
+        /// slider. Disabled while it has nothing to move (Judgement Indicator None with Text pop-in off).
+        /// Independent of <see cref="ApproachBarAlignment"/>.</para>
+        /// </summary>
+        IndicatorAlignment,
+
+        /// <summary>
+        /// "Approach Bar Alignment" (backlog 475): where approach bars arrive, on the same scale as
+        /// <see cref="IndicatorAlignment"/> (0% the opening of the Great window, 100% the centre, the
+        /// default) and independent of it. The pace bar reveal follows the bars' arrival. Display only;
+        /// disabled while <see cref="ApproachBars"/> is off.
+        /// </summary>
+        ApproachBarAlignment,
     }
 
     /// <summary>
@@ -467,6 +492,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         // in the constructor body, after the base constructor has finished virtual initialization.
         private readonly Bindable<bool> approachBarsBindable;
         private readonly Bindable<float> paceColourGradientBindable;
+        private readonly Bindable<JudgementIndicatorMode> judgementIndicatorBindable;
+        private readonly Bindable<bool> textPopInBindable;
+        private readonly Bindable<float> indicatorAlignmentBindable;
+        private readonly Bindable<float> approachBarAlignmentBindable;
+
+        /// <summary>Indicator Alignment and Approach Bar Alignment for a player who has not moved them: the Great window's centre.</summary>
+        public const float DEFAULT_ALIGNMENT_PERCENT = 100f;
 
         public const float DEFAULT_TIMING_TINT_MIN_STRENGTH = 33f;
         public const float DEFAULT_TIMING_TINT_MAX_STRENGTH = 100f;
@@ -532,7 +564,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
 
                 paceColourGradientBindable.Disabled = change.NewValue;
             }, true);
+
+            // The two alignments are greyed out, never rewritten, while they have nothing to move:
+            // the stored value is kept and applies again as soon as the control is enabled.
+            approachBarAlignmentBindable = GetBindable<float>(TypeBeatRulesetSetting.ApproachBarAlignment);
+            approachBarsBindable.BindValueChanged(change => approachBarAlignmentBindable.Disabled = !change.NewValue, true);
+
+            // Indicator Alignment moves the fade or fill AND the text pop-in, so it only has nothing to
+            // move when both are off.
+            judgementIndicatorBindable = GetBindable<JudgementIndicatorMode>(TypeBeatRulesetSetting.JudgementIndicator);
+            textPopInBindable = GetBindable<bool>(TypeBeatRulesetSetting.TextPopIn);
+            indicatorAlignmentBindable = GetBindable<float>(TypeBeatRulesetSetting.IndicatorAlignment);
+            judgementIndicatorBindable.BindValueChanged(_ => updateIndicatorAlignmentDisabled());
+            textPopInBindable.BindValueChanged(_ => updateIndicatorAlignmentDisabled(), true);
         }
+
+        private void updateIndicatorAlignmentDisabled() =>
+            indicatorAlignmentBindable.Disabled = judgementIndicatorBindable.Value == JudgementIndicatorMode.None && !textPopInBindable.Value;
 
         // Run before the base constructor loads and parses any stored setting. A default alone
         // cannot change an existing row, and PreviousSegment is a name used by an older build.
@@ -693,6 +741,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.IndicatorDefaultsApplied, true);
             SetDefault(TypeBeatRulesetSetting.UseServerAligner, false);
             SetDefault(TypeBeatRulesetSetting.IsolateVocalsOnImport, true);
+            SetDefault(TypeBeatRulesetSetting.IndicatorAlignment, DEFAULT_ALIGNMENT_PERCENT, 0f, 100f, 1f);
+            SetDefault(TypeBeatRulesetSetting.ApproachBarAlignment, DEFAULT_ALIGNMENT_PERCENT, 0f, 100f, 1f);
         }
     }
 }

@@ -97,6 +97,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private readonly Bindable<PaceBarRevealMode> paceBarReveal = new Bindable<PaceBarRevealMode>(PaceBarRevealMode.Off);
         private readonly BindableBool judgementColouredBars = new BindableBool();
         private readonly BindableFloat syllableFadeInDuration = new BindableFloat(TypeBeatRulesetConfigManager.DEFAULT_SYLLABLE_FADE_IN_DURATION_MS);
+        private readonly BindableFloat indicatorAlignment = new BindableFloat(TypeBeatRulesetConfigManager.DEFAULT_ALIGNMENT_PERCENT);
+        private readonly BindableFloat approachBarAlignment = new BindableFloat(TypeBeatRulesetConfigManager.DEFAULT_ALIGNMENT_PERCENT);
         private readonly BindableBool textPopIn = new BindableBool(true);
         private readonly BindableFloat textPopInAmount = new BindableFloat(TypeBeatRulesetConfigManager.DEFAULT_TEXT_POP_IN_AMOUNT);
 
@@ -444,6 +446,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             bindToDisplays(TypeBeatRulesetSetting.JudgementIndicator, judgementIndicator, (d, v) => d.SetJudgementIndicator(v));
             bindToDisplays(TypeBeatRulesetSetting.PaceColourGradient, paceColourGradient, (d, v) => d.SetPaceColourGradient(v));
             bindToDisplays(TypeBeatRulesetSetting.SyllableFadeInDuration, syllableFadeInDuration, (d, v) => d.SetSyllableFadeInDuration(v));
+            // The two alignments (backlog 475): display only, live, never in the replay CONFIG frame.
+            bindToDisplays(TypeBeatRulesetSetting.IndicatorAlignment, indicatorAlignment, (d, v) => d.SetIndicatorAlignment(v));
+            bindToDisplays(TypeBeatRulesetSetting.ApproachBarAlignment, approachBarAlignment, (d, v) => d.SetApproachBarAlignment(v));
             bindToDisplays(TypeBeatRulesetSetting.TextPopIn, textPopIn, (d, v) => d.SetTextPopInEnabled(v));
             bindToDisplays(TypeBeatRulesetSetting.SyllableBrightness, syllableBrightness, (d, v) => d.SetSungBrightness(v));
 

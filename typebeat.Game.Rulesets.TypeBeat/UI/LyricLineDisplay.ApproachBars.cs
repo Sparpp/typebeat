@@ -88,7 +88,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 if (!owner.approachBarsEnabled || index >= owner.cells.Length || !owner.Line.Cells[index].IsCountable)
                     return;
                 var span = owner.approachBarSpan(index);
-                // Bars always land on the sung target, independently of text indicator alignment.
+                // Bars land on the sung target at Approach Bar Alignment 100%, and earlier by that share of
+                // GreatEarly below it, independently of Indicator Alignment. Only the arrival moves: the
+                // release still follows the span's end and its Great window.
+                double arrival = owner.approachBarArrival(index, span.start);
+                double lead = span.start - arrival;
+                double releaseWindowEnd = span.end + owner.windowsFor(index).GreatLate;
                 double time = owner.sungTime;
                 if (ramp != null)
                 {
@@ -97,16 +102,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     Size = new Vector2(owner.cellX[index + 1] - owner.cellX[index], SWEEP_RAIL_HEIGHT * owner.SizeRatio);
                     Colour = owner.paceColourFor(index);
                     Alpha = owner.cellVisibleAlpha(index);
-                    ramp.UpdateRamp(time, span.start, span.end, Width - trackWidth, trackWidth,
-                        owner.syllableFadeInDuration, span.end + owner.windowsFor(index).GreatLate,
+                    // The whole hold track lands early by the same lead, so its touchdown keeps pace with the hold.
+                    ramp.UpdateRamp(time, arrival, span.end - lead, Width - trackWidth, trackWidth,
+                        owner.syllableFadeInDuration, releaseWindowEnd,
                         24 * owner.SizeRatio, Height);
                     return;
                 }
-                float release = IndicatorRelease(time, span.end + owner.windowsFor(index).GreatLate);
-                if (double.IsNaN(time) || time < span.start - owner.syllableFadeInDuration || release <= 0)
+                float release = IndicatorRelease(time, releaseWindowEnd);
+                if (double.IsNaN(time) || time < arrival - owner.syllableFadeInDuration || release <= 0)
                     return;
-                float progress = SyllableFadeInProgress(time, span.start, owner.syllableFadeInDuration);
-                float fadeIn = SyllableFadeInProgress(time, span.start - owner.syllableFadeInDuration + approach_bar_fade_in_duration_ms,
+                float progress = SyllableFadeInProgress(time, arrival, owner.syllableFadeInDuration);
+                float fadeIn = SyllableFadeInProgress(time, arrival - owner.syllableFadeInDuration + approach_bar_fade_in_duration_ms,
                     approach_bar_fade_in_duration_ms);
                 if (index > 0 && owner.sharesApproachBar(index, index - 1))
                     return;

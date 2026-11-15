@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
+using osu.Framework.Localisation;
 using typebeat.Game.Graphics.Fonts;
 using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Overlays.Settings;
@@ -162,8 +163,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 new SettingsItemV2(new FormCheckBox
                 {
                     Caption = "Approach bars",
-                    HintText = "Show pace-coloured bars that rise over the Indicator Lead-In and arrive at the centre of the Great window. Display only.",
+                    HintText = "Show pace-coloured bars that rise over the Indicator Lead-In and arrive at the point set by Approach Bar Alignment. Display only.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ApproachBars),
+                }),
+                new SettingsItemV2(new FormSliderBar<float>
+                {
+                    Caption = "Approach Bar Alignment",
+                    HintText = "Sets where approach bars arrive, from the start to the centre of the Great window. Independent of Indicator Alignment. Disabled while Approach bars are off. Display only.",
+                    Current = config.GetBindable<float>(TypeBeatRulesetSetting.ApproachBarAlignment),
+                    KeyboardStep = 1f,
+                    LabelFormat = FormatAlignment,
                 }),
                 new SettingsItemV2(new FormEnumDropdown<JudgementIndicatorMode>
                 {
@@ -173,8 +182,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 }),
                 new SettingsItemV2(new FormSliderBar<float>
                 {
+                    Caption = "Indicator Alignment",
+                    HintText = "Sets when the fade or fill and text pop-in complete, from the start to the centre of the Great window. Approach bars have their own alignment. Disabled when Judgement Indicator is None and Text pop-in is off. Display only.",
+                    Current = config.GetBindable<float>(TypeBeatRulesetSetting.IndicatorAlignment),
+                    KeyboardStep = 1f,
+                    LabelFormat = FormatAlignment,
+                }),
+                new SettingsItemV2(new FormSliderBar<float>
+                {
                     Caption = "Indicator Lead-In",
-                    HintText = "How many milliseconds the indicator takes to fade, fill, or approach the centre of the Great window. Zero makes it appear instantly. Display only.",
+                    HintText = "How many milliseconds the indicator takes to fade or fill, and approach bars take to rise, before reaching their alignment points. Zero makes them appear instantly. Display only.",
                     Current = config.GetBindable<float>(TypeBeatRulesetSetting.SyllableFadeInDuration),
                     KeyboardStep = 1f,
                     LabelFormat = v => $"{v:0} ms",
@@ -252,6 +269,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 }),
             };
         }
+
+        /// <summary>The label both alignment sliders share: 0% opens the Great window, 100% is its centre.</summary>
+        internal static LocalisableString FormatAlignment(float value) =>
+            value == 0 ? "Great window start" : value == 100 ? "Great window centre" : $"{value:0}% towards centre";
 
         /// <summary>
         /// The typing-font dropdown options: the default sentinel first, then the bundled OpenDyslexic

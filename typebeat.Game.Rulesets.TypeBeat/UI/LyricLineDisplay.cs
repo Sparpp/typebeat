@@ -2366,16 +2366,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private int pendingJapaneseCell = -1;
         private int pendingJapaneseKana;
         /// <summary>
-        /// When a cell's fade or fill completes: the centre of its Great window, which is the moment the
-        /// press is best timed. Built in since 2026-10-25; it used to be a setting (Indicator Alignment)
-        /// whose shipped default completed at the window's OPENING, 150 ms early, which read as "type
-        /// now" and pushed players who anticipated it into Ok. The bottom-to-top fill uses each
-        /// character's own target; the other indicators use the syllable's opening.
+        /// When a cell's fade, fill or text pop-in completes. At Indicator Alignment 100% (the default)
+        /// that is the centre of its Great window, the moment the press is best timed: the bottom-to-top
+        /// fill uses each character's own target (clamped into its judged span), the other indicators
+        /// the span's opening. Lower alignments move it earlier by that share of the cell's GreatEarly,
+        /// down to the window's opening at 0% (backlog 475). The first Indicator Alignment shipped with
+        /// 0% as its default, which read as "type now" 150 ms early and pushed players who anticipated it
+        /// into Ok; that is why the revived setting defaults to the centre.
         /// </summary>
         private double indicatorCompletion(int index, bool fill = false)
         {
             var (start, end) = sungSpan(index);
-            return fill ? Math.Clamp(Line.Cells[index].TargetTime, start, end) : start;
+            double centre = fill ? Math.Clamp(Line.Cells[index].TargetTime, start, end) : start;
+            return AlignedCompletion(centre, windowsFor(index).GreatEarly, indicatorAlignment);
         }
 
         public void SetJapaneseInputProgress(int cellIndex, int completedKana)

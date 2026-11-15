@@ -19,11 +19,17 @@ namespace typebeat.Game.Configuration
         /// Puts every bindable in <paramref name="store"/> back on its default, except the lookups
         /// <paramref name="keep"/> names. Returns how many were reset.
         ///
-        /// <para>Two passes, because one setting can disable another (the indicator alignment slider is
-        /// disabled while character timing is on), and a disabled bindable refuses a new value. The first
-        /// pass resets everything it can, which puts the disabling setting back on its default; the
-        /// second retries what was disabled. Anything still disabled after that is disabled BY a
-        /// default, so it already holds the value that default forces and is left alone.</para>
+        /// <para>Two passes, because one setting can disable another (the approach bar alignment slider
+        /// is disabled while approach bars are off), and a disabled bindable refuses a new value. The
+        /// first pass resets everything it can, which puts the disabling setting back on its default;
+        /// the second retries what was disabled.</para>
+        ///
+        /// <para>Anything still disabled after that is disabled BY a default. Such a setting is only
+        /// greyed out, not forced (approach bars ship off, so their alignment is greyed out on a fresh
+        /// install while still holding its own default), so a stale value there is put back on its
+        /// default with the gate lifted for that one write; otherwise the old value would come back
+        /// the moment the gate opened. A gate that FORCES a value (the pace colour gradient pinned to 0
+        /// while approach bars are on) must not be disabled by its own default, or this would fight it.</para>
         /// </summary>
         public static int Reset<TLookup>(IEnumerable<KeyValuePair<TLookup, IBindable>> store, Func<TLookup, bool> keep)
             where TLookup : struct, Enum
@@ -50,8 +56,25 @@ namespace typebeat.Game.Configuration
                 pending = deferred;
             }
 
+            foreach (var bindable in pending)
+            {
+                if (isDefault(bindable))
+                    continue;
+
+                setDisabled(bindable, false);
+                setDefault(bindable);
+                setDisabled(bindable, true);
+                reset++;
+            }
+
             return reset;
         }
+
+        private static bool isDefault(IBindable bindable) =>
+            (bool)bindable.GetType().GetProperty(nameof(Bindable<int>.IsDefault))!.GetValue(bindable)!;
+
+        private static void setDisabled(IBindable bindable, bool disabled) =>
+            bindable.GetType().GetProperty(nameof(Bindable<int>.Disabled))!.SetValue(bindable, disabled);
 
         // Bindable<T>.SetDefault is generic-typed and the store holds the untyped interface, so it is
         // found by name. Every config bindable derives from Bindable<T>, which declares it.

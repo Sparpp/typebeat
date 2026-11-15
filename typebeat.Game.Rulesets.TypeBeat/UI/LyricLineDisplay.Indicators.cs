@@ -48,6 +48,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private bool syllableFadeInEnabled;
         private bool syllableColourFillEnabled;
         private float syllableFadeInDuration = TypeBeatRulesetConfigManager.DEFAULT_SYLLABLE_FADE_IN_DURATION_MS;
+        private float indicatorAlignment = TypeBeatRulesetConfigManager.DEFAULT_ALIGNMENT_PERCENT;
+        private float approachBarAlignment = TypeBeatRulesetConfigManager.DEFAULT_ALIGNMENT_PERCENT;
         private GlyphColourFill[] glyphColourFills = Array.Empty<GlyphColourFill>();
         private readonly bool[] popInApplied;
         private bool textPopInEnabled;
@@ -85,7 +87,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 var windows = windowsFor(i);
                 // The bottom-to-top fill rises letter by letter on each cell's own target, kept inside its
                 // judged span. Its release stays on the span's end, since the cell grades Great until
-                // then. Fade-in, None, pop-in and approach bars keep the span's start.
+                // then. Fade-in and pop-in keep the span's start. Indicator Alignment moves only the
+                // completion (and with it the lead-in's start), never the release.
                 double completion = indicatorCompletion(i, glyphFillMode);
                 double approachStart = judgementIndicator == JudgementIndicatorMode.None ? start - windows.GreatEarly : completion - syllableFadeInDuration;
                 float release = IndicatorRelease(time, end + windows.GreatLate);
@@ -195,7 +198,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 {
                     if (Line.Cells[i].IsCountable)
                     {
-                        if (time < sungSpan(i).start)
+                        // Revealed as each bar arrives, so Approach Bar Alignment moves the reveal too.
+                        if (time < approachBarArrival(i, sungSpan(i).start))
                             break;
                         arrived = i + 1;
                     }
@@ -239,6 +243,40 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         public static float SyllableFadeInProgress(double time, double completion, double duration) =>
             duration <= 0 ? time >= completion ? 1f : 0f : (float)Math.Clamp((time - completion + duration) / duration, 0, 1);
+
+        /// <summary>
+        /// The moment an indicator or approach bar completes for an alignment (backlog 475):
+        /// <paramref name="centre"/> at 100%, the opening of the Great window (<paramref name="centre"/>
+        /// minus <paramref name="greatEarly"/>) at 0%, linear between.
+        /// </summary>
+        public static double AlignedCompletion(double centre, double greatEarly, float alignmentPercent) =>
+            centre - Math.Max(0, greatEarly) * (1 - Math.Clamp(alignmentPercent, 0, 100) / 100.0);
+
+        /// <summary>Where a cell's approach bar arrives, for a bar that would land on <paramref name="centre"/> at 100%.</summary>
+        private double approachBarArrival(int index, double centre) =>
+            AlignedCompletion(centre, windowsFor(index).GreatEarly, approachBarAlignment);
+
+        /// <summary>Indicator Alignment: when the fade or fill and the text pop-in complete. Display only.</summary>
+        public void SetIndicatorAlignment(float percent)
+        {
+            float value = Math.Clamp(percent, 0, 100);
+            if (indicatorAlignment == value)
+                return;
+            indicatorAlignment = value;
+            refreshApproach();
+        }
+
+        /// <summary>Approach Bar Alignment: where approach bars (and the pace bar reveal) arrive. Display only.</summary>
+        public void SetApproachBarAlignment(float percent)
+        {
+            float value = Math.Clamp(percent, 0, 100);
+            if (approachBarAlignment == value)
+                return;
+            approachBarAlignment = value;
+            // The bars read it every frame; the reveal is fed with the sung window, so redraw it now.
+            if (IsLoaded && !double.IsNaN(sungTime))
+                updatePaceRail(sungTime);
+        }
 
         public void SetSyllableColourFillEnabled(bool enabled)
         {
