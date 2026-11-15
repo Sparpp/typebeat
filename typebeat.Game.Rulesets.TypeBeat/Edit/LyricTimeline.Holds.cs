@@ -143,6 +143,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                         tickHandles[k].X = parent.PositionOf(ticks[k]) - x;
                 }
             }
+
+            /// <summary>Whether a press at this point grabs one of the hold's handles (see <see cref="resizeHandleAt"/>).</summary>
+            public bool ResizesAt(Vector2 screenSpacePos)
+            {
+                if (startEdge.ResizesAt(screenSpacePos) || endEdge.ResizesAt(screenSpacePos))
+                    return true;
+
+                foreach (var tick in tickHandles)
+                {
+                    if (tick.ResizesAt(screenSpacePos))
+                        return true;
+                }
+
+                return false;
+            }
         }
 
         /// <summary>
@@ -181,6 +196,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             protected abstract void SetHovered(bool hovered);
 
             public override bool HandlePositionalInput => true;
+
+            /// <summary>Whether a press at this point grabs this handle (see <see cref="resizeHandleAt"/>).</summary>
+            public bool ResizesAt(Vector2 screenSpacePos) => Strip.takesInputAt(this, screenSpacePos);
 
             // Hover through OnMouseMove, as PauseEdgeHandle does, and handled for the same reason.
             protected override bool OnHover(HoverEvent e) => false;

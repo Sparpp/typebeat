@@ -211,6 +211,62 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         public void SetEdgeDragging(bool value) => edgeDragging = value;
 
         /// <summary>
+        /// Whether a press at <paramref name="screenSpacePos"/> would land on something drawn UNDER the line
+        /// boundaries that shows the resize cursor there: a word or backing block's edge zone, a hold's
+        /// edge or tick, a rest's edge. The boundaries give way to all of them (backlog
+        /// 473): those handles report the resize cursor through OnMouseMove, which reaches them past the
+        /// boundary (it handles no moves), so without this the cursor promised one grab and the press
+        /// made another. Each check is the handle's own hit test, so the two cannot drift apart.
+        /// Iterates the typed lists with their struct enumerators: this runs on every mouse move over a
+        /// boundary, and must not allocate.
+        /// </summary>
+        private bool resizeHandleAt(Vector2 screenSpacePos)
+        {
+            foreach (var block in blocks)
+            {
+                if (block.ResizesAt(screenSpacePos))
+                    return true;
+            }
+
+            foreach (var region in holdRegions)
+            {
+                if (region.ResizesAt(screenSpacePos))
+                    return true;
+            }
+
+            foreach (var region in pauseRegions)
+            {
+                if (region.ResizesAt(screenSpacePos))
+                    return true;
+            }
+
+            return backingResizeHandleAt(screenSpacePos);
+        }
+
+        /// <summary>
+        /// Whether <paramref name="drawable"/> is in the input queue at <paramref name="screenSpacePos"/>:
+        /// its own hit test, and it and every container up to the strip present and, where masking, hit
+        /// too (the framework skips a hidden subtree and clips input to a masking container, so a handle
+        /// in a faded region or scrolled out of the backing lane must not count).
+        /// </summary>
+        private bool takesInputAt(Drawable drawable, Vector2 screenSpacePos)
+        {
+            if (!drawable.ReceivePositionalInputAt(screenSpacePos))
+                return false;
+
+            for (Drawable? d = drawable; d != null && d != this; d = d.Parent)
+            {
+                if (!d.IsPresent)
+                    return false;
+
+                if (d != drawable && d is CompositeDrawable { Masking: true } && !d.ReceivePositionalInputAt(screenSpacePos))
+                    return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// How many authored-pause regions the strip is drawing right now. A test seam rather than a
         /// public surface: the region type is private, so a visual test has no other way to pin that
         /// adding or removing a rest actually REBUILDS the strip rather than only moving the model.
@@ -952,6 +1008,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 return Grab.Move;
             }
 
+            /// <summary>Whether a press at this point grabs one of this block's edges (see <see cref="resizeHandleAt"/>).</summary>
+            public bool ResizesAt(Vector2 screenSpacePos)
+                => strip.takesInputAt(this, screenSpacePos) && grabAt(ToLocalSpace(screenSpacePos).X) != Grab.Move;
+
             /// <summary>
             /// The LEFT unit index of the boundary an edge grab sits on, when that edge is SHARED
             /// with a touching neighbour (this word's start equals the previous word's end, or its
@@ -1191,6 +1251,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             }
 
             public override bool HandlePositionalInput => true;
+
+            // The boundary sits above the word blocks and runs the strip's full height. Where a word's
+            // edge (or any other resize handle) lies under it, that handle already shows the resize
+            // cursor, so it takes the press too (backlog 473): a line's first word starting on the line's
+            // start used to show the word's cursor and then drag the line. Above and below the block the
+            // boundary is the only thing there, and is grabbed as before. Opting out of the hit test
+            // (rather than declining the press) keeps hover, click and drag all on the same target.
+            public override bool ReceivePositionalInputAt(Vector2 screenSpacePos)
+                => base.ReceivePositionalInputAt(screenSpacePos) && !strip.resizeHandleAt(screenSpacePos);
 
             protected override bool OnHover(HoverEvent e)
             {
@@ -1637,6 +1706,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 startEdge.X = 0;
                 endEdge.X = Width;
             }
+
+            /// <summary>Whether a press at this point grabs one of the rest's edges (see <see cref="resizeHandleAt"/>).</summary>
+            public bool ResizesAt(Vector2 screenSpacePos) => startEdge.ResizesAt(screenSpacePos) || endEdge.ResizesAt(screenSpacePos);
         }
 
         /// <summary>
@@ -1690,6 +1762,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             }
 
             public override bool HandlePositionalInput => true;
+
+            /// <summary>Whether a press at this point grabs this edge (see <see cref="resizeHandleAt"/>).</summary>
+            public bool ResizesAt(Vector2 screenSpacePos) => strip.takesInputAt(this, screenSpacePos);
 
             // The edge reports its own hover through OnMouseMove rather than OnHover, exactly as
             // WordBlock's edges do: the two must behave identically for a press that arrives in the
