@@ -14,7 +14,12 @@ namespace typebeat.Game.Online.API.Requests
         [JsonProperty("beatmapsets")]
         public IEnumerable<APIBeatmapSet> BeatmapSets;
 
+        /// <summary>
+        /// How many sets match the whole search (every filter, not just this page), shown as the listing's
+        /// "1,234 results". Nullable so a server that leaves the field out reads as "unknown" (the count is
+        /// hidden) rather than as a wrong "0 results".
+        /// </summary>
         [JsonProperty("total")]
-        public int Total;
+        public int? Total;
     }
 }
