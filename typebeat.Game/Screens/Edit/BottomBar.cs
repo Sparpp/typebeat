@@ -54,7 +54,10 @@ namespace typebeat.Game.Screens.Edit
                         // follow-up: the speed slider grew and its text box moved right, and the box
                         // is right-anchored to this cell, so the cell must widen or the box would sit
                         // on top of the slider (the box is drawn after it) instead of past it.
-                        new Dimension(GridSizeMode.Absolute, 280),
+                        // Widened again from 280 by the reset button's width plus its gap
+                        // (backlog 469) so the button sits past the box without shortening the
+                        // slider the owner asked to be longer.
+                        new Dimension(GridSizeMode.Absolute, 280 + PlaybackControl.RESET_BUTTON_EXTRA_WIDTH),
                         // The ruleset slot: zero width unless the active ruleset's compose screen
                         // publishes an action, so the summary timeline only gives up space when
                         // there is actually a button there.
