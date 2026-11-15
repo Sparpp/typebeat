@@ -171,7 +171,6 @@ namespace typebeat.Game.Configuration
 
             SetDefault(OsuSetting.ScoreDisplayMode, ScoringMode.Standardised);
 
-            SetDefault(OsuSetting.IncreaseFirstObjectVisibility, true);
             SetDefault(OsuSetting.GameplayDisableWinKey, true);
 
             // Applied before the window exists by Input.RawKeyboardFallback, which reads game.ini itself.
@@ -464,7 +463,6 @@ namespace typebeat.Game.Configuration
         BeatmapSkins,
         BeatmapColours,
         BeatmapHitsounds,
-        IncreaseFirstObjectVisibility,
         ScoreDisplayMode,
         ExternalLinkWarning,
         PreferNoVideo,

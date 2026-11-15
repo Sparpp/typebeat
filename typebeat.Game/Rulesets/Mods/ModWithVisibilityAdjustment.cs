@@ -2,9 +2,7 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System.Collections.Generic;
-using osu.Framework.Bindables;
 using typebeat.Game.Beatmaps;
-using typebeat.Game.Configuration;
 using typebeat.Game.Rulesets.Objects;
 using typebeat.Game.Rulesets.Objects.Drawables;
 
@@ -12,19 +10,16 @@ namespace typebeat.Game.Rulesets.Mods
 {
     /// <summary>
     /// A <see cref="Mod"/> which applies visibility adjustments to <see cref="DrawableHitObject"/>s
-    /// with an optional increased visibility adjustment depending on the user's "increase first object visibility" setting.
+    /// with an increased visibility adjustment for the first adjustable object. type!beat removed the user
+    /// setting that switched the latter off (no type!beat mod derives from this class), so it keeps the
+    /// setting's old default: always on.
     /// </summary>
-    public abstract class ModWithVisibilityAdjustment : Mod, IReadFromConfig, IApplicableToBeatmap, IApplicableToDrawableHitObject
+    public abstract class ModWithVisibilityAdjustment : Mod, IApplicableToBeatmap, IApplicableToDrawableHitObject
     {
         /// <summary>
         /// The first adjustable object.
         /// </summary>
         protected HitObject? FirstObject { get; private set; }
-
-        /// <summary>
-        /// Whether the visibility of <see cref="FirstObject"/> should be increased.
-        /// </summary>
-        protected readonly Bindable<bool> IncreaseFirstObjectVisibility = new Bindable<bool>();
 
         /// <summary>
         /// Check whether the provided hitobject should be considered the "first" adjustable object.
@@ -35,7 +30,6 @@ namespace typebeat.Game.Rulesets.Mods
 
         /// <summary>
         /// Apply a special increased-visibility state to the first adjustable object.
-        /// Only applicable if the user chooses to turn on the "increase first object visibility" setting.
         /// </summary>
         /// <param name="hitObject">The hit object to apply the state change to.</param>
         /// <param name="state">The state of the hitobject.</param>
@@ -47,11 +41,6 @@ namespace typebeat.Game.Rulesets.Mods
         /// <param name="hitObject">The hit object to apply the state change to.</param>
         /// <param name="state">The state of the hitobject.</param>
         protected abstract void ApplyNormalVisibilityState(DrawableHitObject hitObject, ArmedState state);
-
-        public virtual void ReadFromConfig(OsuConfigManager config)
-        {
-            config.BindWith(OsuSetting.IncreaseFirstObjectVisibility, IncreaseFirstObjectVisibility);
-        }
 
         public virtual void ApplyToBeatmap(IBeatmap beatmap)
         {
@@ -78,7 +67,7 @@ namespace typebeat.Game.Rulesets.Mods
             dho.ApplyCustomUpdateState += (o, state) =>
             {
                 // Increased visibility is applied to the entire first object, including all of its nested hitobjects.
-                if (IncreaseFirstObjectVisibility.Value && isObjectEqualToOrNestedIn(o.HitObject, FirstObject))
+                if (isObjectEqualToOrNestedIn(o.HitObject, FirstObject))
                     ApplyIncreasedVisibilityState(o, state);
                 else
                     ApplyNormalVisibilityState(o, state);

@@ -100,16 +100,6 @@ namespace typebeat.Game.Localisation
         public static LocalisableString DisableWinKey => new TranslatableString(getKey(@"disable_win_key"), @"Disable Windows key during gameplay");
 
         /// <summary>
-        /// "Mods"
-        /// </summary>
-        public static LocalisableString ModsHeader => new TranslatableString(getKey(@"mods_header"), @"Mods");
-
-        /// <summary>
-        /// "Increase first object visibility on visual impairment mods"
-        /// </summary>
-        public static LocalisableString IncreaseFirstObjectVisibility => new TranslatableString(getKey(@"increase_first_object_visibility"), @"Increase first object visibility on visual impairment mods");
-
-        /// <summary>
         /// "Hide during gameplay"
         /// </summary>
         public static LocalisableString HideDuringGameplay => new TranslatableString(getKey(@"hide_during_gameplay"), @"Hide during gameplay");

@@ -28,7 +28,6 @@ namespace typebeat.Game.Overlays.Settings.Sections
                 new BeatmapSettings(),
                 new HUDSettings(),
                 new InputSettings(),
-                new ModsSettings(),
             };
         }
     }
