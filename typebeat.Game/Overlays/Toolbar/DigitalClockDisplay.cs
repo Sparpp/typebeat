@@ -37,23 +37,6 @@ namespace typebeat.Game.Overlays.Toolbar
             }
         }
 
-        private bool use24HourDisplay;
-
-        public bool Use24HourDisplay
-        {
-            get => use24HourDisplay;
-            set
-            {
-                if (use24HourDisplay == value)
-                    return;
-
-                use24HourDisplay = value;
-
-                updateMetrics();
-                UpdateDisplay(DateTimeOffset.Now); //Update realTime.Text immediately instead of waiting until next second
-            }
-        }
-
         [BackgroundDependencyLoader]
         private void load(OsuColour colours)
         {
@@ -94,7 +77,7 @@ namespace typebeat.Game.Overlays.Toolbar
 
         protected override void UpdateDisplay(DateTimeOffset now)
         {
-            realTime.Text = now.ToLocalisableString(use24HourDisplay ? @"HH:mm:ss" : @"h:mm:ss tt");
+            realTime.Text = now.ToLocalisableString(@"HH:mm:ss");
             gameTime.Text = $"{new TimeSpan(TimeSpan.TicksPerSecond * (int)(Clock.CurrentTime / 1000)):c}";
         }
 

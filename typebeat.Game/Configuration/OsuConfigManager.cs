@@ -142,9 +142,6 @@ namespace typebeat.Game.Configuration
 #pragma warning restore CS0612 // Type or member is obsolete
             SetDefault(OsuSetting.MenuParallaxScale, 1.0f, 0.0f, 2.0f, 0.1f);
 
-            // See https://stackoverflow.com/a/63307411 for default sourcing.
-            SetDefault(OsuSetting.Prefer24HourTime, !CultureInfoHelper.SystemCulture.DateTimeFormat.ShortTimePattern.Contains(@"tt"));
-
             // Gameplay
             SetDefault(OsuSetting.PositionalHitsoundsLevel, 0.2f, 0, 1, 0.01f);
             // type!beat ships with a 40% gameplay background dim by default so the beatmap
@@ -435,7 +432,13 @@ namespace typebeat.Game.Configuration
         MenuParallax, // todo: can be removed 20270101
 
         MenuParallaxScale,
-        Prefer24HourTime,
+
+        // NOTE (backlog 468): there used to be a Prefer24HourTime member here, defaulted from the
+        // system culture's short time pattern. Every clock and timestamp now always shows 24-hour
+        // time, so it was retired. A stored "Prefer24HourTime = ..." line in game.ini needs no
+        // migration: the ini loader skips a key it cannot parse into this enum, and the next save
+        // writes the file without it. Do not reuse the name for something else.
+
         BeatmapDetailTab,
         BeatmapLeaderboardSortMode,
         BeatmapDetailModsFilter,

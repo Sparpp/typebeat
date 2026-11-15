@@ -16,8 +16,6 @@ using osu.Framework.Localisation;
 using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.UI;
-using osu.Framework.Bindables;
-using typebeat.Game.Configuration;
 
 namespace typebeat.Game.Online.Leaderboards
 {
@@ -27,7 +25,6 @@ namespace typebeat.Game.Online.Leaderboards
         private FillFlowContainer<HitResultCell> topScoreStatistics = null!;
         private FillFlowContainer<HitResultCell> bottomScoreStatistics = null!;
         private FillFlowContainer<ModCell> modStatistics = null!;
-        private readonly Bindable<bool> prefer24HourTime = new Bindable<bool>();
 
         public LeaderboardScoreTooltip()
         {
@@ -40,9 +37,8 @@ namespace typebeat.Game.Online.Leaderboards
         }
 
         [BackgroundDependencyLoader]
-        private void load(OsuColour colours, OsuConfigManager configManager)
+        private void load(OsuColour colours)
         {
-            configManager.BindWith(OsuSetting.Prefer24HourTime, prefer24HourTime);
             InternalChildren = new Drawable[]
             {
                 new Box
@@ -101,7 +97,7 @@ namespace typebeat.Game.Online.Leaderboards
         {
             base.LoadComplete();
 
-            prefer24HourTime.BindValueChanged(_ => updateTimestampLabel(), true);
+            updateTimestampLabel();
         }
 
         private ScoreInfo? displayedScore;
@@ -138,7 +134,7 @@ namespace typebeat.Game.Online.Leaderboards
             if (displayedScore != null)
             {
                 timestampLabel.Text = LocalisableString.Format("Played on {0}",
-                    displayedScore.Date.ToLocalTime().ToLocalisableString(prefer24HourTime.Value ? @"d MMMM yyyy HH:mm" : @"d MMMM yyyy h:mm tt"));
+                    displayedScore.Date.ToLocalTime().ToLocalisableString(@"d MMMM yyyy HH:mm"));
             }
         }
 

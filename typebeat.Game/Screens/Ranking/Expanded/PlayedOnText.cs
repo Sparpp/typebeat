@@ -2,12 +2,9 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
-using osu.Framework.Allocation;
-using osu.Framework.Bindables;
 using osu.Framework.Extensions.LocalisationExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Localisation;
-using typebeat.Game.Configuration;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Sprites;
 
@@ -17,7 +14,6 @@ namespace typebeat.Game.Screens.Ranking.Expanded
     {
         private readonly DateTimeOffset time;
         private readonly bool withPrefix;
-        private readonly Bindable<bool> prefer24HourTime = new Bindable<bool>();
 
         public PlayedOnText(DateTimeOffset time, bool withPrefix)
         {
@@ -29,22 +25,16 @@ namespace typebeat.Game.Screens.Ranking.Expanded
             Font = OsuFont.GetFont(size: 10, weight: FontWeight.SemiBold);
         }
 
-        [BackgroundDependencyLoader]
-        private void load(OsuConfigManager configManager)
-        {
-            configManager.BindWith(OsuSetting.Prefer24HourTime, prefer24HourTime);
-        }
-
         protected override void LoadComplete()
         {
             base.LoadComplete();
 
-            prefer24HourTime.BindValueChanged(_ => updateDisplay(), true);
+            updateDisplay();
         }
 
         private void updateDisplay()
         {
-            var timeText = time.ToLocalTime().ToLocalisableString(prefer24HourTime.Value ? @"d MMMM yyyy HH:mm" : @"d MMMM yyyy h:mm tt");
+            var timeText = time.ToLocalTime().ToLocalisableString(@"d MMMM yyyy HH:mm");
 
             if (withPrefix)
                 Text = LocalisableString.Format("Played on {0}", timeText);

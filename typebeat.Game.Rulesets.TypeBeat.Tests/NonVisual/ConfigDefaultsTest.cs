@@ -84,6 +84,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(config.Get<double>(OsuSetting.DimLevel), Is.EqualTo(0.1), "a player's own dim is never migrated");
         }
 
+        /// <summary>
+        /// Backlog 468 retired <c>OsuSetting.Prefer24HourTime</c>: every clock and timestamp is
+        /// 24-hour now. An install that booted before then holds a stored line for it (always, since
+        /// every key is persisted from its culture-sourced default), and that line must be harmless:
+        /// the config still loads, the rest of the file is still read, and the next save drops it.
+        /// </summary>
+        [TestCase("True")]
+        [TestCase("False")]
+        [TestCase("garbage")]
+        public void AStored24HourTimeLineIsDroppedWithoutMigration(string storedValue)
+        {
+            config.Dispose();
+            File.WriteAllText(Path.Combine(tempPath, "game.ini"), $"Prefer24HourTime = {storedValue}\nShowFpsDisplay = True\n");
+            config = new OsuConfigManager(new NativeStorage(tempPath));
+
+            Assert.That(Enum.GetNames<OsuSetting>(), Has.No.Member("Prefer24HourTime"), "the setting is gone");
+            Assert.That(config.Get<bool>(OsuSetting.ShowFpsDisplay), Is.True, "the rest of the file is still read");
+
+            config.Save();
+
+            string saved = File.ReadAllText(Path.Combine(tempPath, "game.ini"));
+            Assert.That(saved, Does.Not.Contain("Prefer24HourTime"), "the stale line is dropped on save");
+            Assert.That(saved, Does.Contain("ShowFpsDisplay"));
+        }
+
         [Test]
         public void MenuBackgroundSourceDefaultsToBeatmapWithStoryboard()
             => Assert.That(config.GetBindable<BackgroundSource>(OsuSetting.MenuBackgroundSource).Default,
