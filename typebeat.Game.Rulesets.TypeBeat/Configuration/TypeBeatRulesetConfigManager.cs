@@ -381,6 +381,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// disabled while <see cref="ApproachBars"/> is off.
         /// </summary>
         ApproachBarAlignment,
+
+        /// <summary>
+        /// "Keyboard hitsounds": a keyboard click for every gameplay key, one sample per key by where it
+        /// sits on a keyboard (see <see cref="UI.KeyboardHitsounds"/>). Off by default; feedback only,
+        /// live while playing.
+        /// </summary>
+        KeyboardHitsounds,
     }
 
     /// <summary>
@@ -753,6 +760,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.IsolateVocalsOnImport, true);
             SetDefault(TypeBeatRulesetSetting.IndicatorAlignment, DEFAULT_ALIGNMENT_PERCENT, 0f, 100f, 1f);
             SetDefault(TypeBeatRulesetSetting.ApproachBarAlignment, DEFAULT_ALIGNMENT_PERCENT, 0f, 100f, 1f);
+            SetDefault(TypeBeatRulesetSetting.KeyboardHitsounds, false);
         }
     }
 }

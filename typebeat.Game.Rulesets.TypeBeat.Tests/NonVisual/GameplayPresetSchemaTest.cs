@@ -86,6 +86,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(values, Is.EqualTo(version_1_values));
         }
 
+        /// <summary>
+        /// A schema version 2 code (version 1 plus the keyboard hitsounds toggle), frozen with it. If this
+        /// fails, a frozen schema was edited: put it back and append a new version instead.
+        /// </summary>
+        private const string version_2_code = "23TsH3wGlLEBqtOdiNkclmtaHIldRw6zP";
+
+        private static readonly (string Key, object Value)[] version_2_values = version_1_values.Append(("typebeat:KeyboardHitsounds", (object)true)).ToArray();
+
+        [Test]
+        public void TheVersion2FixtureStillDecodes()
+        {
+            var version2 = GameplayPresetSchemas.Find(2)!;
+
+            Assert.That(version2.Entries.Select(e => e.Key), Is.EqualTo(version_2_values.Select(v => v.Key)), "schema version 2 was edited");
+
+            int[] expected = version2.Entries.Select((e, i) => e.Domain.DigitOf(version_2_values[i].Value)!.Value).ToArray();
+            Assert.That(GameplayShareCode.Encode(version2, expected), Is.EqualTo(version_2_code), "schema version 2 encodes differently than when it shipped");
+
+            Assert.That(GameplayShareCode.TryDecode(version_2_code, GameplayPresetSchemas.ALL, out var schema, out int[] digits), Is.EqualTo(ShareCodeError.None));
+            Assert.That(schema!.Version, Is.EqualTo(2));
+
+            var values = schema.Entries.Select((e, i) => (e.Key, Value: e.Domain.ValueOf(digits[i]))).ToArray();
+            Assert.That(values, Is.EqualTo(version_2_values));
+        }
+
         [Test]
         public void VersionsCountUpFromOne()
         {

@@ -49,6 +49,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public bool ProcessKey(char c, double time)
         {
+            using var keyInput = beginKeyInput(new TypedKey(TypedKeyKind.Character, c));
+
             string pending = JapanesePending;
             bool consumed = processKey(c, time);
             // Cancelling a partial reading is itself an input mutation, even when the underlying

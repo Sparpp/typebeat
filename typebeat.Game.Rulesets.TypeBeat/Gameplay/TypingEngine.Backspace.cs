@@ -137,6 +137,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public bool ProcessBackspace()
         {
+            using var keyInput = beginKeyInput(new TypedKey(TypedKeyKind.Backspace));
+
             if (tryEraseAPendingReading(out bool consumed))
                 return consumed;
 

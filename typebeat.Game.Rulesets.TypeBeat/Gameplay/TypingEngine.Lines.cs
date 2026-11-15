@@ -294,6 +294,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public bool ProcessEnter(double time)
         {
+            using var keyInput = beginKeyInput(new TypedKey(TypedKeyKind.Enter));
+
             int originalLine = activeLineIndex;
             if (tryCommitJapanesePending())
             {

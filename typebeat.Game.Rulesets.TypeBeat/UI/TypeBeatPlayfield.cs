@@ -285,6 +285,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                         stage = new LyricStage(Engine),
                         new TypeBeatHudOverlay(drawableRuleset?.Ruleset.RulesetInfo),
                         keyHandler,
+                        new KeyboardHitsounds(Engine),
                     },
                 },
             });
