@@ -25,11 +25,6 @@ namespace typebeat.Game.Localisation
         public static LocalisableString PreferOriginalMetadataLanguage => new TranslatableString(getKey(@"prefer_original"), @"Prefer metadata in original language");
 
         /// <summary>
-        /// "Prefer 24-hour time display"
-        /// </summary>
-        public static LocalisableString Prefer24HourTimeDisplay => new TranslatableString(getKey(@"prefer_24_hour_time_display"), @"Prefer 24-hour time display");
-
-        /// <summary>
         /// "Installation"
         /// </summary>
         public static LocalisableString InstallationHeader => new TranslatableString(getKey(@"installation_header"), @"Installation");

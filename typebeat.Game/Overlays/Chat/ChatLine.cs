@@ -12,7 +12,6 @@ using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
 using osu.Framework.Graphics.Sprites;
-using typebeat.Game.Configuration;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.Sprites;
@@ -70,8 +69,6 @@ namespace typebeat.Game.Overlays.Chat
         private DrawableChatUsername drawableUsername = null!;
 
         private LinkFlowContainer drawableContentFlow = null!;
-
-        private readonly Bindable<bool> prefer24HourTime = new Bindable<bool>();
 
         private Container? highlight;
 
@@ -140,11 +137,8 @@ namespace typebeat.Game.Overlays.Chat
         }
 
         [BackgroundDependencyLoader]
-        private void load(OsuConfigManager configManager)
+        private void load()
         {
-            configManager.BindWith(OsuSetting.Prefer24HourTime, prefer24HourTime);
-            prefer24HourTime.BindValueChanged(_ => updateTimestamp());
-
             Padding = new MarginPadding { Right = 5 };
 
             InternalChildren = new[]
@@ -311,7 +305,7 @@ namespace typebeat.Game.Overlays.Chat
 
         private void updateTimestamp()
         {
-            drawableTimestamp.Text = message.Timestamp.LocalDateTime.ToLocalisableString(prefer24HourTime.Value ? @"HH:mm" : @"hh:mm tt");
+            drawableTimestamp.Text = message.Timestamp.LocalDateTime.ToLocalisableString(@"HH:mm");
         }
 
         private static readonly Color4[] default_username_colours =

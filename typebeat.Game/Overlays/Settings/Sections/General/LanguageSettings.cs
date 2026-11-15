@@ -5,7 +5,6 @@ using osu.Framework.Allocation;
 using osu.Framework.Configuration;
 using osu.Framework.Graphics;
 using osu.Framework.Localisation;
-using typebeat.Game.Configuration;
 using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Localisation;
 
@@ -16,7 +15,7 @@ namespace typebeat.Game.Overlays.Settings.Sections.General
         protected override LocalisableString Header => GeneralSettingsStrings.LanguageHeader;
 
         [BackgroundDependencyLoader]
-        private void load(OsuGameBase game, OsuConfigManager config, FrameworkConfigManager frameworkConfig)
+        private void load(OsuGameBase game, FrameworkConfigManager frameworkConfig)
         {
             Children = new Drawable[]
             {
@@ -30,11 +29,6 @@ namespace typebeat.Game.Overlays.Settings.Sections.General
                 {
                     Caption = GeneralSettingsStrings.PreferOriginalMetadataLanguage,
                     Current = frameworkConfig.GetBindable<bool>(FrameworkSetting.ShowUnicode)
-                }),
-                new SettingsItemV2(new FormCheckBox
-                {
-                    Caption = GeneralSettingsStrings.Prefer24HourTimeDisplay,
-                    Current = config.GetBindable<bool>(OsuSetting.Prefer24HourTime)
                 }),
             };
         }

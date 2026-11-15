@@ -7,7 +7,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using osu.Framework.Allocation;
-using osu.Framework.Bindables;
 using osu.Framework.Extensions.Color4Extensions;
 using osu.Framework.Extensions.LocalisationExtensions;
 using osu.Framework.Graphics;
@@ -19,7 +18,6 @@ using osu.Framework.Graphics.Shapes;
 using osu.Framework.Localisation;
 using osu.Framework.Utils;
 using typebeat.Game.Beatmaps;
-using typebeat.Game.Configuration;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.Sprites;
@@ -98,8 +96,6 @@ namespace typebeat.Game.Screens.Select
                 private DrawableDate relativeDate = null!;
                 private FillFlowContainer statistics = null!;
 
-                private readonly Bindable<bool> prefer24HourTime = new Bindable<bool>();
-
                 [Resolved]
                 private OsuColour colours { get; set; } = null!;
 
@@ -141,7 +137,7 @@ namespace typebeat.Game.Screens.Select
                 }
 
                 [BackgroundDependencyLoader]
-                private void load(OsuConfigManager configManager)
+                private void load()
                 {
                     RelativeSizeAxes = Axes.X;
                     AutoSizeAxes = Axes.Y;
@@ -215,19 +211,17 @@ namespace typebeat.Game.Screens.Select
                             },
                         },
                     };
-
-                    configManager.BindWith(OsuSetting.Prefer24HourTime, prefer24HourTime);
                 }
 
                 protected override void LoadComplete()
                 {
                     base.LoadComplete();
 
-                    prefer24HourTime.BindValueChanged(_ => updateAbsoluteDate(), true);
+                    updateAbsoluteDate();
                 }
 
                 private void updateAbsoluteDate()
-                    => absoluteDate.Text = score.Date.ToLocalTime().ToLocalisableString(prefer24HourTime.Value ? @"d MMMM yyyy HH:mm" : @"d MMMM yyyy h:mm tt");
+                    => absoluteDate.Text = score.Date.ToLocalTime().ToLocalisableString(@"d MMMM yyyy HH:mm");
             }
 
             public partial class StatisticRow : CompositeDrawable
