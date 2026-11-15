@@ -117,9 +117,6 @@ namespace typebeat.Game.Configuration
 
             // Input
             SetDefault(OsuSetting.MenuCursorSize, 1.0f, 0.5f, 2f, 0.01f);
-            SetDefault(OsuSetting.GameplayCursorSize, 1.0f, 0.1f, 2f, 0.01f);
-            SetDefault(OsuSetting.GameplayCursorDuringTouch, false);
-            SetDefault(OsuSetting.AutoCursorSize, false);
 
             SetDefault(OsuSetting.MouseDisableButtons, false);
             SetDefault(OsuSetting.MouseDisableWheel, false);
@@ -393,9 +390,6 @@ namespace typebeat.Game.Configuration
         Ruleset,
         Token,
         MenuCursorSize,
-        GameplayCursorSize,
-        AutoCursorSize,
-        GameplayCursorDuringTouch,
         DimLevel,
         BlurLevel,
         EditorDim,
