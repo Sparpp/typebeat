@@ -426,10 +426,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>Backing word <paramref name="index"/>'s anchor on <paramref name="hitObject"/>'s line (test support).</summary>
         internal Drawable BackingAnchorOf(TypeBeatHitObject hitObject, int index) => backingAnchors.Single(a => a.HitObject == hitObject && a.Index == index);
 
-        /// <summary>An anchor's ring colour and fill alpha as drawn now (test support).</summary>
-        internal (Colour4 Ring, float Fill) BackingAnchorLook(TypeBeatHitObject hitObject, int index)
-            => backingAnchors.Single(a => a.HitObject == hitObject && a.Index == index).Look;
-
         /// <summary>
         /// The two ends of backing word <paramref name="index"/>'s dotted line in screen space, the
         /// block end first (test support): where the line really is drawn, read off its own transform.
@@ -935,9 +931,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 // recolours it (it used to turn yellow while hot and solid blue once placed, which read as
                 // a selection), so the dot stays the plain ring it starts as.
             }
-
-            /// <summary>The ring's colour and the fill's alpha as drawn now (test support).</summary>
-            internal (Colour4 Ring, float Fill) Look => (ring.Colour.TopLeft.SRGB, dot.Alpha);
 
             protected override bool OnMouseMove(MouseMoveEvent e)
             {

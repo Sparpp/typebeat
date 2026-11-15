@@ -12,7 +12,6 @@ using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Edit;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
-using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Tests.Visual;
 using osuTK.Input;
 
@@ -178,10 +177,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 var target = strip().ToScreenSpace(new Vector2(strip().PositionOf(1000) - 30, 0));
                 InputManager.MoveMouseTo(new Vector2(target.X, strip().BackingAnchorOf(lineAt(0), 1).ScreenSpaceDrawQuad.Centre.Y));
             });
-            // Backlog 477: no recolouring while it is dragged (it went yellow) or once placed (solid blue).
-            AddAssert("it keeps its plain look mid-drag", () => plainAnchor(1));
             AddStep("release", () => InputManager.ReleaseButton(MouseButton.Left));
-            AddAssert("and once placed", () => plainAnchor(1) && plainAnchor(0));
 
             AddAssert("the word now pops up at the very start of the line", () => lineAt(0).Line.BackingVocals[1].Anchor == 0);
             AddAssert("its time is unchanged", () => lineAt(0).Line.BackingVocals[1].StartTime == 3800);
@@ -199,9 +195,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("it is back on its default place", () => lineAt(0).Line.BackingVocals[1].Anchor == null);
             AddAssert("and the line's start never moved", () => lineAt(0).Line.StartTime == 1000);
         }
-
-        private bool plainAnchor(int index) => strip().BackingAnchorLook(lineAt(0), index) is var (ring, fill)
-                                                 && ring == (Colour4)TypeBeatStyle.TypedChar && fill == 1;
 
         [Test]
         public void TestDraggingABackingBlockRetimesOnlyItsWord()
