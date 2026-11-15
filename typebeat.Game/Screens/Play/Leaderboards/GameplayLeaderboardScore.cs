@@ -8,7 +8,6 @@ using typebeat.Game.Online.Rooms;
 using typebeat.Game.Online.Spectator;
 using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Scoring;
-using typebeat.Game.Scoring.Legacy;
 using typebeat.Game.Users;
 
 namespace typebeat.Game.Screens.Play.Leaderboards
@@ -58,14 +57,6 @@ namespace typebeat.Game.Screens.Play.Leaderboards
         public long TotalScoreTiebreaker { get; init; }
 
         /// <summary>
-        /// A custom function which handles converting a score to a display score using a provided <see cref="ScoringMode"/>.
-        /// </summary>
-        /// <remarks>
-        /// If no function is provided, <see cref="TotalScore"/> will be used verbatim.
-        /// </remarks>
-        public Func<ScoringMode, long> GetDisplayScore { get; set; }
-
-        /// <summary>
         /// The colour of the team that the user playing is on, if any.
         /// </summary>
         public Colour4? TeamColour { get; init; }
@@ -98,7 +89,6 @@ namespace typebeat.Game.Screens.Play.Leaderboards
             TotalScore.BindTarget = scoreProcessor.TotalScore;
             Accuracy.BindTarget = scoreProcessor.Accuracy;
             Combo.BindTarget = comboMode == ComboDisplayMode.Current ? scoreProcessor.Combo : scoreProcessor.HighestCombo;
-            GetDisplayScore = scoreProcessor.GetDisplayScore;
         }
 
         public GameplayLeaderboardScore(IUser user, SpectatorScoreProcessor scoreProcessor, bool tracked, ComboDisplayMode comboMode)
@@ -108,7 +98,6 @@ namespace typebeat.Game.Screens.Play.Leaderboards
             TotalScore.BindTarget = scoreProcessor.TotalScore;
             Accuracy.BindTarget = scoreProcessor.Accuracy;
             Combo.BindTarget = comboMode == ComboDisplayMode.Current ? scoreProcessor.Combo : scoreProcessor.HighestCombo;
-            GetDisplayScore = scoreProcessor.GetDisplayScore;
         }
 
         public GameplayLeaderboardScore(ScoreInfo scoreInfo, bool tracked, ComboDisplayMode comboMode)
@@ -119,7 +108,6 @@ namespace typebeat.Game.Screens.Play.Leaderboards
             Accuracy.Value = scoreInfo.Accuracy;
             Combo.Value = comboMode == ComboDisplayMode.Current ? scoreInfo.Combo : scoreInfo.MaxCombo;
             TotalScoreTiebreaker = scoreInfo.OnlineID > 0 ? scoreInfo.OnlineID : scoreInfo.Date.ToUnixTimeSeconds();
-            GetDisplayScore = scoreInfo.GetDisplayScore;
             InitialPosition = scoreInfo.Position;
         }
 
@@ -131,7 +119,6 @@ namespace typebeat.Game.Screens.Play.Leaderboards
             Accuracy.Value = score.Accuracy;
             Combo.Value = comboMode == ComboDisplayMode.Highest ? score.MaxCombo : throw new NotSupportedException($"{comboMode} {nameof(comboMode)} is not supported.");
             TotalScoreTiebreaker = score.ID;
-            GetDisplayScore = score.GetDisplayScore;
             InitialPosition = score.Position;
         }
 
@@ -143,7 +130,6 @@ namespace typebeat.Game.Screens.Play.Leaderboards
             User = user;
             Tracked = tracked;
             TotalScore.BindTarget = displayScore;
-            GetDisplayScore = _ => displayScore.Value;
         }
 
         public enum ComboDisplayMode

@@ -101,8 +101,6 @@ namespace typebeat.Game.Screens.Select
         private Colour4 backgroundColour;
         private ColourInfo totalScoreBackgroundGradient;
 
-        private IBindable<ScoringMode> scoringMode { get; set; } = null!;
-
         private Box background = null!;
         private Box foreground = null!;
 
@@ -493,22 +491,8 @@ namespace typebeat.Game.Screens.Select
         {
             base.LoadComplete();
 
-            scoringMode = config.GetBindable<ScoringMode>(OsuSetting.ScoreDisplayMode);
-            scoringMode.BindValueChanged(s =>
-            {
-                switch (s.NewValue)
-                {
-                    case ScoringMode.Standardised:
-                        rightContent.Width = 170;
-                        break;
-
-                    case ScoringMode.Classic:
-                        rightContent.Width = expanded_right_content_width;
-                        break;
-                }
-
-                updateModDisplay();
-            }, true);
+            rightContent.Width = 170;
+            updateModDisplay();
         }
 
         private void updateModDisplay()

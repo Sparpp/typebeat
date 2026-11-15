@@ -21,7 +21,6 @@ using typebeat.Game.Overlays;
 using typebeat.Game.Overlays.Notifications;
 using typebeat.Game.Rulesets;
 using typebeat.Game.Rulesets.Mods;
-using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Rulesets.UI;
 using typebeat.Game.Screens.Play.HUD;
 using typebeat.Game.Screens.Play.HUD.ClicksPerSecond;
@@ -435,25 +434,10 @@ namespace typebeat.Game.Screens.Play
 
         private partial class HUDComponentsContainer : SkinnableContainer
         {
-            private Bindable<ScoringMode> scoringMode;
-
-            [Resolved]
-            private OsuConfigManager config { get; set; }
-
             public HUDComponentsContainer([CanBeNull] RulesetInfo ruleset = null)
                 : base(new GlobalSkinnableContainerLookup(GlobalSkinnableContainers.MainHUDComponents, ruleset))
             {
                 RelativeSizeAxes = Axes.Both;
-            }
-
-            protected override void LoadComplete()
-            {
-                base.LoadComplete();
-
-                // When the scoring mode changes, relative positions of elements may change (see DefaultSkin.GetDrawableComponent).
-                // This is a best effort implementation for cases where users haven't customised layouts.
-                scoringMode = config.GetBindable<ScoringMode>(OsuSetting.ScoreDisplayMode);
-                scoringMode.BindValueChanged(_ => Reload());
             }
         }
     }

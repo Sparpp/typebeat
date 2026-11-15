@@ -39,7 +39,6 @@ namespace typebeat.Game.Screens.Play.Leaderboards
 
         private readonly MultiplayerRoomUser[] users;
 
-        private readonly Bindable<ScoringMode> scoringMode = new Bindable<ScoringMode>();
         private readonly IBindableList<int> playingUserIds = new BindableList<int>();
 
         [Resolved]
@@ -64,12 +63,9 @@ namespace typebeat.Game.Screens.Play.Leaderboards
         [BackgroundDependencyLoader]
         private void load(OsuConfigManager config, IAPIProvider api, CancellationToken cancellationToken)
         {
-            config.BindWith(OsuSetting.ScoreDisplayMode, scoringMode);
-
             foreach (var user in users)
             {
                 var scoreProcessor = new SpectatorScoreProcessor(user.UserID);
-                scoreProcessor.Mode.BindTo(scoringMode);
                 scoreProcessor.TotalScore.BindValueChanged(_ => Scheduler.AddOnce(updateTotals));
                 AddInternal(scoreProcessor);
 

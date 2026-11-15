@@ -15,7 +15,6 @@ using typebeat.Game.Configuration;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Online.API;
-using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Screens.Play.Leaderboards;
 using typebeat.Game.Users;
 using typebeat.Game.Users.Drawables;
@@ -60,13 +59,6 @@ namespace typebeat.Game.Screens.Play.HUD
         public Bindable<int?> ScorePosition { get; } = new Bindable<int?>();
         public Bindable<long> DisplayOrder { get; } = new Bindable<long>();
 
-        private Func<ScoringMode, long>? getDisplayScoreFunction;
-
-        public Func<ScoringMode, long> GetDisplayScore
-        {
-            set => getDisplayScoreFunction = value;
-        }
-
         public Color4? BackgroundColour { get; }
 
         public IUser? User { get; }
@@ -87,8 +79,6 @@ namespace typebeat.Game.Screens.Play.HUD
         private OsuSpriteText accuracyText = null!;
         private OsuSpriteText scoreText = null!;
         private OsuSpriteText comboText = null!;
-
-        private IBindable<ScoringMode> scoreDisplayMode = null!;
 
         private bool isFriend;
 
@@ -116,8 +106,6 @@ namespace typebeat.Game.Screens.Play.HUD
             HasQuit.BindTo(score.HasQuit);
             ScorePosition.BindTo(score.Position);
             DisplayOrder.BindTo(score.DisplayOrder);
-            GetDisplayScore = score.GetDisplayScore;
-
             if (score.TeamColour != null)
                 BackgroundColour = score.TeamColour.Value;
 
@@ -309,8 +297,6 @@ namespace typebeat.Game.Screens.Play.HUD
 
             isFriend = User != null && api.LocalUserState.Friends.Any(u => User.OnlineID == u.TargetID);
 
-            scoreDisplayMode = config.GetBindable<ScoringMode>(OsuSetting.ScoreDisplayMode);
-            scoreDisplayMode.BindValueChanged(_ => updateScore());
             TotalScore.BindValueChanged(_ => updateScore(), true);
 
             Accuracy.BindValueChanged(v => accuracyText.Text = v.NewValue.FormatAccuracy(), true);
@@ -325,7 +311,7 @@ namespace typebeat.Game.Screens.Play.HUD
             FinishTransforms(true);
         }
 
-        private void updateScore() => scoreText.Text = (getDisplayScoreFunction?.Invoke(scoreDisplayMode.Value) ?? TotalScore.Value).ToString("N0");
+        private void updateScore() => scoreText.Text = TotalScore.Value.ToString("N0");
 
         private void onExpanded(ValueChangedEvent<bool> expanded)
         {
