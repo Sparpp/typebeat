@@ -144,7 +144,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     "Caret smoothing",
                     "Use space error dot",
                     "Approach bars",
+                    "Approach Bar Alignment",
                     "Judgement Indicator",
+                    "Indicator Alignment",
                     "Indicator Lead-In",
                     "Indicator Brightness",
                     "Text pop-in",
@@ -179,9 +181,51 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 config.SetValue(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.FadeIn);
                 Assert.That(indicator.Current.Value, Is.EqualTo(JudgementIndicatorMode.FadeIn));
 
-                // Indicator Alignment was retired (2026-10-25): the indicators always complete at the
-                // centre of the Great window, so there is no slider for it.
-                Assert.That(controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormSliderBar<float>>().Any(c => c.Caption.ToString() == "Indicator Alignment"), Is.False);
+                // Indicator Alignment (revived by backlog 475 on a new key) and the independent Approach
+                // Bar Alignment: both start at the centre, share the old slider's labels, and moving one
+                // never moves the other.
+                var alignment = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormSliderBar<float>>().Single(c => c.Caption.ToString() == "Indicator Alignment");
+                var barAlignment = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormSliderBar<float>>().Single(c => c.Caption.ToString() == "Approach Bar Alignment");
+                foreach (var slider in new[] { alignment, barAlignment })
+                {
+                    Assert.That(slider.Current.Value, Is.EqualTo(100f), slider.Caption.ToString());
+                    Assert.That(slider.LabelFormat!(0).ToString(), Is.EqualTo("Great window start"));
+                    Assert.That(slider.LabelFormat!(100).ToString(), Is.EqualTo("Great window centre"));
+                    Assert.That(slider.LabelFormat!(40).ToString(), Is.EqualTo("40% towards centre"));
+                }
+
+                Assert.That(alignment.Current.Disabled, Is.False, "the default fill indicator has an alignment to move");
+                alignment.Current.Value = 30f;
+                Assert.That(config.Get<float>(TypeBeatRulesetSetting.IndicatorAlignment), Is.EqualTo(30f));
+                Assert.That(config.Get<float>(TypeBeatRulesetSetting.ApproachBarAlignment), Is.EqualTo(100f), "the bar alignment is independent");
+                config.SetValue(TypeBeatRulesetSetting.IndicatorAlignment, 1000f);
+                Assert.That(alignment.Current.Value, Is.EqualTo(100f));
+                config.SetValue(TypeBeatRulesetSetting.IndicatorAlignment, -1f);
+                Assert.That(alignment.Current.Value, Is.Zero);
+
+                // Approach bars ship off, so their alignment starts greyed out like the gradient below.
+                Assert.That(barAlignment.Current.Disabled, Is.True);
+                config.SetValue(TypeBeatRulesetSetting.ApproachBars, true);
+                Assert.That(barAlignment.Current.Disabled, Is.False);
+                barAlignment.Current.Value = 70f;
+                Assert.That(config.Get<float>(TypeBeatRulesetSetting.ApproachBarAlignment), Is.EqualTo(70f));
+                Assert.That(config.Get<float>(TypeBeatRulesetSetting.IndicatorAlignment), Is.Zero, "the indicator alignment is independent");
+                config.SetValue(TypeBeatRulesetSetting.ApproachBars, false);
+                Assert.That(barAlignment.Current.Disabled, Is.True);
+                Assert.That(barAlignment.Current.Value, Is.EqualTo(70f), "greying out keeps the chosen value");
+
+                config.SetValue(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.None);
+                Assert.That(alignment.Current.Disabled, Is.False, "text pop-in still follows the alignment");
+                config.SetValue(TypeBeatRulesetSetting.TextPopIn, false);
+                Assert.That(alignment.Current.Disabled, Is.True);
+                config.SetValue(TypeBeatRulesetSetting.TextPopIn, true);
+                config.SetValue(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.FadeIn);
+                Assert.That(alignment.Current.Disabled, Is.False);
+
+                Assert.That(alignment.HintText.ToString(), Does.Contain("Approach bars have their own alignment"));
+                Assert.That(barAlignment.HintText.ToString(), Does.Contain("Independent of Indicator Alignment"));
+                var approachBars = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>().Single(c => c.Caption.ToString() == "Approach bars");
+                Assert.That(approachBars.HintText.ToString(), Does.Not.Contain("centre of the Great window"), "the bars arrive where their own slider says");
 
                 var duration = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormSliderBar<float>>().Single(c => c.Caption.ToString() == "Indicator Lead-In");
                 Assert.That(duration.Current.Value, Is.EqualTo(800f));

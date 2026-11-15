@@ -49,12 +49,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             config.SetValue(TypeBeatRulesetSetting.CaretSmoothing, TypeBeatRulesetConfigManager.DEFAULT_CARET_SMOOTHING_MS);
             config.SetValue(TypeBeatRulesetSetting.TextPopInAmount, TypeBeatRulesetConfigManager.DEFAULT_TEXT_POP_IN_AMOUNT);
             config.SetValue(TypeBeatRulesetSetting.ApproachBars, true);
+            // Both gates are open here (pop-in on, bars on), so the alignments accept their defaults.
+            config.SetValue(TypeBeatRulesetSetting.IndicatorAlignment, TypeBeatRulesetConfigManager.DEFAULT_ALIGNMENT_PERCENT);
+            config.SetValue(TypeBeatRulesetSetting.ApproachBarAlignment, TypeBeatRulesetConfigManager.DEFAULT_ALIGNMENT_PERCENT);
         });
+
+        /// <summary>
+        /// Put both alignments back on the Great window's centre. A gated alignment refuses a value
+        /// (backlog 475), so open both gates first; <see cref="load"/> sets the gates it wants afterwards.
+        /// </summary>
+        private void centreAlignments()
+        {
+            config.SetValue(TypeBeatRulesetSetting.ApproachBars, true);
+            config.SetValue(TypeBeatRulesetSetting.TextPopIn, true);
+            config.SetValue(TypeBeatRulesetSetting.IndicatorAlignment, TypeBeatRulesetConfigManager.DEFAULT_ALIGNMENT_PERCENT);
+            config.SetValue(TypeBeatRulesetSetting.ApproachBarAlignment, TypeBeatRulesetConfigManager.DEFAULT_ALIGNMENT_PERCENT);
+        }
 
         private void load(string text, bool hardRock = false, bool splitStretch = false, LyricLine? source = null, bool easy = false)
         {
             AddStep("create lyrics with pop-in", () =>
             {
+                centreAlignments();
                 config.SetValue(TypeBeatRulesetSetting.PaceBarReveal, PaceBarRevealMode.Build);
                 config.SetValue(TypeBeatRulesetSetting.JudgementColouredBars, false);
                 config.SetValue(TypeBeatRulesetSetting.ShowPaceColours, true);

@@ -130,6 +130,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             });
         }
 
+        /// <summary>
+        /// A setting greyed out BY its gate's default (Approach Bar Alignment while Approach bars ship
+        /// off, backlog 475) is still put back on its default, and stays greyed out; otherwise the stale
+        /// value would return the moment the gate opened.
+        /// </summary>
+        [Test]
+        public void ASettingGreyedOutByADefaultIsStillReset()
+        {
+            var gate = new Bindable<bool>(false);
+            var dependent = new BindableFloat(100) { Value = 25 };
+            gate.BindValueChanged(e => dependent.Disabled = !e.NewValue, true);
+            Assert.That(dependent.Disabled, Is.True);
+
+            var store = new[]
+            {
+                new KeyValuePair<TwoSettings, IBindable>(TwoSettings.Dependent, dependent),
+                new KeyValuePair<TwoSettings, IBindable>(TwoSettings.Gate, gate),
+            };
+
+            Assert.That(ConfigDefaults.Reset(store, _ => false), Is.EqualTo(2));
+            Assert.Multiple(() =>
+            {
+                Assert.That(gate.Value, Is.False);
+                Assert.That(dependent.Value, Is.EqualTo(100f));
+                Assert.That(dependent.Disabled, Is.True, "still greyed out by the gate's default");
+            });
+        }
+
         private static void assertDefaults(TypeBeatRulesetConfigManager config, TypeBeatRulesetConfigManager defaults) => Assert.Multiple(() =>
         {
             Assert.That(config.Get<float>(TypeBeatRulesetSetting.SyllableBrightness), Is.EqualTo(defaults.Get<float>(TypeBeatRulesetSetting.SyllableBrightness)));

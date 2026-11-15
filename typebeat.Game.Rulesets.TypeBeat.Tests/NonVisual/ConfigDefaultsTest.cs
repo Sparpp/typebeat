@@ -193,6 +193,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// Indicator Alignment and Approach Bar Alignment (backlog 475) are brand new keys that every
+        /// install reads on its next boot, so both start at 100%, the Great window's centre: exactly
+        /// where the indicators, pop-in and bars completed before the sliders existed, so nobody's
+        /// display moves until they move a slider. Both run 0 to 100 in steps of 1.
+        /// </summary>
+        [Test]
+        public void BothAlignmentsDefaultToTheGreatWindowCentre()
+        {
+            using (var rulesetConfig = new TypeBeatRulesetConfigManager(null, new TypeBeatRuleset().RulesetInfo))
+            {
+                foreach (var setting in new[] { TypeBeatRulesetSetting.IndicatorAlignment, TypeBeatRulesetSetting.ApproachBarAlignment })
+                {
+                    var alignment = (BindableFloat)rulesetConfig.GetBindable<float>(setting);
+
+                    Assert.Multiple(() =>
+                    {
+                        Assert.That(alignment.Default, Is.EqualTo(100f), setting.ToString());
+                        Assert.That(alignment.Value, Is.EqualTo(100f), setting.ToString());
+                        Assert.That(alignment.MinValue, Is.Zero, setting.ToString());
+                        Assert.That(alignment.MaxValue, Is.EqualTo(100f), setting.ToString());
+                        Assert.That(alignment.Precision, Is.EqualTo(1f), setting.ToString());
+                    });
+                }
+
+                // New keys, not the retired one: see the stored-row test in JudgementIndicatorSettingsMigrationTest.
+                Assert.That(Enum.GetNames<TypeBeatRulesetSetting>(), Does.Not.Contain("SyllableFadeInEnd"));
+            }
+        }
+
+        /// <summary>
         /// The sync metric ships OFF (backlog 251), which is the whole shape of that change: the
         /// owner asked for it out of the gameplay UI, and it comes back only for a player who ticks
         /// the box. The key is brand new, so unlike the two above this default is NOT harmless to
