@@ -177,6 +177,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         private void addBackingVocals(TypeBeatHitObject hitObject)
         {
+            // First, so the line's edge rings draw under its anchors.
+            addBackingLineBounds(hitObject);
+
             for (int k = 0; k < hitObject.Line.BackingVocals.Count; k++)
             {
                 backingConnectorLayer.Add(addTo(backingConnectors, new BackingConnector(hitObject, k)));
@@ -195,7 +198,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             backingAnchors.Clear();
             backingConnectors.Clear();
             backingDividers.Clear();
+            backingLineBounds.Clear();
             backingTracks.Clear();
+            lineWidthProbe.Prune();
         }
 
         /// <summary>The track of each of <paramref name="hitObject"/>'s backing entries (see <see cref="BackingVocals.Tracks"/>).</summary>
@@ -299,6 +304,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             for (int i = 0; i < backingAnchors.Count; i++)
                 backingAnchors[i].UpdateLayout(this);
 
+            for (int i = 0; i < backingLineBounds.Count; i++)
+                backingLineBounds[i].UpdateLayout(this);
+
             float laneHeight = backingConnectorLayer.DrawHeight;
 
             for (int i = 0; i < backingConnectors.Count; i++)
@@ -374,11 +382,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         }
 
         /// <summary>Where backing word <paramref name="index"/>'s anchor sits on screen: its fraction of the way across the line's band.</summary>
-        private float backingAnchorX(LyricLine line, int index)
-        {
-            float from = PositionOf(line.StartTime);
-            return from + (float)BackingVocals.AnchorOf(line.BackingVocals, index) * (PositionOf(line.EndTime) - from);
-        }
+        private float backingAnchorX(LyricLine line, int index) => backingFractionX(line, BackingVocals.AnchorOf(line.BackingVocals, index));
 
         /// <summary>
         /// The fraction of the way across <paramref name="line"/>'s band that a local X sits at, clamped

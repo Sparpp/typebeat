@@ -190,6 +190,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                         },
                     },
                 },
+                // Never drawn: measures how wide each line renders in gameplay (LyricTimeline.BackingBounds.cs).
+                lineWidthProbe = new LineWidthProbe(),
                 // Unmasked so the resize cursor is never clipped at the strip edges.
                 resizeCursor = new ResizeCursorContainer { State = { Value = Visibility.Hidden } },
             };
