@@ -927,9 +927,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 X = parent.backingAnchorX(HitObject.Line, Index);
                 Y = y;
 
-                // One look in every state (backlog 477): hovering, dragging or placing an anchor no longer
-                // recolours it (it used to turn yellow while hot and solid blue once placed, which read as
-                // a selection), so the dot stays the plain ring it starts as.
+                // Hovered or dragged, the ring turns the caret's yellow and grows a little, keeping its
+                // dark centre; otherwise it is the plain white ring. Placing it changes nothing (it used
+                // to turn solid blue, which read as a selection; backlog 477).
+                bool hot = dragging || IsHovered;
+                ring.Colour = hot ? TypeBeatStyle.Caret : TypeBeatStyle.TypedChar;
+                ring.Size = new Vector2(hot ? dot_size + 2 : dot_size);
             }
 
             protected override bool OnMouseMove(MouseMoveEvent e)
@@ -967,6 +970,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 grabOffset = strip.ToLocalSpace(e.ScreenSpaceMouseDownPosition).X - strip.backingAnchorX(HitObject.Line, Index);
 
                 dragging = true;
+                // The resize cursor stays up for the whole drag, as it does for every other edge.
+                strip.SetEdgeDragging(true);
                 state.BeginInteraction();
                 editorBeatmap.BeginChange();
                 return true;
@@ -983,6 +988,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             protected override void OnDragEnd(DragEndEvent e)
             {
                 dragging = false;
+                strip.SetEdgeDragging(false);
                 editorBeatmap.EndChange();
                 state.EndInteraction();
             }
