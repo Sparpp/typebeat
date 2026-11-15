@@ -27,6 +27,7 @@ using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Replays;
 using typebeat.Game.Rulesets.TypeBeat.Scoring;
+using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Scoring;
 using typebeat.Game.Utils;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
@@ -483,6 +484,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             inWord.AnyOrderWithinWord = true;
             Assert.IsTrue(inWord.ProcessKey('t', 1100));
             Assert.AreEqual(CellState.Correct, cells(inWord)[2].State);
+        }
+
+        /// <summary>
+        /// The pace underline (display only) still prices each WORD on its own: the completed space
+        /// closes "cat" exactly as a typed one does, through the UI twin of the engine's word-gap
+        /// rule. Without the mod the same line cuts at the same cell, so the bands are unchanged.
+        /// </summary>
+        [Test]
+        public void ThePaceUnderlineStillCutsAtTheCompletedSpace()
+        {
+            var spaceless = active(catDog());
+            var typed = active(catDog(), spaceless: false);
+
+            Assert.IsTrue(spaceless.Lines[0].Spaceless);
+            Assert.IsFalse(cells(spaceless)[3].IsTypeable, "the space is completed, not typed");
+
+            var expected = new[] { (0, 4), (4, 7) };
+
+            CollectionAssert.AreEqual(expected, UnderlinePace.SegmentLine(spaceless.Lines[0]).Select(s => (s.StartCell, s.EndCellExclusive)).ToArray(), "one band per word under the mod");
+            CollectionAssert.AreEqual(expected, UnderlinePace.SegmentLine(typed.Lines[0]).Select(s => (s.StartCell, s.EndCellExclusive)).ToArray(), "and the same bands without it");
+
+            // The cell-only overload has no line to ask, so it keeps the typeable-only rule.
+            Assert.AreEqual(1, UnderlinePace.SegmentLine(cells(spaceless), 2300).Length);
         }
 
         #endregion

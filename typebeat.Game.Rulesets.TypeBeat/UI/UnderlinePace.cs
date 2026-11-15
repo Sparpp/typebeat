@@ -38,7 +38,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// <para><b>Segmentation: per authored subdivision within subdivided words.</b> An ordinary
     /// word remains one segment. An authored subdivision marker opens a new segment at the same
     /// cell edge the lyric display marks. The final segment of a word includes its trailing gap
-    /// (<see cref="LyricLineDisplay.IsWordGap"/>), and each map-time span runs to the NEXT segment's
+    /// (<see cref="LyricLineDisplay.IsWordGap(TypingCell, bool)"/>), and each map-time span runs to the NEXT segment's
     /// first target (the line's sung end for the last one). A long breath between words is thus
     /// charged to the final subdivision of the word before it and reads as slow.
     /// Segments tile the line with no holes at either end, which the renderer relies on.</para>
@@ -248,9 +248,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <see cref="SungEndOf"/>). Pure, so it is unit-testable.</para>
         /// </summary>
         public static PaceSegment[] SegmentLine(IReadOnlyList<TypingCell> cells, double lineSungEndMs)
-            => segmentLine(cells, lineSungEndMs, Array.Empty<int>());
+            => segmentLine(cells, lineSungEndMs, Array.Empty<int>(), spaceless: false);
 
-        private static PaceSegment[] segmentLine(IReadOnlyList<TypingCell> cells, double lineSungEndMs, IReadOnlyList<int> subdivisionStarts)
+        private static PaceSegment[] segmentLine(IReadOnlyList<TypingCell> cells, double lineSungEndMs, IReadOnlyList<int> subdivisionStarts, bool spaceless)
         {
             int n = cells.Count;
 
@@ -259,12 +259,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             // Boundaries: a new segment opens on the cell AFTER each word gap. A gap that IS the
             // last cell opens nothing, which is what keeps a trailing gap inside the last word
-            // rather than creating an empty segment past the end of the line.
+            // rather than creating an empty segment past the end of the line. Under Spaceless the
+            // completed spaces are the gaps (see LyricLineDisplay.IsWordGap(TypingCell, bool)).
             var starts = new List<int> { 0 };
 
             for (int i = 0; i < n; i++)
             {
-                if (LyricLineDisplay.IsWordGap(cells[i]) && i + 1 < n)
+                if (LyricLineDisplay.IsWordGap(cells[i], spaceless) && i + 1 < n)
                     starts.Add(i + 1);
             }
 
@@ -327,7 +328,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// back on, also cuts at the automatic syllabifier's splits.
         /// </summary>
         public static PaceSegment[] SegmentLine(TypingLine line, bool authoredSyllablesOnly)
-            => segmentLine(line.Cells, SungEndOf(line), line.GroupingFor(authoredSyllablesOnly).MarkerCells);
+            => segmentLine(line.Cells, SungEndOf(line), line.GroupingFor(authoredSyllablesOnly).MarkerCells, line.Spaceless);
 
         /// <summary>
         /// Where a line stops being sung: <see cref="TypingLine.SweepEndTime"/>, which IS the last
