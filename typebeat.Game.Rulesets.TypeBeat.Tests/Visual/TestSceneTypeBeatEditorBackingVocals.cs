@@ -140,6 +140,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         [Test]
+        public void TestTheLineEdgesMarkWhereTheLyricEndsInGameplay()
+        {
+            AddUntilStep("the line is measured", () => strip().BackingLineEdges(lineAt(0)) != null);
+
+            AddAssert("a short line's edges sit inside the stage, either side of its middle", () =>
+            {
+                var (start, end) = strip().BackingLineEdges(lineAt(0))!.Value;
+                return start > 0 && start < 0.5 && Math.Abs(start + end - 1) < 1e-6;
+            });
+
+            AddUntilStep("two hollow rings on the anchor row, at those edges", () =>
+            {
+                var bounds = strip().BackingLineBoundsOf(lineAt(0));
+                var (start, end) = strip().BackingLineEdges(lineAt(0))!.Value;
+                float at(int i) => strip().ToLocalSpace(bounds[i].ScreenSpaceDrawQuad.Centre).X;
+                float expected(double fraction) => strip().PositionOf(1000) + (float)fraction * (strip().PositionOf(5000) - strip().PositionOf(1000));
+
+                return bounds.Count == 2 && bounds.All(b => b.Alpha > 0 && b.Alpha < 1)
+                                         && Math.Abs(at(0) - expected(start)) < 1 && Math.Abs(at(1) - expected(end)) < 1;
+            });
+
+            AddAssert("a line without backing vocals has none", () => strip().BackingLineBoundsOf(lineAt(1)).Count == 0);
+        }
+
+        [Test]
         public void TestDraggingAnAnchorPlacesItAndDoubleClickPutsItBack()
         {
             showLineOne();

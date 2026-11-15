@@ -14,9 +14,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// <summary>
     /// BACKING VOCALS (backlog 445): the line's backing words, drawn above it and never typed. Each one
     /// is hidden until it is sung, then POPS UP over its anchor (<see cref="BackingVocals.AnchorOf"/>, a
-    /// fraction of the line's width): thrown up out of the lyric with a little overshoot, growing and
-    /// fading in, and settling at its own tilt (<see cref="BackingTilt"/>). It then stays until the line
-    /// leaves the stage, riding the line's own dim and fit like every other adornment here.
+    /// fraction of the STAGE's width, so a word can sit beside a short line as well as over it): thrown
+    /// up out of the lyric with a little overshoot, growing and fading in, and settling at its own tilt
+    /// (<see cref="BackingTilt"/>). It then stays until the line leaves the stage, riding the line's own
+    /// dim like every other adornment here.
+    ///
+    /// <para>The stage is the display's parent, which the line is centred in (see LyricStage). The words
+    /// live in the line's content, which <see cref="applyFit"/> scales down for a long line, so a stage
+    /// X is mapped through that scale (<see cref="BackingRestX"/>) and the words still reach the stage's
+    /// edges on a shrunk line. A word's anchor is its centre, kept far enough in that the whole word
+    /// stays on the stage.</para>
     ///
     /// <para>Everything is a pure function of the song time (<see cref="BackingPop"/>), so a seek, a
     /// rewind, a paused replay and a repeat play all show exactly the same words in exactly the same
@@ -52,7 +59,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private float[] backingTilts = Array.Empty<float>();
         private Vector2[] backingRest = Array.Empty<Vector2>();
         private bool backingEnabled = true;
-        private float backingStageWidth;
+
+        // What the resting places were last laid out against: the stage width, the content's fit scale
+        // and each word's width. Update re-lays them out when any of these moves (a resize, a re-fit, a
+        // word whose glyphs measured late), so one place keeps them right for every host.
+        private float backingLaidOutStage = -1;
+        private float backingLaidOutScale = -1;
+        private float[] backingLaidOutWidths = Array.Empty<float>();
 
         /// <summary>The backing words this line shows (its source line's, see <see cref="LyricLine.BackingVocals"/>).</summary>
         private IReadOnlyList<BackingVocal> backingWords => Line.Source.BackingVocals;
@@ -64,6 +77,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             backingTexts = new OsuSpriteText[words.Count];
             backingTilts = new float[words.Count];
             backingRest = new Vector2[words.Count];
+            backingLaidOutWidths = new float[words.Count];
 
             for (int i = 0; i < words.Count; i++)
             {
@@ -88,22 +102,71 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             }
         }
 
-        /// <summary>Lays the resting places out over the measured line: above the glyph row, or above the ruby when the line has any.</summary>
+        /// <summary>
+        /// The width the anchors are fractions of, in the stage's own units: the parent the line is
+        /// centred in, or the line's on-screen width while it has no parent to measure.
+        /// </summary>
+        private float backingStageWidth => Parent is Drawable parent && parent.DrawWidth > 0 ? parent.DrawWidth : cellX[^1] * contentScale;
+
+        /// <summary>
+        /// Lays the resting places out across the stage: above the glyph row, or above the ruby when the
+        /// line has any. Runs after every measure and again from Update whenever the stage, the fit or a
+        /// word's width has moved since (see <see cref="backingLayoutStale"/>).
+        /// </summary>
         private void layoutBackingVocals()
         {
             if (backingTexts.Length == 0)
                 return;
 
-            float lyricWidth = cellX[^1];
-            float span = backingStageWidth > 0 ? backingStageWidth : lyricWidth;
-            float left = (lyricWidth - span) * 0.5f;
+            float stage = backingStageWidth;
             float ruby = furigana.Count > 0 ? requestedFontSize * 0.36f * 1.15f + 2 * SizeRatio : 0;
             float lift = ruby + BACKING_GAP * SizeRatio;
 
+            backingLaidOutStage = stage;
+            backingLaidOutScale = contentScale;
+
             for (int i = 0; i < backingTexts.Length; i++)
-                backingRest[i] = new Vector2(left + span * (float)BackingVocals.AnchorOf(backingWords, i), -lift);
+            {
+                backingLaidOutWidths[i] = backingTexts[i].DrawWidth;
+                float x = BackingRestX(BackingVocals.AnchorOf(backingWords, i), stage, cellX[^1], contentScale, backingTexts[i].DrawWidth);
+                backingRest[i] = new Vector2(x, -lift);
+            }
 
             updateBackingVocals(Time.Current);
+        }
+
+        /// <summary>Whether the resting places were laid out against a stage, fit or word width that has since changed.</summary>
+        private bool backingLayoutStale()
+        {
+            if (Math.Abs(backingStageWidth - backingLaidOutStage) > 0.5f || Math.Abs(contentScale - backingLaidOutScale) > 1e-4f)
+                return true;
+
+            for (int i = 0; i < backingTexts.Length; i++)
+            {
+                if (Math.Abs(backingTexts[i].DrawWidth - backingLaidOutWidths[i]) > 0.5f)
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Where a backing word rests, in the line's content coordinates, for an anchor across a stage of
+        /// <paramref name="stageWidth"/> that a line of <paramref name="lineWidth"/> (content units, drawn
+        /// at <paramref name="contentScale"/>) is centred in. The word is centred on its anchor, pulled in
+        /// so its <paramref name="wordWidth"/> (content units) stays on the stage, or centred on the stage
+        /// when it is wider than the stage. Pure.
+        /// </summary>
+        public static float BackingRestX(double anchor, float stageWidth, float lineWidth, float contentScale, float wordWidth)
+        {
+            float scale = contentScale > 0 ? contentScale : 1;
+            float half = wordWidth * scale / 2;
+            float x = stageWidth * (float)anchor;
+            x = half * 2 >= stageWidth ? stageWidth / 2 : Math.Clamp(x, half, stageWidth - half);
+
+            // The content's left edge sits (stage - line * scale) / 2 in from the stage's, and a content
+            // unit is `scale` stage units wide.
+            return lineWidth / 2 + (x - stageWidth / 2) / scale;
         }
 
         private void updateBackingVocals(double time)
@@ -135,18 +198,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 updateBackingVocals(Time.Current);
         }
 
-        /// <summary>Sets the full stage width used to place backing vocals across the screen.</summary>
-        public void SetBackingStageWidth(float width)
-        {
-            if (width <= 0 || Math.Abs(backingStageWidth - width) < 0.1f)
-                return;
-
-            backingStageWidth = width;
-
-            if (IsLoaded)
-                layoutBackingVocals();
-        }
-
         /// <summary>How many backing words this line draws (test support).</summary>
         internal int BackingVocalCount => backingTexts.Length;
 
@@ -156,8 +207,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <summary>Where backing word <paramref name="index"/> settles, in the line's own (unscaled) coordinates (test support).</summary>
         internal Vector2 BackingVocalRest(int index) => backingRest[index];
 
-        /// <summary>The laid-out width of the line the anchors are fractions of (test support).</summary>
-        internal float BackingLineWidth => cellX[^1];
+        /// <summary>The stage width the anchors are fractions of, in the stage's own units (test support).</summary>
+        internal float BackingStageWidth => backingStageWidth;
+
+        /// <summary>The line's content scale, which the resting places are mapped through (test support).</summary>
+        internal float BackingContentScale => contentScale;
 
         /// <summary>The pose of a popped-up backing word.</summary>
         /// <param name="Alpha">0 hidden (not sung yet), 1 fully shown.</param>

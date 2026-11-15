@@ -112,21 +112,44 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         [Test]
-        public void TestAnAnchorPlacesTheWordAcrossTheLine()
+        public void TestAnAnchorPlacesTheWordAcrossTheStage()
         {
             create(line(new BackingVocal("left", 2000, 2400, 0), new BackingVocal("mid", 2600, 3000), new BackingVocal("right", 3200, 3600, 1)));
 
-            AddAssert("left at the lyric's start, right at its end, an unplaced one on its default place", () =>
+            AddAssert("the stage is wider than this short line", () => display.BackingStageWidth > display.FullSweepWidth * display.BackingContentScale);
+
+            AddAssert("left at the stage's left edge, right at its right edge, each wholly on it; an unplaced one on its default place", () =>
             {
-                float width = display.BackingLineWidth;
-                return width > 0
-                       && Math.Abs(display.BackingVocalRest(0).X) < 0.5f
-                       && Math.Abs(display.BackingVocalRest(1).X - width * 0.5f) < 0.5f
-                       && Math.Abs(display.BackingVocalRest(2).X - width) < 0.5f;
+                float stage = display.BackingStageWidth;
+                return Math.Abs(stageX(0) - halfWidth(0)) < 0.5f
+                       && Math.Abs(stageX(1) - stage * 0.5f) < 0.5f
+                       && Math.Abs(stageX(2) - (stage - halfWidth(2))) < 0.5f;
             });
 
             AddAssert("all above the lyric", () => Enumerable.Range(0, 3).All(i => display.BackingVocalRest(i).Y < 0));
         }
+
+        [Test]
+        public void TestAShrunkLineStillSpansTheStage()
+        {
+            create(line(new BackingVocal("left", 2000, 2400, 0), new BackingVocal("right", 3200, 3600, 1)));
+
+            AddStep("narrow the stage until the line shrinks", () => ((Container)display.Parent!).Width = 0.12f);
+            AddUntilStep("shrunk", () => display.BackingContentScale < 0.99f);
+
+            AddAssert("the words still reach the stage's edges", () =>
+            {
+                float stage = display.BackingStageWidth;
+                return Math.Abs(stageX(0) - halfWidth(0)) < 0.5f
+                       && Math.Abs(stageX(1) - (stage - halfWidth(1))) < 0.5f;
+            });
+        }
+
+        /// <summary>Where backing word <paramref name="index"/> rests across the stage, in the stage's units: the line is centred on it at its content scale.</summary>
+        private float stageX(int index)
+            => display.BackingStageWidth / 2 + (display.BackingVocalRest(index).X - display.FullSweepWidth / 2) * display.BackingContentScale;
+
+        private float halfWidth(int index) => display.BackingVocalText(index).DrawWidth * display.BackingContentScale / 2;
 
         [Test]
         public void TestTheSettingHidesThemLive()

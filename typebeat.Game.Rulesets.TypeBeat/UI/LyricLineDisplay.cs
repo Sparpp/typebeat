@@ -67,6 +67,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     public partial class LyricLineDisplay : CompositeDrawable
     {
         private const float design_width = 1366f;
+
+        /// <summary>The stage width a 16:9 window gives the lyric stack, which the lines are laid out for.</summary>
+        public const float DESIGN_WIDTH = design_width;
+
         public const float MAX_WIDTH_FRACTION = 0.9f;
         private float maxLineWidth = design_width * MAX_WIDTH_FRACTION;
 
@@ -1160,6 +1164,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // only, the measured layout stands) so the stage reads the new geometry this frame.
             if (IsLoaded && Math.Abs(availableWidth - fittedWidth) > 0.5f)
                 applyFit();
+
+            // The backing words span the stage through the fit's scale, so a resize or re-fit moves them.
+            if (IsLoaded && backingTexts.Length > 0 && backingLayoutStale())
+                layoutBackingVocals();
 
             // Once per frame at most, and only when a cell actually repainted: the stage refreshes
             // every visible cell every frame, and the dot rule is a whole-line read, so doing it
