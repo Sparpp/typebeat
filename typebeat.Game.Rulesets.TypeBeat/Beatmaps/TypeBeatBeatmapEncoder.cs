@@ -62,7 +62,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 editorTimingPoints: beatmap.ControlPointInfo.TimingPoints,
                 editorEffectPoints: beatmap.ControlPointInfo.EffectPoints,
                 beatDivisor: beatmap.BeatmapInfo.BeatDivisor,
-                source: metadata.Source);
+                source: metadata.Source,
+                languages: metadata.Languages.ToCanonicalList());
 
             writer.Write(osu);
         }

@@ -109,7 +109,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// the mapper in song setup. Null/empty (an unspecified map) writes NO Language line at all,
         /// which is what keeps every pre-task-58 map's encoding byte-identical, so adding this field
         /// cannot demote a ranked map to locally-modified. Flows to the website's
-        /// beatmapsets.language on submission.</param>
+        /// beatmapsets.language on submission. For a map with several languages this is the PRIMARY one
+        /// (<see cref="typebeat.Game.Beatmaps.BeatmapLanguageExtensions.PrimaryOf"/>), the one language
+        /// a reader that predates <paramref name="languages"/> can hold.</param>
+        /// <param name="languages">The map's whole canonical language list
+        /// (<see cref="typebeat.Game.Beatmaps.BeatmapLanguageExtensions.ToCanonicalList"/>, backlog 472),
+        /// written as <c>[Metadata] Languages:</c> right after the Language line, and ONLY when it names
+        /// more than one language, so a single-language map encodes exactly as it did before the key
+        /// existed (see <see cref="TypeBeatOsuKeys.LANGUAGES"/>).</param>
         /// <param name="audioGain">The map's own track gain as a linear multiplier
         /// (<see cref="typebeat.Game.Beatmaps.BeatmapMetadata.AudioGain"/>): 1 (the default) writes NO
         /// AudioGain line at all, for exactly the reason the language line above is conditional. Above
@@ -140,7 +147,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                                          Colour4? freestyleColour = null,
                                          IReadOnlyList<TimingControlPoint>? editorTimingPoints = null,
                                          IReadOnlyList<EffectControlPoint>? editorEffectPoints = null, int? beatDivisor = null,
-                                         string? source = null)
+                                         string? source = null, string? languages = null)
         {
             using var doc = JsonDocument.Parse(timingJsonText);
             JsonElement root = doc.RootElement;
@@ -237,6 +244,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // with the legacy .osu encoder (TypeBeatOsuKeys), so the two write the same bytes.
             if (TypeBeatOsuKeys.LanguageLine(language) is string languageLine)
                 sb.AppendLine(languageLine);
+
+            // The full language list (backlog 472), on the same conditional terms: only a map with more than
+            // one language writes it, so no single-language map's encoding moves.
+            if (TypeBeatOsuKeys.LanguagesLine(languages) is string languagesLine)
+                sb.AppendLine(languagesLine);
 
             // The map's own track gain, as a linear multiplier (see BeatmapMetadata.AudioGain).
             // Emitted ONLY when a mapper has moved it off 1, on the same terms as the language line

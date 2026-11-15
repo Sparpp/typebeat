@@ -145,8 +145,9 @@ namespace typebeat.Game.Screens.Select
         /// (typebeat-web <c>Search/BeatmapSearchQuery.cs</c>, folding through <c>Packages/BeatmapLanguages.cs</c>):
         /// equality only, the value matched case-insensitively against a language's name or one of the
         /// site's aliases, quotes dropped. Anything else, "unspecified" included, is left as search text,
-        /// and a map whose language is not set never matches. Each one given must hold, so two different
-        /// languages match nothing. Pinned against the site by typebeat-web's <c>SearchOperatorParityTest</c>.
+        /// and a map whose language is not set never matches. Each one given must be one of the map's languages
+        /// (backlog 472), so two different languages match the maps that declare both. Pinned against the site by
+        /// typebeat-web's <c>SearchOperatorParityTest</c>.
         /// </summary>
         private static bool tryUpdateLanguage(FilterCriteria criteria, Operator op, string value)
         {

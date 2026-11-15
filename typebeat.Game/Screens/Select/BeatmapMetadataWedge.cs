@@ -13,6 +13,7 @@ using osu.Framework.Bindables;
 using osu.Framework.Extensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
+using osu.Framework.Localisation;
 using osu.Framework.Logging;
 using osu.Framework.Utils;
 using typebeat.Game.Beatmaps;
@@ -575,12 +576,31 @@ namespace typebeat.Game.Screens.Select
             updateSubWedgeVisibility();
         }
 
+        /// <summary>
+        /// The selected difficulty's OWN declared languages (backlog 472: every one of them, comma separated), or null
+        /// when its mapper never chose any. Preferred over the online set's language object, which osu-web filled and
+        /// the type!beat server does not: the map's own file is the authority on its languages, and a local map that
+        /// was never submitted has them too. Clicking adds a <c>lang:</c> term for the primary language, which song
+        /// select's filter matches against every map that declares it among its languages.
+        /// </summary>
+        private (LocalisableString value, Action? linkAction)? localLanguages()
+        {
+            var metadata = beatmap.Value.Metadata;
+            var languages = metadata.Languages;
+
+            if (languages.Count == 0)
+                return null;
+
+            string term = $"lang:{metadata.Language.ToCanonicalName()}";
+            return (languages.ToDisplayText(), () => songSelect?.AddToSearch(term));
+        }
+
         private void updateOnlineDisplay()
         {
             if (onlineLookupResult.Value?.Status != SongSelect.BeatmapSetLookupStatus.Completed)
             {
                 genre.Data = null;
-                language.Data = null;
+                language.Data = localLanguages();
                 userTags.Tags = null;
                 return;
             }
@@ -588,7 +608,7 @@ namespace typebeat.Game.Screens.Select
             if (onlineLookupResult.Value.Result == null)
             {
                 genre.Data = ("-", null);
-                language.Data = ("-", null);
+                language.Data = localLanguages() ?? ("-", null);
             }
             else
             {
@@ -598,7 +618,7 @@ namespace typebeat.Game.Screens.Select
                 var onlineBeatmap = onlineBeatmapSet.Beatmaps.SingleOrDefault(b => b.OnlineID == beatmapInfo.OnlineID);
 
                 genre.Data = (onlineBeatmapSet.Genre.Name, () => songSelect?.AddToSearch(onlineBeatmapSet.Genre.Name));
-                language.Data = (onlineBeatmapSet.Language.Name, () => songSelect?.AddToSearch(onlineBeatmapSet.Language.Name));
+                language.Data = localLanguages() ?? (onlineBeatmapSet.Language.Name, () => songSelect?.AddToSearch(onlineBeatmapSet.Language.Name));
 
                 if (onlineBeatmap != null)
                 {

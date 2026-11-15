@@ -6,11 +6,16 @@ using System.Linq;
 using NUnit.Framework;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
+using osu.Framework.Extensions;
+using osu.Framework.Graphics;
+using osu.Framework.Graphics.Sprites;
+using osu.Framework.Graphics.UserInterface;
 using osu.Framework.Input.Events;
 using osu.Framework.Input.States;
 using osu.Framework.Testing;
 using typebeat.Game.Input.Bindings;
 using typebeat.Game.Beatmaps;
+using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Localisation;
 using typebeat.Game.Online.API;
@@ -21,6 +26,7 @@ using typebeat.Game.Screens.Edit;
 using typebeat.Game.Screens.Edit.Setup;
 using typebeat.Game.Screens.Edit.Submission;
 using typebeat.Game.Tests.Visual;
+using osuTK.Input;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 {
@@ -109,21 +115,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("switch to setup", () => Editor.Mode.Value = EditorScreenMode.SongSetup);
             AddUntilStep("setup screen shown", () => Editor.ChildrenOfType<SetupScreen>().Any());
 
-            AddAssert("dropdown reflects the unset map", () => languageDropdown().Current.Value, () => Is.EqualTo(BeatmapLanguage.Unspecified));
+            AddAssert("dropdown reflects the unset map", () => languageDropdown().SelectedValues.Value, () => Is.Empty);
             AddAssert("selectable languages are offered in display order", () => languageDropdown().Items.ToArray(),
                 () => Is.EqualTo(BeatmapLanguageExtensions.DisplayOrder));
 
-            AddStep("pick japanese", () => languageDropdown().Current.Value = BeatmapLanguage.Japanese);
+            AddStep("pick japanese", () => languageDropdown().Toggle(BeatmapLanguage.Japanese));
 
             AddAssert("metadata updated", () => EditorBeatmap.Metadata.Language, () => Is.EqualTo(BeatmapLanguage.Japanese));
 
             // The whole point of storing it on metadata: it has to reach the file the server reads.
-            AddAssert("encodes into the .osu", () =>
-            {
-                var writer = new System.IO.StringWriter();
-                new TypeBeatRuleset().EncodeToNativeFormat(EditorBeatmap.PlayableBeatmap, null, writer);
-                return writer.ToString();
-            }, () => Does.Contain("Language:japanese"));
+            AddAssert("encodes into the .osu", encodedMap, () => Does.Contain("Language:japanese"));
 
             AddStep("clear notifications", () => notifications.Posted.Clear());
             AddStep("try to submit", submit);
@@ -133,14 +134,185 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         /// <summary>
+        /// Backlog 472: the setup screen's Language control is a multi-select. Driven with the real mouse: open the menu,
+        /// click two languages, and both stay picked, highlighted and ticked while the menu stays open for the next pick,
+        /// the header names both, and the metadata (and so the file the server reads, and the saved map) carries both.
+        /// </summary>
+        [Test]
+        public void TestTwoLanguagesCanBePickedAndBothAreTickedAndSaved()
+        {
+            AddStep("switch to setup", () => Editor.Mode.Value = EditorScreenMode.SongSetup);
+            AddUntilStep("setup screen shown", () => Editor.ChildrenOfType<SetupScreen>().Any());
+
+            // To the TOP of the setup screen, so the open menu below it fits on screen.
+            AddStep("scroll dropdown to the top", () =>
+            {
+                var scroll = languageDropdown().FindClosestParent<OsuScrollContainer>()!;
+                scroll.ScrollTo(scroll.GetChildPosInContent(languageDropdown()), animated: false);
+            });
+            AddStep("open the dropdown", () =>
+            {
+                InputManager.MoveMouseTo(languageDropdown().ChildrenOfType<DropdownHeader>().Single());
+                InputManager.Click(MouseButton.Left);
+            });
+            AddUntilStep("menu open", () => menuState(), () => Is.EqualTo(MenuState.Open));
+
+            clickItem(BeatmapLanguage.Japanese);
+            AddAssert("menu still open after a pick", () => menuState(), () => Is.EqualTo(MenuState.Open));
+            clickItem(BeatmapLanguage.English);
+
+            AddAssert("both picked, in picking order", () => languageDropdown().SelectedValues.Value,
+                () => Is.EqualTo(new[] { BeatmapLanguage.Japanese, BeatmapLanguage.English }));
+            AddAssert("both ticked", tickedItems, () => Is.EquivalentTo(new[] { BeatmapLanguage.Japanese, BeatmapLanguage.English }));
+            AddStep("move mouse off the menu", () => InputManager.MoveMouseTo(languageDropdown().ChildrenOfType<DropdownHeader>().Single()));
+            AddUntilStep("both highlighted", highlightedItems, () => Is.EquivalentTo(new[] { BeatmapLanguage.Japanese, BeatmapLanguage.English }));
+            AddAssert("header names both", () => headerShows("Japanese, English"));
+
+            AddAssert("metadata holds both", () => EditorBeatmap.Metadata.Languages,
+                () => Is.EqualTo(new[] { BeatmapLanguage.Japanese, BeatmapLanguage.English }));
+            AddAssert("primary is Japanese", () => EditorBeatmap.Metadata.Language, () => Is.EqualTo(BeatmapLanguage.Japanese));
+            AddAssert("encodes both into the .osu", encodedMap, () => Does.Contain("Language:japanese").And.Contain("Languages:japanese,english"));
+
+            AddAssert("save succeeds", () => Editor.Save());
+            AddAssert("nothing left unsaved", () => Editor.HasUnsavedChanges, () => Is.False);
+
+            // Exclusivity: Instrumental clears every language, and the ticks follow.
+            clickItem(BeatmapLanguage.Instrumental);
+            AddAssert("instrumental alone", () => EditorBeatmap.Metadata.Languages, () => Is.EqualTo(new[] { BeatmapLanguage.Instrumental }));
+            AddAssert("only instrumental ticked", tickedItems, () => Is.EquivalentTo(new[] { BeatmapLanguage.Instrumental }));
+
+            // Undo restores the editor's SAVED state (an encoded .osu, decoded back through RulesetBeatmapChangeHandler),
+            // so both languages coming back proves the pair survives the editor's own write and read, and the dropdown
+            // follows the restored metadata.
+            AddStep("undo", () => Editor.Undo());
+            AddAssert("both restored from the saved state", () => EditorBeatmap.Metadata.Languages,
+                () => Is.EqualTo(new[] { BeatmapLanguage.Japanese, BeatmapLanguage.English }));
+            AddUntilStep("dropdown follows the undo", tickedItems, () => Is.EquivalentTo(new[] { BeatmapLanguage.Japanese, BeatmapLanguage.English }));
+
+            // Unpicking both leaves the map unspecified again.
+            clickItem(BeatmapLanguage.Japanese);
+            clickItem(BeatmapLanguage.English);
+            AddAssert("nothing picked", () => EditorBeatmap.Metadata.Languages, () => Is.Empty);
+            AddAssert("header reads unspecified", () => headerShows("Unspecified"));
+        }
+
+        /// <summary>
+        /// Backlog 472 review: Enter toggles too. Search plus Enter picks the first match in place, keeps the menu open and
+        /// clears the search for the next one; the arrow keys' preselection toggles the same way; and Enter with nothing
+        /// preselected closes the menu without touching the selection (the framework's own commit would have set the unused
+        /// <c>Current</c> and closed the menu without toggling anything).
+        /// </summary>
+        [Test]
+        public void TestEnterTogglesThePreselectedLanguage()
+        {
+            BeatmapLanguage arrowed = default;
+
+            AddStep("switch to setup", () => Editor.Mode.Value = EditorScreenMode.SongSetup);
+            AddUntilStep("setup screen shown", () => Editor.ChildrenOfType<SetupScreen>().Any());
+
+            AddStep("scroll dropdown to the top", () =>
+            {
+                var scroll = languageDropdown().FindClosestParent<OsuScrollContainer>()!;
+                scroll.ScrollTo(scroll.GetChildPosInContent(languageDropdown()), animated: false);
+            });
+            AddStep("open the dropdown", () =>
+            {
+                InputManager.MoveMouseTo(languageDropdown().ChildrenOfType<DropdownHeader>().Single());
+                InputManager.Click(MouseButton.Left);
+            });
+            AddUntilStep("menu open", () => menuState(), () => Is.EqualTo(MenuState.Open));
+
+            AddStep("search for korean", () => searchTerm().Value = "kor");
+            AddUntilStep("korean preselected", () => menuItem(BeatmapLanguage.Korean).IsPreSelected);
+            AddStep("press enter", () => InputManager.Key(Key.Enter));
+
+            AddAssert("korean picked", () => languageDropdown().SelectedValues.Value, () => Is.EqualTo(new[] { BeatmapLanguage.Korean }));
+            AddAssert("metadata follows", () => EditorBeatmap.Metadata.Languages, () => Is.EqualTo(new[] { BeatmapLanguage.Korean }));
+            AddAssert("menu still open", () => menuState(), () => Is.EqualTo(MenuState.Open));
+            AddAssert("search cleared for the next pick", () => searchTerm().Value, () => Is.Empty);
+            AddAssert("korean ticked", tickedItems, () => Is.EquivalentTo(new[] { BeatmapLanguage.Korean }));
+
+            AddStep("press down", () => InputManager.Key(Key.Down));
+            AddUntilStep("an item is preselected", () => preselectedItem() != null);
+            AddStep("remember it", () => arrowed = ((DropdownMenuItem<BeatmapLanguage>)preselectedItem()!.Item).Value);
+            AddStep("press enter", () => InputManager.Key(Key.Enter));
+            AddAssert("the arrowed language toggled", () => languageDropdown().SelectedValues.Value.Contains(arrowed),
+                () => Is.EqualTo(arrowed != BeatmapLanguage.Korean));
+            AddAssert("menu still open", () => menuState(), () => Is.EqualTo(MenuState.Open));
+
+            AddStep("search for nothing that exists", () => searchTerm().Value = "zzzz");
+            AddUntilStep("nothing preselected", () => preselectedItem() == null);
+            AddStep("remember the selection", () => remembered = languageDropdown().SelectedValues.Value);
+            AddStep("press enter", () => InputManager.Key(Key.Enter));
+            AddUntilStep("menu closed", () => menuState(), () => Is.EqualTo(MenuState.Closed));
+            AddAssert("selection untouched", () => languageDropdown().SelectedValues.Value, () => Is.EqualTo(remembered));
+        }
+
+        private IReadOnlyList<BeatmapLanguage> remembered = new List<BeatmapLanguage>();
+
+        private Bindable<string> searchTerm() => languageDropdown().ChildrenOfType<DropdownHeader>().Single().SearchTerm;
+
+        private FormMultiDropdown<BeatmapLanguage>.DrawableMultiSelectMenuItem? preselectedItem()
+            => languageDropdown().ChildrenOfType<FormMultiDropdown<BeatmapLanguage>.DrawableMultiSelectMenuItem>()
+                                 .SingleOrDefault(i => i.IsPreSelected && i.IsPresent);
+
+        private MenuState menuState() => languageDropdown().ChildrenOfType<Dropdown<BeatmapLanguage>.DropdownMenu>().Single().State;
+
+        private bool headerShows(string text)
+            => languageDropdown().ChildrenOfType<DropdownHeader>().Single()
+                                 .ChildrenOfType<SpriteText>().Any(t => t.Text.ToString() == text);
+
+        private void clickItem(BeatmapLanguage language)
+        {
+            AddStep($"scroll to {language}", () =>
+            {
+                var item = menuItem(language);
+                item.FindClosestParent<OsuScrollContainer>()?.ScrollIntoView(item, animated: false);
+            });
+            AddStep($"click {language}", () =>
+            {
+                InputManager.MoveMouseTo(menuItem(language));
+                InputManager.Click(MouseButton.Left);
+            });
+        }
+
+        private FormMultiDropdown<BeatmapLanguage>.DrawableMultiSelectMenuItem menuItem(BeatmapLanguage language)
+            => languageDropdown().ChildrenOfType<FormMultiDropdown<BeatmapLanguage>.DrawableMultiSelectMenuItem>()
+                                 .Single(i => ((DropdownMenuItem<BeatmapLanguage>)i.Item).Value == language);
+
+        private BeatmapLanguage[] tickedItems()
+            => languageDropdown().ChildrenOfType<FormMultiDropdown<BeatmapLanguage>.DrawableMultiSelectMenuItem>()
+                                 .Where(i => i.Checked && i.ChildrenOfType<SpriteIcon>().Any(s => s.Icon.Equals(FontAwesome.Solid.Check) && s.Alpha == 1))
+                                 .Select(i => ((DropdownMenuItem<BeatmapLanguage>)i.Item).Value)
+                                 .ToArray();
+
+        /// <summary>
+        /// The items whose highlight background is fully shown. The last item the mouse passed over stays PRESELECTED (and so
+        /// shows the hover highlight) until another is, so a preselected item counts only when it is also checked: an
+        /// unchecked item must never show a highlight of its own.
+        /// </summary>
+        private BeatmapLanguage[] highlightedItems()
+            => languageDropdown().ChildrenOfType<FormMultiDropdown<BeatmapLanguage>.DrawableMultiSelectMenuItem>()
+                                 .Where(i => i.HighlightAlpha == 1 && (i.Checked || !i.IsPreSelected))
+                                 .Select(i => ((DropdownMenuItem<BeatmapLanguage>)i.Item).Value)
+                                 .ToArray();
+
+        private string encodedMap()
+        {
+            var writer = new System.IO.StringWriter();
+            new TypeBeatRuleset().EncodeToNativeFormat(EditorBeatmap.PlayableBeatmap, null, writer);
+            return writer.ToString();
+        }
+
+        /// <summary>
         /// Drives the real hotkey path (Editor.OnPressed -> submitBeatmap), which is the same code
         /// the File menu item runs; there is no shorter way in that still exercises the guard.
         /// </summary>
         private void submit() => Editor.OnPressed(
             new KeyBindingPressEvent<GlobalAction>(new InputState(), GlobalAction.EditorSubmitBeatmap));
 
-        private FormEnumDropdown<BeatmapLanguage> languageDropdown()
-            => Editor.ChildrenOfType<FormEnumDropdown<BeatmapLanguage>>().Single();
+        private FormMultiEnumDropdown<BeatmapLanguage> languageDropdown()
+            => Editor.ChildrenOfType<FormMultiEnumDropdown<BeatmapLanguage>>().Single();
 
         private class RecordingNotificationOverlay : INotificationOverlay
         {

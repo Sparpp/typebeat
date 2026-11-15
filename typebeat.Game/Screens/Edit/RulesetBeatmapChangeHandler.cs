@@ -72,7 +72,7 @@ namespace typebeat.Game.Screens.Edit
             current.ArtistUnicode = target.ArtistUnicode;
             current.Title = target.Title;
             current.TitleUnicode = target.TitleUnicode;
-            current.Language = target.Language;
+            current.Languages = target.Languages;
             current.Author.Username = target.Author.Username;
 
             editorBeatmap.PreviewTime.Value = target.PreviewTime;

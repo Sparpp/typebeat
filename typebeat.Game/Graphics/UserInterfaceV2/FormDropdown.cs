@@ -93,11 +93,30 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
             MaxHeight = MaxHeight,
         };
 
+        /// <summary>
+        /// Text the header shows in place of the selected item's, or null (the default) to show the selected item as
+        /// every single-choice dropdown does. <see cref="FormMultiDropdown{T}"/> uses it to show its whole selection.
+        /// </summary>
+        protected virtual LocalisableString? HeaderLabelOverride => null;
+
+        /// <summary>Re-reads <see cref="HeaderLabelOverride"/> into the header after it changed.</summary>
+        protected void RefreshHeaderLabel() => header.RefreshLabel();
+
+        /// <summary>
+        /// Handles Enter in the open menu's search box in place, or returns false (the default) for the framework's own
+        /// commit: set <c>Current</c> to the preselected item and close the menu. When this returns true that commit is
+        /// skipped entirely and the search box keeps focus, which is what keeps the menu open (the framework holds the
+        /// menu open exactly while that box is focused). <see cref="FormMultiDropdown{T}"/> toggles the preselected item.
+        /// </summary>
+        protected virtual bool CommitPreselectionInPlace() => false;
+
         private partial class FormDropdownHeader : DropdownHeader
         {
             public FormDropdown<T> Dropdown { get; set; } = null!;
 
-            protected override DropdownSearchBar CreateSearchBar() => SearchBar = new FormDropdownSearchBar();
+            // Dropdown is read at commit time, not here: CreateSearchBar runs in the base constructor, before the
+            // object initializer that sets it.
+            protected override DropdownSearchBar CreateSearchBar() => SearchBar = new FormDropdownSearchBar(() => Dropdown.CommitPreselectionInPlace());
 
             private LocalisableString captionText;
             private LocalisableString hintText;
@@ -136,10 +155,14 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
                 set
                 {
                     labelText = value;
-
-                    if (label.IsNotNull())
-                        label.Text = labelText;
+                    RefreshLabel();
                 }
+            }
+
+            public void RefreshLabel()
+            {
+                if (label.IsNotNull())
+                    label.Text = Dropdown.HeaderLabelOverride ?? labelText;
             }
 
             protected new FormDropdownSearchBar SearchBar { get; set; } = null!;
@@ -269,13 +292,44 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
         {
             public FormTextBox.InnerTextBox TextBox { get; private set; } = null!;
 
+            private readonly Func<bool> commitInPlace;
+
+            public FormDropdownSearchBar(Func<bool> commitInPlace)
+            {
+                this.commitInPlace = commitInPlace;
+            }
+
             protected override void PopIn() => this.FadeIn();
             protected override void PopOut() => this.FadeOut();
 
-            protected override TextBox CreateTextBox() => TextBox = new FormTextBox.InnerTextBox
+            protected override TextBox CreateTextBox() => TextBox = new SearchTextBox(commitInPlace)
             {
                 PlaceholderText = HomeStrings.SearchPlaceholder,
             };
+
+            /// <summary>
+            /// Enter in the search box is the framework's ONLY keyboard commit path (the box holds focus whenever the menu
+            /// is open, so it sees the key before anything else), and a text box commit releases focus and raises the
+            /// search bar's own commit handler, which sets <c>Current</c> and closes the menu. Asking the dropdown first
+            /// lets it handle the key in place and skip all of that.
+            /// </summary>
+            private partial class SearchTextBox : FormTextBox.InnerTextBox
+            {
+                private readonly Func<bool> commitInPlace;
+
+                public SearchTextBox(Func<bool> commitInPlace)
+                {
+                    this.commitInPlace = commitInPlace;
+                }
+
+                protected override void Commit()
+                {
+                    if (commitInPlace())
+                        return;
+
+                    base.Commit();
+                }
+            }
 
             [BackgroundDependencyLoader]
             private void load()
@@ -287,7 +341,7 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
             }
         }
 
-        private partial class FormDropdownMenu : OsuDropdownMenu
+        protected partial class FormDropdownMenu : OsuDropdownMenu
         {
             [BackgroundDependencyLoader]
             private void load(OverlayColourProvider colourProvider)

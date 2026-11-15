@@ -85,8 +85,9 @@ namespace typebeat.Game.Beatmaps
                     // that already holds a language got it from its own file (or an earlier lookup), and the file
                     // is the authority. The file stamp in BeatmapUpdater.Process runs after this and overwrites
                     // with whatever the file states, so the order of the two never lets the server win.
-                    if (beatmapInfo.Metadata.Language == BeatmapLanguage.Unspecified && res.Language != BeatmapLanguage.Unspecified)
-                        beatmapInfo.Metadata.Language = res.Language;
+                    // The whole list (backlog 472), on the same gap-only terms.
+                    if (beatmapInfo.Metadata.Language == BeatmapLanguage.Unspecified && res.Languages.Count > 0)
+                        beatmapInfo.Metadata.Languages = res.Languages;
                 }
             }
 

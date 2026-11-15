@@ -407,7 +407,24 @@ namespace typebeat.Game.Beatmaps.Formats
                     // construction, an unrecognised value decodes to Unspecified, so a file from a
                     // newer client can never fail to load here. Absent (every file written before
                     // this key existed) leaves the metadata's own Unspecified default in place.
-                    metadata.Language = BeatmapLanguageExtensions.FromCanonicalName(pair.Value);
+                    //
+                    // Since backlog 472 this line holds the map's PRIMARY language and a map with several also
+                    // carries a Languages: list, which wins over it whichever comes first: this line only fills
+                    // a map no list has filled yet. Read as a list too (a comma list here is not something any
+                    // writer produces, but a hand-edited one must not hit the flags parse FromCanonicalName
+                    // guards against), so a single name reads as a one-entry list.
+                    if (metadata.Languages.Count == 0)
+                        metadata.Languages = BeatmapLanguageExtensions.FromCanonicalList(pair.Value);
+                    break;
+
+                case TypeBeatOsuKeys.LANGUAGES:
+                    // type!beat addition (backlog 472): every language of a multi-language map, see
+                    // TypeBeatOsuKeys.LANGUAGES. Authoritative over the Language: line. A list naming nothing
+                    // this build knows (all from a newer client) leaves whatever the Language: line gave.
+                    var languages = BeatmapLanguageExtensions.FromCanonicalList(pair.Value);
+
+                    if (languages.Count > 0)
+                        metadata.Languages = languages;
                     break;
 
                 case TypeBeatOsuKeys.AUDIO_GAIN:

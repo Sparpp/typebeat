@@ -73,7 +73,18 @@ namespace typebeat.Game.Beatmaps
         /// still unspecified, which is what a file uploaded before the <c>[Metadata] Language:</c> line existed
         /// decodes to. A language the file itself states always wins.
         /// </remarks>
-        public BeatmapLanguage Language { get; init; }
+        public BeatmapLanguage Language
+        {
+            get => BeatmapLanguageExtensions.PrimaryOf(Languages);
+            init => Languages = value == BeatmapLanguage.Unspecified ? Array.Empty<BeatmapLanguage>() : new[] { value };
+        }
+
+        /// <summary>
+        /// Every song language the server stores for the set (backlog 472), or empty as for <see cref="Language"/>,
+        /// which is this list's primary. Applied by <see cref="BeatmapUpdaterMetadataLookup"/> on the same
+        /// gap-filling terms.
+        /// </summary>
+        public IReadOnlyList<BeatmapLanguage> Languages { get; init; } = Array.Empty<BeatmapLanguage>();
 
         /// <summary>
         /// The tracked-file manifest of the online set's CURRENT version (see <see cref="SetFileManifest"/>),

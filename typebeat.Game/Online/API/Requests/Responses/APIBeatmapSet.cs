@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Newtonsoft.Json;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Database;
@@ -171,6 +172,34 @@ namespace typebeat.Game.Online.API.Requests.Responses
         /// </remarks>
         [JsonProperty(@"song_language")]
         public string SongLanguage { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Every song language the server stores for the set (backlog 472), as canonical names in the mapper's order,
+        /// or empty when the server has none or predates the list. <see cref="SongLanguage"/> stays the set's PRIMARY
+        /// language (<see cref="BeatmapLanguageExtensions.PrimaryOf"/>) beside it, so a client that predates this
+        /// property keeps reading the one language it can hold.
+        /// </summary>
+        /// <remarks>
+        /// Read through <see cref="SongLanguageList"/>, which falls back to <see cref="SongLanguage"/> for a server
+        /// that does not send it.
+        /// </remarks>
+        [JsonProperty(@"song_languages")]
+        public string[] SongLanguages { get; set; } = [];
+
+        /// <summary>
+        /// The set's song languages as this build understands them: <see cref="SongLanguages"/> when the server sent
+        /// a list naming anything this build knows, else the single <see cref="SongLanguage"/> (an older server), else
+        /// empty.
+        /// </summary>
+        [JsonIgnore]
+        public IReadOnlyList<BeatmapLanguage> SongLanguageList
+        {
+            get
+            {
+                var list = BeatmapLanguageExtensions.Normalise(SongLanguages.Select(BeatmapLanguageExtensions.FromCanonicalName));
+                return list.Count > 0 ? list : BeatmapLanguageExtensions.FromCanonicalList(SongLanguage);
+            }
+        }
 
         /// <summary>
         /// Whether the set's CURRENT online version carries an isolated vocals stem

@@ -29,6 +29,29 @@ namespace typebeat.Game.Beatmaps.Formats
         /// <summary>The <c>[Metadata]</c> song language key.</summary>
         public const string LANGUAGE = "Language";
 
+        /// <summary>
+        /// The <c>[Metadata]</c> song language LIST key (backlog 472): every language of a map that declares more
+        /// than one, as canonical names joined by commas (<c>Languages:japanese,english</c>).
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// A SEPARATE key beside <see cref="LANGUAGE"/>, not a list inside it, because that is the shape old readers
+        /// degrade on gracefully. Every client and server that predates the list splits a <c>[Metadata]</c> line on
+        /// its first colon and switches on the key, so an unknown <c>Languages</c> key is skipped without a word,
+        /// and the <c>Language:</c> line beside it still carries the map's primary language
+        /// (<see cref="BeatmapLanguageExtensions.PrimaryOf"/>), which is exactly the one language an old reader can
+        /// hold. A list inside <c>Language:</c> would have been worse than ignored: an old client's
+        /// <c>Enum.TryParse</c> reads <c>japanese,english</c> as a flags combination and decodes Chinese, and an old
+        /// server folds the whole value to "unset".
+        /// </para>
+        /// <para>
+        /// Written ONLY for a map with more than one language, so a single-language map encodes byte for byte as it
+        /// did before the key existed. When both lines are present the list wins; a reader that sees only
+        /// <c>Language:</c> reads a one-entry list.
+        /// </para>
+        /// </remarks>
+        public const string LANGUAGES = "Languages";
+
         /// <summary>The <c>[Metadata]</c> track gain key.</summary>
         public const string AUDIO_GAIN = "AudioGain";
 
@@ -44,6 +67,18 @@ namespace typebeat.Game.Beatmaps.Formats
         /// </summary>
         public static string? LanguageLine(string? canonicalName)
             => string.IsNullOrWhiteSpace(canonicalName) ? null : $"{LANGUAGE}:{canonicalName.Trim()}";
+
+        /// <summary>
+        /// The language list line for a canonical list (<see cref="BeatmapLanguageExtensions.ToCanonicalList"/>), or
+        /// null unless it names more than one language (see <see cref="LANGUAGES"/>).
+        /// </summary>
+        public static string? LanguagesLine(string? canonicalList)
+        {
+            if (string.IsNullOrWhiteSpace(canonicalList) || !canonicalList.Contains(BeatmapLanguageExtensions.LIST_SEPARATOR))
+                return null;
+
+            return $"{LANGUAGES}:{canonicalList.Trim()}";
+        }
 
         /// <summary>
         /// The gain line, or null for the default gain. The value goes through

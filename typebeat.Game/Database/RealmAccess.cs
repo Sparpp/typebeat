@@ -166,8 +166,12 @@ namespace typebeat.Game.Database
         ///                    is lazer's per-difficulty MD5 plus the tracked-file manifest; a status or metadata
         ///                    change on the server no longer offers UPDATE). No migration body: realm drops the
         ///                    column.
+        /// 68   2026-11-15    BeatmapMetadata's single int Language column became the Languages text column (backlog 472: a
+        ///                    map may declare several song languages), holding the persisted ids comma separated. The
+        ///                    migration body carries every existing single value over as a one-entry list; an
+        ///                    unspecified map (id 0) stays empty, which is the new "not chosen".
         /// </summary>
-        private const int schema_version = 67;
+        private const int schema_version = 68;
 
         /// <summary>
         /// Lock object which is held during <see cref="BlockAllOperations"/> sections, blocking realm retrieval during blocking periods.
@@ -1512,6 +1516,36 @@ namespace typebeat.Game.Database
 
                     break;
                 }
+
+                case 68:
+                {
+                    // The single song language became a list (backlog 472). Realm drops the old int column and adds
+                    // the new text one empty, so without this body every map in the install would come back
+                    // "language not chosen", blocking its resubmission and emptying song select's language groups.
+                    // BeatmapMetadata has no primary key, so the old and new rows are paired by index, as case 9
+                    // above pairs them; the migration API guarantees the two collections line up.
+                    // The realm is held in a local for the reason given in case 56 above.
+                    Realm realm = migration.NewRealm;
+
+                    var oldLanguages = readOldMetadataLanguages(migration.OldRealm);
+
+                    if (oldLanguages == null)
+                        break;
+
+                    var metadataRows = realm.All<BeatmapMetadata>();
+                    int rowCount = metadataRows.Count();
+
+                    for (int i = 0; i < rowCount && i < oldLanguages.Count; i++)
+                    {
+                        var language = (BeatmapLanguage)oldLanguages[i];
+
+                        // Unspecified (0) is the empty list now; an id this build does not define cannot have been
+                        // written by a build that predates it, but is dropped rather than kept as an unknown value.
+                        metadataRows.ElementAt(i).Language = Enum.IsDefined(language) ? language : BeatmapLanguage.Unspecified;
+                    }
+
+                    break;
+                }
             }
 
             Logger.Log($"Migration completed in {stopwatch.ElapsedMilliseconds}ms");
@@ -1539,6 +1573,31 @@ namespace typebeat.Game.Database
             }
 
             return inclusions;
+        }
+
+        /// <summary>
+        /// The old single song language of every <see cref="BeatmapMetadata"/> row in <paramref name="oldRealm"/>
+        /// (the int <c>Language</c> column, realm schema 54 to 67), in the realm's own row order so a caller can
+        /// pair it with the new rows by index. Null for a realm that predates the column, whose rows all read as
+        /// "not chosen" anyway.
+        /// </summary>
+        private static List<int>? readOldMetadataLanguages(Realm oldRealm)
+        {
+            const string property = "Language";
+
+            string className = getMappedOrOriginalName(typeof(BeatmapMetadata));
+
+            if (!oldRealm.Schema.TryFindObjectSchema(className, out var metadataSchema)
+                || !metadataSchema.TryFindProperty(property, out var languageProperty)
+                || languageProperty.Type != Realms.Schema.PropertyType.Int)
+                return null;
+
+            var languages = new List<int>();
+
+            foreach (var metadata in oldRealm.DynamicApi.All(className))
+                languages.Add((int)metadata.DynamicApi.Get<long>(property));
+
+            return languages;
         }
 
         /// <summary>

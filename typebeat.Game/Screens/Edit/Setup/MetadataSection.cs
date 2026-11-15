@@ -5,6 +5,7 @@ using System;
 using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
+using osu.Framework.Extensions;
 using osu.Framework.Graphics;
 using osu.Framework.Input;
 using osu.Framework.Localisation;
@@ -29,7 +30,13 @@ namespace typebeat.Game.Screens.Edit.Setup
         private FormTextBox difficultyTextBox = null!;
         private FormTextBox sourceTextBox = null!;
         private FormTextBox tagsTextBox = null!;
-        private FormEnumDropdown<BeatmapLanguage> languageDropdown = null!;
+        private FormMultiEnumDropdown<BeatmapLanguage> languageDropdown = null!;
+
+        /// <summary>
+        /// The stored language text (<see cref="BeatmapMetadata.LanguageIDs"/>) the dropdown last showed, so the per-frame
+        /// undo follow in <see cref="UpdateAfterChildren"/> compares one string reference and allocates nothing.
+        /// </summary>
+        private string shownLanguageIDs = string.Empty;
 
         private bool reloading;
         private bool dirty;
@@ -61,13 +68,19 @@ namespace typebeat.Game.Screens.Edit.Setup
                 difficultyTextBox = createTextBox<FormTextBox>(EditorSetupStrings.DifficultyName),
                 sourceTextBox = createTextBox<FormTextBox>(BeatmapsetsStrings.ShowInfoSource),
                 tagsTextBox = createTextBox<FormTextBox>(BeatmapsetsStrings.ShowInfoMapperTags),
-                // Keep the unset metadata state for new maps without offering it as a language choice.
-                languageDropdown = new FormEnumDropdown<BeatmapLanguage>
+                // A song may be in several languages (backlog 472), so this picks a SET: clicking a language toggles
+                // it, highlighted with a tick while picked, and the menu stays open for the next pick. Unspecified is
+                // the empty selection rather than an item (the header reads "Unspecified" then), and Instrumental
+                // excludes every language and vice versa (BeatmapLanguageExtensions.Toggle).
+                languageDropdown = new FormMultiEnumDropdown<BeatmapLanguage>
                 {
                     Caption = EditorSetupStrings.Language,
                     Items = BeatmapLanguageExtensions.DisplayOrder,
                     HintText = EditorSetupStrings.LanguageDescription,
-                    Current = { Value = Beatmap.Metadata.Language },
+                    EmptyText = BeatmapLanguage.Unspecified.GetLocalisableDescription(),
+                    SelectionText = languages => languages.ToDisplayText(),
+                    ToggleRule = BeatmapLanguageExtensions.Toggle,
+                    SelectedValues = { Value = Beatmap.Metadata.Languages },
                 },
                 new RoundedButton
                 {
@@ -110,7 +123,7 @@ namespace typebeat.Game.Screens.Edit.Setup
                 // Language is a property of the SONG, so it can never legitimately differ between
                 // difficulties of one set (and the website reads it off the primary difficulty
                 // only), which makes it a natural member of this sync.
-                b.Metadata.Language = source.Language;
+                b.Metadata.Languages = source.Languages;
 
                 try
                 {
@@ -162,7 +175,7 @@ namespace typebeat.Game.Screens.Edit.Setup
             // The loop above only reaches FormTextBoxes, so the dropdown needs its own hookup. It
             // has no "commit" concept (picking an item IS the commit), so it saves state straight
             // away rather than waiting for a return key.
-            languageDropdown.Current.BindValueChanged(_ =>
+            languageDropdown.SelectedValues.BindValueChanged(_ =>
             {
                 if (reloading)
                     return;
@@ -183,10 +196,10 @@ namespace typebeat.Game.Screens.Edit.Setup
 
             // Native-format undo restores metadata in place. Follow its language without
             // committing another metadata edit or adding an undo state.
-            if (languageDropdown.Current.Value != Beatmap.Metadata.Language)
+            if (shownLanguageIDs != Beatmap.Metadata.LanguageIDs)
             {
                 reloading = true;
-                languageDropdown.Current.Value = Beatmap.Metadata.Language;
+                showLanguages();
                 reloading = false;
             }
         }
@@ -222,11 +235,17 @@ namespace typebeat.Game.Screens.Edit.Setup
             difficultyTextBox.Current.Value = Beatmap.BeatmapInfo.DifficultyName;
             sourceTextBox.Current.Value = metadata.Source;
             tagsTextBox.Current.Value = metadata.Tags;
-            languageDropdown.Current.Value = metadata.Language;
+            showLanguages();
 
             updateReadOnlyState();
 
             reloading = false;
+        }
+
+        private void showLanguages()
+        {
+            shownLanguageIDs = Beatmap.Metadata.LanguageIDs;
+            languageDropdown.SelectedValues.Value = Beatmap.Metadata.Languages;
         }
 
         private void applyMetadata()
@@ -242,7 +261,8 @@ namespace typebeat.Game.Screens.Edit.Setup
             Beatmap.BeatmapInfo.DifficultyName = difficultyTextBox.Current.Value;
             Beatmap.Metadata.Source = sourceTextBox.Current.Value;
             Beatmap.Metadata.Tags = tagsTextBox.Current.Value;
-            Beatmap.Metadata.Language = languageDropdown.Current.Value;
+            Beatmap.Metadata.Languages = languageDropdown.SelectedValues.Value;
+            shownLanguageIDs = Beatmap.Metadata.LanguageIDs;
 
             dirty = true;
         }

@@ -71,6 +71,59 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             });
         }
 
+        // ---- the language list (backlog 472) ----
+
+        [Test]
+        public void TheLanguageListArrivesWholeAndInOrder()
+        {
+            var result = lookUp(lookupJson(@"""song_language"": ""japanese"", ""song_languages"": [""english"", ""japanese""]"))!;
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(result.Languages, Is.EqualTo(new[] { BeatmapLanguage.English, BeatmapLanguage.Japanese }));
+                Assert.That(result.Language, Is.EqualTo(BeatmapLanguage.Japanese), "the primary is the first non-English entry");
+            });
+        }
+
+        [Test]
+        public void AServerWithoutTheListFallsBackToTheSingleLanguage()
+        {
+            // Every server before backlog 472 sends song_language only.
+            var result = lookUp(lookupJson(@"""song_language"": ""korean"""))!;
+
+            Assert.That(result.Languages, Is.EqualTo(new[] { BeatmapLanguage.Korean }));
+        }
+
+        [Test]
+        public void AListOfOnlyUnknownLanguagesFallsBackToTheSingleLanguage()
+        {
+            // A newer server naming languages this build has never heard of: the primary it also sends still lands.
+            var result = lookUp(lookupJson(@"""song_language"": ""french"", ""song_languages"": [""klingon"", ""elvish""]"))!;
+
+            Assert.That(result.Languages, Is.EqualTo(new[] { BeatmapLanguage.French }));
+        }
+
+        [Test]
+        public void TheLookupFillsAnUnspecifiedRowWithTheWholeList()
+        {
+            var beatmap = row(BeatmapLanguage.Unspecified);
+
+            var source = new FixedSource(new OnlineBeatmapMetadata
+            {
+                BeatmapID = 11,
+                BeatmapSetID = 7,
+                MD5Hash = md5,
+                LastUpdated = DateTimeOffset.UtcNow,
+                BeatmapStatus = BeatmapOnlineStatus.Ranked,
+                Languages = new[] { BeatmapLanguage.Japanese, BeatmapLanguage.English },
+            });
+
+            using (var lookup = new BeatmapUpdaterMetadataLookup(source, new FixedSource(null)))
+                lookup.Update(beatmap.BeatmapSet!, preferOnlineFetch: true);
+
+            Assert.That(beatmap.Metadata.Languages, Is.EqualTo(new[] { BeatmapLanguage.Japanese, BeatmapLanguage.English }));
+        }
+
         // ---- the fill ----
 
         [Test]

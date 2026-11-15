@@ -156,6 +156,8 @@ namespace typebeat.Game.Beatmaps.Formats
             // an unspecified map emits no line, so every existing beatmap's encoding is unchanged.
             // The line is the native encoder's (TypeBeatOsuKeys), so both write the same bytes.
             if (TypeBeatOsuKeys.LanguageLine(beatmap.Metadata.Language.ToCanonicalName()) is string languageLine) writer.WriteLine(languageLine);
+            // The full list (backlog 472), only for a map with more than one language: see TypeBeatOsuKeys.LANGUAGES.
+            if (TypeBeatOsuKeys.LanguagesLine(beatmap.Metadata.Languages.ToCanonicalList()) is string languagesLine) writer.WriteLine(languagesLine);
             // type!beat addition: the map's own track gain, and only when a mapper has moved the bar
             // off its default, for the same map-hash reason as the language line above. The VALUE goes
             // through BeatmapMetadata.EncodeAudioGain inside TypeBeatOsuKeys, which the ruleset's native

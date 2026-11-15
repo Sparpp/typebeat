@@ -109,9 +109,11 @@ namespace typebeat.Game.Beatmaps
         {
             bool changed = false;
 
-            if (decoded.Language != BeatmapLanguage.Unspecified && stored.Language != decoded.Language)
+            // The whole language list (backlog 472), compared as its stored text: a file that adds a second language to
+            // a map keeps the same primary, so comparing Language would miss the change. Empty is "the file does not say".
+            if (decoded.LanguageIDs.Length > 0 && stored.LanguageIDs != decoded.LanguageIDs)
             {
-                stored.Language = decoded.Language;
+                stored.LanguageIDs = decoded.LanguageIDs;
                 changed = true;
             }
 

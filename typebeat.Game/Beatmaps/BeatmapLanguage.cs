@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using osu.Framework.Extensions;
 using osu.Framework.Localisation;
 using typebeat.Game.Resources.Localisation.Web;
 
@@ -171,13 +172,160 @@ namespace typebeat.Game.Beatmaps
 
             // Enum.TryParse also accepts the NUMERIC form ("2" would become Japanese), and the
             // underlying values are an implementation detail of realm storage that must never leak
-            // into the file format. Names only.
-            if (!char.IsLetter(trimmed[0]))
-                return BeatmapLanguage.Unspecified;
+            // into the file format. Names only. Letters only, too: Enum.TryParse reads a
+            // comma-separated value as a FLAGS combination, so "japanese,english" would otherwise
+            // OR the two ids together (2 | 1 = 3) and decode as Chinese. A list goes through
+            // FromCanonicalList, which splits it first.
+            foreach (char c in trimmed)
+            {
+                if (!char.IsLetter(c))
+                    return BeatmapLanguage.Unspecified;
+            }
 
             return Enum.TryParse(trimmed, ignoreCase: true, out BeatmapLanguage parsed) && Enum.IsDefined(parsed)
                 ? parsed
                 : BeatmapLanguage.Unspecified;
+        }
+
+        /// <summary>
+        /// The separator between languages in a language LIST, both in the .osu <c>[Metadata] Languages:</c>
+        /// line (as canonical names) and in realm's stored <see cref="BeatmapMetadata.LanguageIDs"/> (as
+        /// persisted ids). A comma because no canonical name can contain one (they are letters only, see
+        /// <see cref="FromCanonicalName"/>), and the server splits the line on the same character.
+        /// </summary>
+        public const char LIST_SEPARATOR = ',';
+
+        /// <summary>
+        /// A map's languages in their one valid shape: <see cref="BeatmapLanguage.Unspecified"/> and anything
+        /// undefined dropped, duplicates dropped (the first occurrence keeps its place), and
+        /// <see cref="BeatmapLanguage.Instrumental"/> exclusive.
+        /// </summary>
+        /// <remarks>
+        /// Instrumental is exclusive because it is a claim that the song has NO sung language, which no other
+        /// entry can sit beside. <see cref="BeatmapLanguage.Other"/> is not: it names a real language that is
+        /// not on the list, and a song can mix it with listed ones. When a list still holds Instrumental beside
+        /// a real language (a hand-edited file), the FIRST entry decides: a list that leads with Instrumental is
+        /// just Instrumental, and any other loses its Instrumental. The editor's toggle
+        /// (<see cref="Toggle"/>) never produces such a list in the first place. The server folds lists the same
+        /// way (<c>BeatmapLanguages.NormalizeList</c> in typebeat-web, pinned by WireCompat).
+        /// </remarks>
+        public static IReadOnlyList<BeatmapLanguage> Normalise(IEnumerable<BeatmapLanguage> languages)
+        {
+            var result = new List<BeatmapLanguage>();
+
+            foreach (var language in languages)
+            {
+                if (language == BeatmapLanguage.Unspecified || !Enum.IsDefined(language) || result.Contains(language))
+                    continue;
+
+                result.Add(language);
+            }
+
+            if (result.Count > 1)
+            {
+                if (result[0] == BeatmapLanguage.Instrumental)
+                    return new[] { BeatmapLanguage.Instrumental };
+
+                result.Remove(BeatmapLanguage.Instrumental);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// The editor's multi-select toggle: a selected <paramref name="toggled"/> is removed, an unselected one is
+        /// appended. The NEWLY picked choice wins an exclusivity clash: picking Instrumental clears every language,
+        /// and picking a language clears Instrumental, so the mapper never sees a click silently refused.
+        /// </summary>
+        public static IReadOnlyList<BeatmapLanguage> Toggle(IReadOnlyList<BeatmapLanguage> current, BeatmapLanguage toggled)
+        {
+            if (toggled == BeatmapLanguage.Unspecified)
+                return Normalise(current);
+
+            if (current.Contains(toggled))
+                return Normalise(current.Where(l => l != toggled));
+
+            if (toggled == BeatmapLanguage.Instrumental)
+                return new[] { BeatmapLanguage.Instrumental };
+
+            return Normalise(current.Where(l => l != BeatmapLanguage.Instrumental).Append(toggled));
+        }
+
+        /// <summary>
+        /// The ONE language that speaks for a multi-language map wherever a single language is still read: the
+        /// first entry that is not <see cref="BeatmapLanguage.English"/>, or English when it is the only entry
+        /// (<see cref="BeatmapLanguage.Unspecified"/> for an empty list).
+        /// </summary>
+        /// <remarks>
+        /// Every consumer of the single language (romanisation, original-script lines, Japanese input, the
+        /// Polyglot rating rules, the legacy <c>Language:</c> line old clients and servers read) is asking about
+        /// the language that is NOT plain English, because English is what the game types natively and needs no
+        /// special handling. An English and Japanese song therefore has Japanese as its primary however the
+        /// mapper ordered the picks, so a mixed map romanises and rates exactly as the Japanese map it mostly
+        /// behaves like. Between two non-English languages the mapper's first pick wins. A single-language list
+        /// is its own primary, which is what keeps every existing map's encoding and behaviour unchanged. The
+        /// server derives the same primary (<c>BeatmapLanguages.Primary</c>), pinned by WireCompat.
+        /// </remarks>
+        public static BeatmapLanguage PrimaryOf(IEnumerable<BeatmapLanguage> languages)
+        {
+            var first = BeatmapLanguage.Unspecified;
+
+            foreach (var language in languages)
+            {
+                if (language == BeatmapLanguage.Unspecified)
+                    continue;
+
+                if (language != BeatmapLanguage.English)
+                    return language;
+
+                if (first == BeatmapLanguage.Unspecified)
+                    first = language;
+            }
+
+            return first;
+        }
+
+        /// <summary>
+        /// The <c>[Metadata] Languages:</c> value for a list: the normalised canonical names joined by
+        /// <see cref="LIST_SEPARATOR"/> (<c>japanese,english</c>), or empty for an empty list.
+        /// </summary>
+        public static string ToCanonicalList(this IEnumerable<BeatmapLanguage> languages)
+            => string.Join(LIST_SEPARATOR, Normalise(languages).Select(l => l.ToCanonicalName()));
+
+        /// <summary>
+        /// Inverse of <see cref="ToCanonicalList"/>, total like <see cref="FromCanonicalName"/>: every entry it
+        /// does not recognise (a language a newer client added) is dropped rather than failing the decode, and the
+        /// result is normalised. A single name with no separator reads as a one-entry list, so this also reads an
+        /// old <c>Language:</c> line.
+        /// </summary>
+        public static IReadOnlyList<BeatmapLanguage> FromCanonicalList(string? names)
+        {
+            if (string.IsNullOrWhiteSpace(names))
+                return Array.Empty<BeatmapLanguage>();
+
+            return Normalise(names.Split(LIST_SEPARATOR).Select(FromCanonicalName));
+        }
+
+        /// <summary>
+        /// The display text for a list: the languages' descriptions in list order, comma separated, or the
+        /// description of <see cref="BeatmapLanguage.Unspecified"/> for an empty list.
+        /// </summary>
+        public static LocalisableString ToDisplayText(this IReadOnlyList<BeatmapLanguage> languages)
+        {
+            switch (languages.Count)
+            {
+                case 0:
+                    return BeatmapLanguage.Unspecified.GetLocalisableDescription();
+
+                case 1:
+                    return languages[0].GetLocalisableDescription();
+
+                default:
+                    // Formatted over each language's localisable description ("{0}, {1}"), so a localised build
+                    // still names every language in its own words.
+                    string format = string.Join(", ", Enumerable.Range(0, languages.Count).Select(i => $"{{{i}}}"));
+                    return LocalisableString.Format(format, languages.Select(l => (object?)l.GetLocalisableDescription()).ToArray());
+            }
         }
     }
 }

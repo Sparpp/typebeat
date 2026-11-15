@@ -10,21 +10,31 @@ using typebeat.Game.Overlays.BeatmapListing;
 
 namespace typebeat.Game.Overlays.BeatmapSet
 {
-    public partial class MetadataSectionLanguage : MetadataSection<BeatmapSetOnlineLanguage>
+    /// <summary>
+    /// The set's song languages (backlog 472: a set may declare several), comma separated, each a link to the listing's
+    /// language filter where osu's language list has it.
+    /// </summary>
+    public partial class MetadataSectionLanguage : MetadataSection<BeatmapSetOnlineLanguage[]>
     {
-        public MetadataSectionLanguage(Action<BeatmapSetOnlineLanguage>? searchAction = null)
+        public MetadataSectionLanguage(Action<BeatmapSetOnlineLanguage[]>? searchAction = null)
             : base(MetadataType.Language, searchAction)
         {
         }
 
-        protected override void AddMetadata(BeatmapSetOnlineLanguage metadata, LinkFlowContainer loaded)
+        protected override void AddMetadata(BeatmapSetOnlineLanguage[] metadata, LinkFlowContainer loaded)
         {
-            var language = (SearchLanguage)metadata.Id;
+            for (int i = 0; i < metadata.Length; i++)
+            {
+                if (i > 0)
+                    loaded.AddText(", ");
 
-            if (Enum.IsDefined(language))
-                loaded.AddLink(language.GetLocalisableDescription(), LinkAction.FilterBeatmapSetLanguage, language);
-            else
-                loaded.AddText(metadata.Name);
+                var language = (SearchLanguage)metadata[i].Id;
+
+                if (Enum.IsDefined(language))
+                    loaded.AddLink(language.GetLocalisableDescription(), LinkAction.FilterBeatmapSetLanguage, language);
+                else
+                    loaded.AddText(metadata[i].Name);
+            }
         }
     }
 }
