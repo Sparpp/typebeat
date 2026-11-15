@@ -13,8 +13,9 @@ namespace typebeat.Game.Overlays.Settings.Sections
 {
     /// <summary>
     /// Settings that are still being proven out: they work, but their shape (or whether they stay at
-    /// all) is not settled yet. The section sits directly under the ruleset's own so the two read as
-    /// "the settled type!beat settings, then the ones on trial". It holds nothing itself; each ruleset
+    /// all) is not settled yet. The section sits directly under Gameplay, which hosts the ruleset's own
+    /// settled settings, so the two read as "the settled type!beat settings, then the ones on trial".
+    /// It holds nothing itself; each ruleset
     /// hands over whichever of its settings it considers experimental via
     /// <see cref="Ruleset.CreateExperimentalSettings"/>.
     /// </summary>

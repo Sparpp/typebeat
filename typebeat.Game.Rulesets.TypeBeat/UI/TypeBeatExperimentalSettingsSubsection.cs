@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using osu.Framework.Allocation;
-using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using typebeat.Game.Graphics.UserInterfaceV2;
@@ -21,21 +20,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 {
     /// <summary>
     /// The ruleset's half of Settings > Experimental: the settings that work but are not settled.
-    /// What is left here is the sync metric, put back on screen for anyone who wants it (backlog 251
-    /// took it off by default and cut it out of the grade), the timing tint that shades typed
-    /// characters by which way they missed the beat, and the local auto-aligner, an opt-in
-    /// multi-gigabyte install that times imported lyrics word-by-word on this machine. The install IS
-    /// the opt-in: an installed aligner runs for every import with automatic alignment on, unless
-    /// that import ticks the import screen's own "use server aligner" box (backlog 413, the opt-in
-    /// for a player who cannot run the local one). The "use local auto-aligner" switch backlog 381
-    /// hid is deleted for good, leaving the high-accuracy tier and the install button.
+    /// What is left here is the local auto-aligner, an opt-in multi-gigabyte install that times
+    /// imported lyrics word-by-word on this machine, and Demucs beside it. The install IS the opt-in:
+    /// an installed aligner runs for every import with automatic alignment on, unless that import
+    /// ticks the import screen's own "use server aligner" box (backlog 413, the opt-in for a player
+    /// who cannot run the local one). The "use local auto-aligner" switch backlog 381 hid is deleted
+    /// for good, leaving the high-accuracy tier and the install buttons.
     ///
-    /// <para>The four typing behaviours that used to sit above them - space skipping a word, manual
-    /// newlines, the space error dot and the syllable markers - have SETTLED, so their controls now
-    /// live in <see cref="TypeBeatSettingsSubsection"/> with the rest of the settled set. The move is
-    /// of the CONTROLS and not of the settings: nothing about the bindables behind them changed, and
-    /// none of the enum members may be renamed (Realm keys them by member name), so every stored
-    /// value still reads exactly as it did.</para>
+    /// <para>Everything else that used to be on trial here has SETTLED and moved to
+    /// <see cref="TypeBeatSettingsSubsection"/> (Settings > Gameplay): first the four typing
+    /// behaviours (space skipping a word, manual newlines, the space error dot and the syllable
+    /// markers), then the rest of "Visual feedback" and the "Timing tint" group (backlog 479). The
+    /// moves are of the CONTROLS and not of the settings: nothing about the bindables behind them
+    /// changed, and none of the enum members may be renamed (Realm keys them by member name), so
+    /// every stored value still reads exactly as it did.</para>
     /// </summary>
     public partial class TypeBeatExperimentalSettingsSubsection : RulesetSettingsSubsection
     {
@@ -64,26 +62,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                                                 + "correctly on stamped lyrics, and about two more when the lyrics have no timestamps at all. On a 6-core CPU "
                                                 + "a 4 minute song takes roughly 2 minutes to import instead of 30 seconds; on a 2-core machine, about twice that.";
 
-        /// <summary>
-        /// The heading the timing tint's settings sit under, below "Visual feedback". It names the
-        /// feature, so the rows under it do not repeat it. Public so the settings test pins it.
-        /// </summary>
-        public const string TIMING_TINT_HEADING = "Timing tint";
-
-        /// <summary>Caption of the <see cref="TypeBeatRulesetSetting.ShowTimingTint"/> switch. Public so the settings test pins it.</summary>
-        public const string TIMING_TINT_CAPTION = "Tint typed characters";
-
-        public const string TIMING_TINT_MIN_CAPTION = "Minimum strength";
-
-        public const string TIMING_TINT_MAX_CAPTION = "Maximum strength";
-
-        public const string TIMING_TINT_EARLY_COLOUR_CAPTION = "Early colour";
-
-        public const string TIMING_TINT_LATE_COLOUR_CAPTION = "Late colour";
-
-        public const string TIMING_TINT_HINT = "Shade typed characters by when they were typed: orange when too early and blue when too late (both adjustable below), stronger the further outside the Great window. "
-                                               + "Great hits stay white. Display only; does not affect grades, scores or judgements.";
-
         public TypeBeatExperimentalSettingsSubsection(Ruleset ruleset)
             : base(ruleset)
         {
@@ -105,60 +83,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         {
             var controls = new List<Drawable>
             {
-                CreateSubsectionHeader("Visual feedback"),
-                new SettingsItemV2(new FormCheckBox
-                {
-                    Caption = "Show sync metric",
-                    HintText = "Show keypress timing beside wpm and shade typed characters by how closely they match the beat. Display only; does not affect grades, scores or judgements.",
-                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ShowSyncMetric),
-                }),
-                new SettingsItemV2(new FormEnumDropdown<PaceBarRevealMode>
-                {
-                    Caption = "Pace bar reveal",
-                    HintText = "Build the pace bar as Approach bars arrive, or colour in a faint gray bar. Off shows the full pace bar immediately. Requires Approach bars. Display only.",
-                    Current = config.GetBindable<PaceBarRevealMode>(TypeBeatRulesetSetting.PaceBarReveal),
-                }),
-                new SettingsItemV2(new FormCheckBox
-                {
-                    Caption = "Colour typed-letter bars by judgement",
-                    HintText = "Colour the underline beneath judged letters blue for Great, green for Ok, orange for Meh, and red for a resolved miss. Recoverable wrong inputs stay neutral until corrected or the line ends. Display only.",
-                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.JudgementColouredBars),
-                }),
-                new SettingsItemV2(new FormCheckBox
-                {
-                    Caption = "Red screen edges before forced line changes",
-                    HintText = "Fade the screen edges to red during the final 1.5 seconds before you are forced onto the next line. Display only; does not affect health, scores or timing.",
-                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.LinePushWarningEdges),
-                }),
-                CreateSubsectionHeader(TIMING_TINT_HEADING),
-                new SettingsItemV2(new FormCheckBox
-                {
-                    Caption = TIMING_TINT_CAPTION,
-                    HintText = TIMING_TINT_HINT,
-                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ShowTimingTint),
-                }),
-                new SettingsItemV2(new FormSliderBar<float>
-                {
-                    Caption = TIMING_TINT_MIN_CAPTION,
-                    HintText = "How strongly a character is tinted when it lands just outside the Great window. Display only.",
-                    Current = config.GetBindable<float>(TypeBeatRulesetSetting.TimingTintMinStrength),
-                    KeyboardStep = 1f,
-                    LabelFormat = v => $"{v:0}%",
-                }),
-                new SettingsItemV2(new FormSliderBar<float>
-                {
-                    Caption = TIMING_TINT_MAX_CAPTION,
-                    HintText = "How strongly a character is tinted at the edge of the Meh window and beyond. Set it below the minimum to tint every off-time character the same. Display only.",
-                    Current = config.GetBindable<float>(TypeBeatRulesetSetting.TimingTintMaxStrength),
-                    KeyboardStep = 1f,
-                    LabelFormat = v => $"{v:0}%",
-                }),
-                tintColourRow(config, TypeBeatRulesetSetting.TimingTintEarlyColour, TIMING_TINT_EARLY_COLOUR_CAPTION,
-                    "The colour a character typed too early shades towards. Type a hex code or click the swatch for a picker; clear the field to go back to the default.",
-                    TypeBeatStyle.EarlyTint),
-                tintColourRow(config, TypeBeatRulesetSetting.TimingTintLateColour, TIMING_TINT_LATE_COLOUR_CAPTION,
-                    "The colour a character typed too late shades towards. Type a hex code or click the swatch for a picker; clear the field to go back to the default.",
-                    TypeBeatStyle.LateTint),
                 CreateSubsectionHeader(LocalAlignerVersion.SETTINGS_HEADING),
                 new SettingsItemV2(new FormCheckBox
                 {
@@ -203,50 +127,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             }
 
             return controls.ToArray();
-        }
-
-        /// <summary>
-        /// A colour row for one of the timing tint's two stored colours. The setting is a
-        /// <c>#rrggbb</c> string (see <see cref="TypeBeatRulesetConfigManager.FormatTintColour"/>) and
-        /// <see cref="FormColourSwatch"/> edits a <see cref="Colour4"/>, so the row keeps the two in
-        /// step both ways; an empty hex commit resets the colour, and through it the setting, to the
-        /// default. A <see cref="SettingsItemV2"/> like every other row here, so it lines up with them,
-        /// carries the revert-to-default button and is found by the settings search.
-        /// </summary>
-        private static SettingsItemV2 tintColourRow(TypeBeatRulesetConfigManager config, TypeBeatRulesetSetting setting, string caption, string hint, Colour4 fallback)
-        {
-            var stored = config.GetBindable<string>(setting);
-            var colour = new Bindable<Colour4>(TypeBeatRulesetConfigManager.TintColour(stored.Default, fallback))
-            {
-                Value = TypeBeatRulesetConfigManager.TintColour(stored.Value, fallback),
-            };
-
-            bool syncing = false;
-
-            colour.BindValueChanged(e =>
-            {
-                if (syncing) return;
-
-                syncing = true;
-                stored.Value = TypeBeatRulesetConfigManager.FormatTintColour(e.NewValue);
-                syncing = false;
-            });
-
-            stored.BindValueChanged(e =>
-            {
-                if (syncing) return;
-
-                syncing = true;
-                colour.Value = TypeBeatRulesetConfigManager.TintColour(e.NewValue, fallback);
-                syncing = false;
-            });
-
-            return new SettingsItemV2(new FormColourSwatch
-            {
-                Caption = caption,
-                HintText = hint,
-                Current = colour,
-            });
         }
 
         /// <summary>

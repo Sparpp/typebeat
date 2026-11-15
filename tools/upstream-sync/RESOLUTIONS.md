@@ -63,7 +63,9 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   - Main settings: the "type!beat" section becomes upstream's per-ruleset
     section (smaller sidebar button, type!beat's icon, still titled
     "type!beat"). Skin, Online and Debug stay out; Experimental stays in;
-    the April Fools toggle still goes last.
+    the April Fools toggle still goes last. (Later, backlog 479 dropped that
+    per-ruleset section: `GameplaySection` now hosts each ruleset's
+    `CreateSettings()` first, and `RulesetSection` is gone.)
   - Key bindings: upstream's split into Global / Gameplay / Song select /
     Editor, plus type!beat's own section. The Editor section keeps type!beat's
     6-action list and leaves out upstream's per-ruleset editor bindings

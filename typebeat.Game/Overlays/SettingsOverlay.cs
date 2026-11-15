@@ -17,7 +17,6 @@ using typebeat.Game.Localisation;
 using typebeat.Game.Overlays.Settings;
 using typebeat.Game.Overlays.Settings.Sections;
 using typebeat.Game.Overlays.Settings.Sections.Input;
-using typebeat.Game.Rulesets;
 using osuTK.Graphics;
 
 namespace typebeat.Game.Overlays
@@ -68,7 +67,7 @@ namespace typebeat.Game.Overlays
         protected override float ExpandedPosition => lastOpenedSubPanel?.State.Value == Visibility.Visible ? -PANEL_WIDTH : base.ExpandedPosition;
 
         [BackgroundDependencyLoader]
-        private void load(RulesetStore rulesets)
+        private void load()
         {
             var sections = new List<SettingsSection>
             {
@@ -76,31 +75,13 @@ namespace typebeat.Game.Overlays
                 new SkinSection(),
                 new InputSection(createSubPanel(new KeyBindingPanel())),
                 new UserInterfaceSection(),
-                new GameplaySection()
-            };
-
-            foreach (Ruleset ruleset in rulesets.AvailableRulesets.Select(info => info.CreateInstance()))
-            {
-                try
-                {
-                    SettingsSubsection? section = ruleset.CreateSettings();
-
-                    if (section != null)
-                        sections.Add(new RulesetSection(ruleset, section));
-                }
-                catch (Exception e)
-                {
-                    RulesetStore.LogRulesetFailure(ruleset.RulesetInfo, e);
-                }
-            }
-
-            sections.AddRange(new SettingsSection[]
-            {
+                // Hosts each ruleset's own settings too (backlog 479).
+                new GameplaySection(),
                 new ExperimentalSection(),
                 new AudioSection(),
                 new GraphicsSection(),
                 new MaintenanceSection()
-            });
+            };
 
             var today = DateTimeOffset.Now;
             if (today.Month == 4 && today.Day == 1)

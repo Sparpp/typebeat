@@ -278,13 +278,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// <summary>Retired checkbox, retained only to migrate its saved choice to PaceBarReveal.</summary>
         BuildPaceBarWithApproach,
 
-        /// <summary>Experimental per-letter underline colours for the awarded judgement. Display only.</summary>
+        /// <summary>Per-letter underline colours for the awarded judgement. Display only.</summary>
         JudgementColouredBars,
 
         /// <summary>Build or colour in the pace underline as Approach bars arrive. Display only.</summary>
         PaceBarReveal,
 
-        /// <summary>Experimental red screen edges warning of an approaching forced line change. Display only.</summary>
+        /// <summary>Red screen edges warning of an approaching forced line change. Display only.</summary>
         LinePushWarningEdges,
 
         /// <summary>

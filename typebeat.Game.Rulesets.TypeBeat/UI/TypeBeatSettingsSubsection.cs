@@ -15,14 +15,16 @@ using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 namespace typebeat.Game.Rulesets.TypeBeat.UI
 {
     /// <summary>
-    /// The ruleset's own settings section (titled "type!beat"): typing behaviour,
-    /// lyric appearance, both caret heads, and timing feedback. Settled behaviours include
-    /// space to skip a word, manual newlines, the space error dot and the syllable markers. Those four
-    /// moved here OUT of <see cref="TypeBeatExperimentalSettingsSubsection"/> once they were no longer
-    /// on trial, and the move is of the CONTROLS and not of the settings: Realm keys the stored rows
-    /// by enum member name, so every value a player already has reads exactly as it did. The settings
-    /// still on trial (the sync metric and the local auto-aligner) stay in Experimental.
-    /// (LyricOffsetMs and LyricLabPath have no control here.)
+    /// The ruleset's own settings, shown first in Settings > Gameplay (backlog 479 folded the separate
+    /// "type!beat" section into Gameplay): typing behaviour, lyric appearance, both caret heads,
+    /// visual feedback and the timing tint. Several of these settled out of
+    /// <see cref="TypeBeatExperimentalSettingsSubsection"/>: first space to skip a word, manual
+    /// newlines, the space error dot and the syllable markers, then (backlog 479) the sync metric,
+    /// pace bar reveal, judgement-coloured bars, the line push warning edges and the whole timing tint
+    /// group. Each move is of the CONTROLS and not of the settings: Realm keys the stored rows by enum
+    /// member name, so every value a player already has reads exactly as it did. Only the local
+    /// auto-aligner and Demucs stay in Experimental. (LyricOffsetMs and LyricLabPath have no control
+    /// here.)
     /// </summary>
     public partial class TypeBeatSettingsSubsection : RulesetSettingsSubsection
     {
@@ -40,6 +42,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         {
             CaretStyle.Line, CaretStyle.Block, CaretStyle.Outline, CaretStyle.Underline,
         };
+
+        /// <summary>
+        /// The heading the timing tint's settings sit under, the last group, right after "Visual
+        /// feedback". It names the feature, so the rows under it do not repeat it.
+        /// </summary>
+        public const string TIMING_TINT_HEADING = "Timing tint";
+
+        /// <summary>Caption of the <see cref="TypeBeatRulesetSetting.ShowTimingTint"/> switch.</summary>
+        public const string TIMING_TINT_CAPTION = "Tint typed characters";
+
+        public const string TIMING_TINT_MIN_CAPTION = "Minimum strength";
+
+        public const string TIMING_TINT_MAX_CAPTION = "Maximum strength";
+
+        public const string TIMING_TINT_EARLY_COLOUR_CAPTION = "Early colour";
+
+        public const string TIMING_TINT_LATE_COLOUR_CAPTION = "Late colour";
+
+        public const string TIMING_TINT_HINT = "Shade typed characters by when they were typed: orange when too early and blue when too late (both adjustable below), stronger the further outside the Great window. "
+                                               + "Great hits stay white. Display only; does not affect grades, scores or judgements.";
 
         public TypeBeatSettingsSubsection(Ruleset ruleset)
             : base(ruleset)
@@ -267,12 +289,109 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     KeyboardStep = 1f,
                     LabelFormat = v => $"{v:0}%",
                 }),
+                new SettingsItemV2(new FormCheckBox
+                {
+                    Caption = "Show sync metric",
+                    HintText = "Show keypress timing beside wpm and shade typed characters by how closely they match the beat. Display only; does not affect grades, scores or judgements.",
+                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ShowSyncMetric),
+                }),
+                new SettingsItemV2(new FormEnumDropdown<PaceBarRevealMode>
+                {
+                    Caption = "Pace bar reveal",
+                    HintText = "Build the pace bar as Approach bars arrive, or colour in a faint gray bar. Off shows the full pace bar immediately. Requires Approach bars. Display only.",
+                    Current = config.GetBindable<PaceBarRevealMode>(TypeBeatRulesetSetting.PaceBarReveal),
+                }),
+                new SettingsItemV2(new FormCheckBox
+                {
+                    Caption = "Colour typed-letter bars by judgement",
+                    HintText = "Colour the underline beneath judged letters blue for Great, green for Ok, orange for Meh, and red for a resolved miss. Recoverable wrong inputs stay neutral until corrected or the line ends. Display only.",
+                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.JudgementColouredBars),
+                }),
+                new SettingsItemV2(new FormCheckBox
+                {
+                    Caption = "Red screen edges before forced line changes",
+                    HintText = "Fade the screen edges to red during the final 1.5 seconds before you are forced onto the next line. Display only; does not affect health, scores or timing.",
+                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.LinePushWarningEdges),
+                }),
+                CreateSubsectionHeader(TIMING_TINT_HEADING),
+                new SettingsItemV2(new FormCheckBox
+                {
+                    Caption = TIMING_TINT_CAPTION,
+                    HintText = TIMING_TINT_HINT,
+                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ShowTimingTint),
+                }),
+                new SettingsItemV2(new FormSliderBar<float>
+                {
+                    Caption = TIMING_TINT_MIN_CAPTION,
+                    HintText = "How strongly a character is tinted when it lands just outside the Great window. Display only.",
+                    Current = config.GetBindable<float>(TypeBeatRulesetSetting.TimingTintMinStrength),
+                    KeyboardStep = 1f,
+                    LabelFormat = v => $"{v:0}%",
+                }),
+                new SettingsItemV2(new FormSliderBar<float>
+                {
+                    Caption = TIMING_TINT_MAX_CAPTION,
+                    HintText = "How strongly a character is tinted at the edge of the Meh window and beyond. Set it below the minimum to tint every off-time character the same. Display only.",
+                    Current = config.GetBindable<float>(TypeBeatRulesetSetting.TimingTintMaxStrength),
+                    KeyboardStep = 1f,
+                    LabelFormat = v => $"{v:0}%",
+                }),
+                tintColourRow(config, TypeBeatRulesetSetting.TimingTintEarlyColour, TIMING_TINT_EARLY_COLOUR_CAPTION,
+                    "The colour a character typed too early shades towards. Type a hex code or click the swatch for a picker; clear the field to go back to the default.",
+                    TypeBeatStyle.EarlyTint),
+                tintColourRow(config, TypeBeatRulesetSetting.TimingTintLateColour, TIMING_TINT_LATE_COLOUR_CAPTION,
+                    "The colour a character typed too late shades towards. Type a hex code or click the swatch for a picker; clear the field to go back to the default.",
+                    TypeBeatStyle.LateTint),
             };
         }
 
         /// <summary>The label both alignment sliders share: 0% opens the Great window, 100% is its centre.</summary>
         internal static LocalisableString FormatAlignment(float value) =>
             value == 0 ? "Great window start" : value == 100 ? "Great window centre" : $"{value:0}% towards centre";
+
+        /// <summary>
+        /// A colour row for one of the timing tint's two stored colours. The setting is a
+        /// <c>#rrggbb</c> string (see <see cref="TypeBeatRulesetConfigManager.FormatTintColour"/>) and
+        /// <see cref="FormColourSwatch"/> edits a <see cref="Colour4"/>, so the row keeps the two in
+        /// step both ways; an empty hex commit resets the colour, and through it the setting, to the
+        /// default. A <see cref="SettingsItemV2"/> like every other row here, so it lines up with them,
+        /// carries the revert-to-default button and is found by the settings search.
+        /// </summary>
+        private static SettingsItemV2 tintColourRow(TypeBeatRulesetConfigManager config, TypeBeatRulesetSetting setting, string caption, string hint, Colour4 fallback)
+        {
+            var stored = config.GetBindable<string>(setting);
+            var colour = new Bindable<Colour4>(TypeBeatRulesetConfigManager.TintColour(stored.Default, fallback))
+            {
+                Value = TypeBeatRulesetConfigManager.TintColour(stored.Value, fallback),
+            };
+
+            bool syncing = false;
+
+            colour.BindValueChanged(e =>
+            {
+                if (syncing) return;
+
+                syncing = true;
+                stored.Value = TypeBeatRulesetConfigManager.FormatTintColour(e.NewValue);
+                syncing = false;
+            });
+
+            stored.BindValueChanged(e =>
+            {
+                if (syncing) return;
+
+                syncing = true;
+                colour.Value = TypeBeatRulesetConfigManager.TintColour(e.NewValue, fallback);
+                syncing = false;
+            });
+
+            return new SettingsItemV2(new FormColourSwatch
+            {
+                Caption = caption,
+                HintText = hint,
+                Current = colour,
+            });
+        }
 
         /// <summary>
         /// The typing-font dropdown options: the default sentinel first, then the bundled OpenDyslexic
