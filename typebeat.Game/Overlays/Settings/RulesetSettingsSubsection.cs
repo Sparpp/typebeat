@@ -3,6 +3,7 @@
 
 #nullable disable
 
+using System.Collections.Generic;
 using osu.Framework.Allocation;
 using osu.Framework.Graphics;
 using osu.Framework.Localisation;
@@ -41,6 +42,14 @@ namespace typebeat.Game.Overlays.Settings
         }
 
         protected sealed override LocalisableString Header => string.Empty;
+
+        /// <summary>
+        /// The ruleset's name, since the subsection has no header of its own: searching the settings
+        /// for it shows everything the ruleset contributes. Its settings used to have a section named
+        /// after it, which the search matched the same way.
+        /// </summary>
+        public override IEnumerable<LocalisableString> FilterTerms => new LocalisableString[] { ruleset.RulesetInfo.Name };
+
         protected sealed override Drawable CreateHeader() => Empty();
     }
 }

@@ -20,7 +20,7 @@ using osuTK.Input;
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 {
     /// <summary>
-    /// The timing tint's two colour rows in the Experimental settings, typed into as a player would:
+    /// The timing tint's two colour rows in Settings > Gameplay, typed into as a player would:
     /// a typed hex lands in the stored setting, the field spells it back without an alpha suffix, and
     /// a second colour can be typed over the first.
     /// </summary>
@@ -35,12 +35,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         [SetUpSteps]
         public void SetUpSteps()
         {
-            AddStep("build the experimental settings", () =>
+            AddStep("build the type!beat settings", () =>
             {
                 var ruleset = new TypeBeatRuleset();
                 config = new TypeBeatRulesetConfigManager(null, ruleset.RulesetInfo);
 
-                var controls = ((TypeBeatExperimentalSettingsSubsection)ruleset.CreateExperimentalSettings()!).BuildControls(config);
+                var controls = ((TypeBeatSettingsSubsection)ruleset.CreateSettings()!).BuildControls(config);
                 rows = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormColourSwatch>().ToArray();
 
                 Child = new PopoverContainer

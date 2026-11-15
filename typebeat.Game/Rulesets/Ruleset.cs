@@ -387,6 +387,10 @@ namespace typebeat.Game.Rulesets
 
         public abstract string Description { get; }
 
+        /// <summary>
+        /// The ruleset's own settings. Settings > Gameplay hosts them, ahead of its game-wide
+        /// subsections (backlog 479: they no longer get a section of their own).
+        /// </summary>
         public virtual RulesetSettingsSubsection? CreateSettings() => null;
 
         /// <summary>

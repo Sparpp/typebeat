@@ -4,6 +4,8 @@
 using System;
 using System.Linq;
 using NUnit.Framework;
+using osu.Framework.Graphics;
+using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Overlays.Settings;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
@@ -13,9 +15,10 @@ using typebeat.Game.Rulesets.TypeBeat.UI;
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
     /// <summary>
-    /// Pins the contents of Settings &gt; type!beat: the settled set, which the four typing behaviours
-    /// that used to be on trial in Settings &gt; Experimental joined - space to skip a word, manual
-    /// newlines, the space error dot and the syllable markers.
+    /// Pins the contents of the ruleset's own settings (shown first in Settings &gt; Gameplay since
+    /// backlog 479): the settled set, which settings that used to be on trial in Settings &gt;
+    /// Experimental joined - first space to skip a word, manual newlines, the space error dot and the
+    /// syllable markers, then the rest of visual feedback and the timing tint.
     ///
     /// <para>What the move must not have changed is the SETTINGS. Realm keys the stored rows by enum
     /// member name, so the four keep their values across the move, and this asserts the wiring rather
@@ -35,7 +38,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var ruleset = new TypeBeatRuleset();
 
             Assert.That(ruleset.CreateSettings(), Is.InstanceOf<TypeBeatSettingsSubsection>(),
-                "the type!beat section is empty unless the ruleset hands it a subsection");
+                "Settings > Gameplay shows no type!beat settings unless the ruleset hands it a subsection");
         }
 
         /// <summary>
@@ -65,6 +68,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     "Show syllable markers",
                     "Show backing vocals",
                     "Show word pace colours",
+                    "Show sync metric",
+                    "Colour typed-letter bars by judgement",
+                    "Red screen edges before forced line changes",
+                    TypeBeatSettingsSubsection.TIMING_TINT_CAPTION,
                 }));
 
                 // THE WIRING, not a copy of it: flip each setting at the config manager and the
@@ -82,6 +89,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     TypeBeatRulesetSetting.ShowSyllableMarkers,
                     TypeBeatRulesetSetting.ShowBackingVocals,
                     TypeBeatRulesetSetting.ShowPaceColours,
+                    TypeBeatRulesetSetting.ShowSyncMetric,
+                    TypeBeatRulesetSetting.JudgementColouredBars,
+                    TypeBeatRulesetSetting.LinePushWarningEdges,
+                    TypeBeatRulesetSetting.ShowTimingTint,
                 };
 
                 for (int i = 0; i < settings.Length; i++)
@@ -99,7 +110,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
                 // And the defaults a NEW install ships with (2026-10-25): Space to skip, Approach bars
                 // and word pace colours are off; the rest are on, backing vocals (backlog 445) included.
-                Assert.That(checkboxes.Select(c => c.Current.Value), Is.EqualTo(new[] { false, true, true, true, true, false, true, true, true, false }));
+                // The four that came from Experimental (backlog 479) are all opt-in, so all off.
+                Assert.That(checkboxes.Select(c => c.Current.Value), Is.EqualTo(new[] { false, true, true, true, true, false, true, true, true, false, false, false, false, false }));
             }
         }
 
@@ -127,6 +139,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     FormDropdown<CaretStyle> caret => caret.Caption.ToString(),
                     FormDropdown<PaceColourMode> mode => mode.Caption.ToString(),
                     FormDropdown<JudgementIndicatorMode> indicator => indicator.Caption.ToString(),
+                    FormDropdown<PaceBarRevealMode> reveal => reveal.Caption.ToString(),
+                    FormColourSwatch swatch => swatch.Caption.ToString(),
                     _ => "?",
                 }), Is.EqualTo(new[]
                 {
@@ -158,6 +172,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     "Pace colour maximum change",
                     "Pace colour opacity curve",
                     "Pace colour gradient",
+                    "Show sync metric",
+                    "Pace bar reveal",
+                    "Colour typed-letter bars by judgement",
+                    "Red screen edges before forced line changes",
+                    TypeBeatSettingsSubsection.TIMING_TINT_CAPTION,
+                    TypeBeatSettingsSubsection.TIMING_TINT_MIN_CAPTION,
+                    TypeBeatSettingsSubsection.TIMING_TINT_MAX_CAPTION,
+                    TypeBeatSettingsSubsection.TIMING_TINT_EARLY_COLOUR_CAPTION,
+                    TypeBeatSettingsSubsection.TIMING_TINT_LATE_COLOUR_CAPTION,
                 }));
 
                 var indicator = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormDropdown<JudgementIndicatorMode>>().Single();
@@ -301,6 +324,121 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 gradient.Current.Value = 81f;
                 Assert.That(config.Get<float>(TypeBeatRulesetSetting.PaceColourGradient), Is.EqualTo(81f));
 
+            }
+        }
+
+        /// <summary>
+        /// Backlog 479 moved the rest of "Visual feedback" and the "Timing tint" group here from
+        /// Experimental. The four feedback rows join the end of this subsection's OWN "Visual
+        /// feedback" group (one heading, not two of the same name), and the timing tint keeps its
+        /// heading as the last group; its captions leave the feature's name to the heading.
+        /// </summary>
+        [Test]
+        public void TheMovedSettingsSitUnderVisualFeedbackAndTimingTint()
+        {
+            var ruleset = new TypeBeatRuleset();
+            var subsection = (TypeBeatSettingsSubsection)ruleset.CreateSettings()!;
+
+            using (var config = new TypeBeatRulesetConfigManager(null, ruleset.RulesetInfo))
+            {
+                var controls = subsection.BuildControls(config).ToList();
+
+                int heading(string text) => controls.FindIndex(c => c is OsuSpriteText t && t.Text.ToString() == text);
+
+                int captioned(string caption) => controls.FindIndex(c => c is SettingsItemV2 item && item.Control.FilterTerms.Any(t => t.ToString() == caption));
+
+                Assert.That(controls.OfType<OsuSpriteText>().Select(t => t.Text.ToString()), Is.EqualTo(new[]
+                {
+                    "Typing",
+                    "Lyric text",
+                    "Carets",
+                    "Visual feedback",
+                    TypeBeatSettingsSubsection.TIMING_TINT_HEADING,
+                }), "a single Visual feedback heading, then the timing tint last");
+
+                int visualFeedback = heading("Visual feedback");
+                int timingTint = heading(TypeBeatSettingsSubsection.TIMING_TINT_HEADING);
+
+                foreach (string caption in new[] { "Show sync metric", "Pace bar reveal", "Colour typed-letter bars by judgement", "Red screen edges before forced line changes" })
+                    Assert.That(captioned(caption), Is.InRange(visualFeedback + 1, timingTint - 1), $"'{caption}' sits under visual feedback");
+
+                string[] tintCaptions =
+                {
+                    TypeBeatSettingsSubsection.TIMING_TINT_CAPTION,
+                    TypeBeatSettingsSubsection.TIMING_TINT_MIN_CAPTION,
+                    TypeBeatSettingsSubsection.TIMING_TINT_MAX_CAPTION,
+                    TypeBeatSettingsSubsection.TIMING_TINT_EARLY_COLOUR_CAPTION,
+                    TypeBeatSettingsSubsection.TIMING_TINT_LATE_COLOUR_CAPTION,
+                };
+
+                foreach (string caption in tintCaptions)
+                {
+                    Assert.That(captioned(caption), Is.GreaterThan(timingTint), $"'{caption}' sits under the timing tint heading");
+                    Assert.That(caption, Does.Not.StartWith("Timing tint"), "the heading names the feature, so the rows do not repeat it");
+                }
+            }
+        }
+
+        /// <summary>
+        /// The controls that came from Experimental (backlog 479) read and write the same stored
+        /// settings as before: the move is of the controls, never of the bindables.
+        /// </summary>
+        [Test]
+        public void TheSettingsMovedFromExperimentalKeepTheirWiring()
+        {
+            var ruleset = new TypeBeatRuleset();
+            var subsection = (TypeBeatSettingsSubsection)ruleset.CreateSettings()!;
+
+            using (var config = new TypeBeatRulesetConfigManager(null, ruleset.RulesetInfo))
+            {
+                var controls = subsection.BuildControls(config);
+                var checkboxes = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>().ToArray();
+
+                var reveal = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormDropdown<PaceBarRevealMode>>().Single();
+                Assert.That(reveal.Current.Value, Is.EqualTo(PaceBarRevealMode.Off));
+                Assert.That(reveal.Items, Is.EqualTo(new[] { PaceBarRevealMode.Off, PaceBarRevealMode.Build, PaceBarRevealMode.ColourIn }));
+                reveal.Current.Value = PaceBarRevealMode.ColourIn;
+                Assert.That(config.Get<PaceBarRevealMode>(TypeBeatRulesetSetting.PaceBarReveal), Is.EqualTo(PaceBarRevealMode.ColourIn));
+                config.SetValue(TypeBeatRulesetSetting.PaceBarReveal, PaceBarRevealMode.Off);
+                Assert.That(reveal.Current.Value, Is.EqualTo(PaceBarRevealMode.Off));
+
+                // The timing tint's strength range.
+                var sliders = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormSliderBar<float>>().ToArray();
+                var min = sliders.Single(c => c.Caption.ToString() == TypeBeatSettingsSubsection.TIMING_TINT_MIN_CAPTION);
+                var max = sliders.Single(c => c.Caption.ToString() == TypeBeatSettingsSubsection.TIMING_TINT_MAX_CAPTION);
+
+                Assert.That(min.Current.Value, Is.EqualTo(33f));
+                Assert.That(max.Current.Value, Is.EqualTo(100f));
+                min.Current.Value = 50f;
+                Assert.That(config.Get<float>(TypeBeatRulesetSetting.TimingTintMinStrength), Is.EqualTo(50f), "bound to the stored setting, not a copy");
+
+                // The two colour rows, which edit a colour over a stored #rrggbb string in both directions.
+                var swatches = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormColourSwatch>().ToArray();
+
+                Assert.That(swatches[0].Current.Value, Is.EqualTo((Colour4)TypeBeatStyle.EarlyTint));
+                Assert.That(swatches[1].Current.Value, Is.EqualTo((Colour4)TypeBeatStyle.LateTint));
+
+                swatches[0].Current.Value = new Colour4((byte)18, (byte)52, (byte)86, (byte)255);
+                Assert.That(config.Get<string>(TypeBeatRulesetSetting.TimingTintEarlyColour), Is.EqualTo("#123456"), "a picked colour is stored");
+
+                config.SetValue(TypeBeatRulesetSetting.TimingTintLateColour, "#abcdef");
+                Assert.That(swatches[1].Current.Value, Is.EqualTo(new Colour4((byte)0xab, (byte)0xcd, (byte)0xef, (byte)255)), "a stored change reaches the row");
+
+                swatches[0].Current.SetDefault();
+                Assert.That(config.Get<string>(TypeBeatRulesetSetting.TimingTintEarlyColour), Is.EqualTo("#ff8a3d"), "resetting the row resets the setting");
+
+                // Settings rows like the rest, so the settings search finds them by caption.
+                Assert.That(swatches.Select(s => s.FilterTerms.Single().ToString()), Is.EqualTo(new[]
+                {
+                    TypeBeatSettingsSubsection.TIMING_TINT_EARLY_COLOUR_CAPTION,
+                    TypeBeatSettingsSubsection.TIMING_TINT_LATE_COLOUR_CAPTION,
+                }));
+
+                // The timing tint is its own switch, not a mode of the sync metric.
+                var timingCheckbox = checkboxes.Single(c => c.Caption.ToString() == TypeBeatSettingsSubsection.TIMING_TINT_CAPTION);
+                timingCheckbox.Current.Value = true;
+                Assert.That(config.Get<bool>(TypeBeatRulesetSetting.ShowTimingTint), Is.True);
+                Assert.That(config.Get<bool>(TypeBeatRulesetSetting.ShowSyncMetric), Is.False, "a separate switch, not a mode of the sync metric");
             }
         }
 
