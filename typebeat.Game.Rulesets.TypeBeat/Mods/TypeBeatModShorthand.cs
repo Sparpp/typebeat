@@ -34,9 +34,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 
         /// <summary>
         /// Polyglot has no single "first letter of a syllable"; under Dyslexia, with every space completed,
-        /// the whole line would become one word.
+        /// the whole line would become one word. Spaceless completes only the spaces this mod already
+        /// completes, so the pair is redundant (see <see cref="TypeBeatModSpaceless.IncompatibleMods"/>).
         /// </summary>
-        public override Type[] IncompatibleMods => new[] { typeof(TypeBeatModPolyglot), typeof(TypeBeatModDyslexia) };
+        public override Type[] IncompatibleMods => new[] { typeof(TypeBeatModPolyglot), typeof(TypeBeatModDyslexia), typeof(TypeBeatModSpaceless) };
 
         public void ApplyToBeatmap(IBeatmap beatmap)
         {

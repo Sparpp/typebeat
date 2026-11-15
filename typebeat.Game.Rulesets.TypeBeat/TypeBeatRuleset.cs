@@ -92,6 +92,7 @@ namespace typebeat.Game.Rulesets.TypeBeat
                 new TypeBeatModHalfTime(),
                 new TypeBeatModDaycore(),
                 new TypeBeatModShorthand(),
+                new TypeBeatModSpaceless(),
             },
             ModType.DifficultyIncrease => new Mod[]
             {

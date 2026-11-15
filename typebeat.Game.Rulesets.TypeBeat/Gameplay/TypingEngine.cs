@@ -202,6 +202,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public bool Shorthand { get; }
 
+        /// <summary>
+        /// Spaceless mod: every inter-word space is completed for the player (see
+        /// <see cref="TypingLine.ForMods"/>), and the SPACE KEY IS NOT INPUT AT ALL. A pressed space
+        /// is refused before anything reads it (see <c>processKey</c>): it opens no line, types no
+        /// cell, is never wrong, skips no word, takes no manual newline (Enter, or a typed letter,
+        /// still hands a finished line on) and is never recorded, because the key handler records
+        /// only a press the engine consumed. Fixed at construction, like <see cref="Shorthand"/>,
+        /// because it changes the CELL LIST. A MOD and not an era: a score carries it in its mod
+        /// list, which both engine factories read.
+        ///
+        /// <para>False under <see cref="Polyglot"/> whatever the mod list says: the two are
+        /// incompatible, and the flattening ignores the mod there too, so a stack claiming both
+        /// still plays (and re-derives) one coherent rule set, the Polyglot one.</para>
+        /// </summary>
+        public bool Spaceless { get; }
+
         public event Action<CharJudgement>? CharJudged;
         public event Action<int>? LineActivated;
         public event Action<LineSealResult>? LineSealed;
@@ -457,7 +473,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         // cells (PolyglotLine.Derive). A CELL LIST era, so it is fixed here at construction rather
         // than applied from the header; both factories read it off the hit objects the nested
         // scoring objects were built from (TypeBeatHitObject.LegacyJapaneseSpaces).
-        public TypingEngine(LyricBeatmap beatmap, bool literate = false, bool polyglot = false, string? polyglotLanguage = null, bool legacyJapaneseSpaces = false, bool shorthand = false)
+        public TypingEngine(LyricBeatmap beatmap, bool literate = false, bool polyglot = false, string? polyglotLanguage = null, bool legacyJapaneseSpaces = false, bool shorthand = false,
+                            bool spaceless = false)
         {
             Beatmap = beatmap ?? throw new ArgumentNullException(nameof(beatmap));
 
@@ -471,13 +488,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             CaseSensitive = literate;
             Polyglot = polyglot;
             Shorthand = shorthand;
+            Spaceless = spaceless && !polyglot;
             UsesJapaneseRomaji = polyglot && JapaneseReading.IsJapanese(polyglotLanguage);
             JapaneseRomajiInput = UsesJapaneseRomaji;
 
             lines = new List<TypingLine>(beatmap.Lines.Count);
 
             foreach (var line in beatmap.Lines)
-                lines.Add(TypingLine.ForMods(line, literate, polyglot, polyglotLanguage, japaneseCharacterTiming: true, legacyJapaneseSpaces: legacyJapaneseSpaces, shorthand: shorthand));
+                lines.Add(TypingLine.ForMods(line, literate, polyglot, polyglotLanguage, japaneseCharacterTiming: true, legacyJapaneseSpaces: legacyJapaneseSpaces, shorthand: shorthand,
+                    spaceless: spaceless));
 
             lineSealed = new bool[lines.Count];
             lineAbandoned = new bool[lines.Count];

@@ -131,8 +131,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             foreach (var lineObject in lineObjects)
             {
                 // A Polyglot play (backlog 331) is stamped on the line objects by the mod, so the frames
-                // follow the original-script cells the engine will judge. Shorthand likewise.
-                var line = TypingLine.ForMods(lineObject.Line, literate, lineObject.Polyglot, lineObject.PolyglotLanguage, japaneseCharacterTiming: japanese, shorthand: lineObject.Shorthand);
+                // follow the original-script cells the engine will judge. Shorthand likewise, and
+                // Spaceless, whose completed spaces are not typeable, so the loop below presses none.
+                var line = TypingLine.ForMods(lineObject.Line, literate, lineObject.Polyglot, lineObject.PolyglotLanguage, japaneseCharacterTiming: japanese, shorthand: lineObject.Shorthand,
+                    spaceless: lineObject.Spaceless);
                 line.SetAlignedSubdivisionTargets(alignSubdivisionTargets);
 
                 var pressTimes = japanese ? line.Cells.Select(c => c.TargetTime).ToArray()

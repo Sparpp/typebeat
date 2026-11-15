@@ -67,6 +67,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects
         /// <summary>Shorthand mod, stamped like <see cref="Literate"/>. Play-time only.</summary>
         public bool Shorthand { get; set; }
 
+        /// <summary>
+        /// Spaceless mod, stamped like <see cref="Literate"/>: every space is completed, so no nested
+        /// scoring object is built for one. Play-time only.
+        /// </summary>
+        public bool Spaceless { get; set; }
+
 
         /// <summary>The line remains typeable until EndTime + SealGraceMs; osu sees that as the object's end.</summary>
         public double EndTime => Line.EndTime + Line.SealGraceMs;
@@ -91,7 +97,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects
             // here can differ from the live engine's aligned TargetTime: anything that has to agree
             // with judgement reads the engine's cells instead (see TypeBeatPlayfield's seal grant).
 
-            var typingLine = TypingLine.ForMods(Line, Literate, Polyglot, PolyglotLanguage, japaneseCharacterTiming: true, legacyJapaneseSpaces: LegacyJapaneseSpaces, shorthand: Shorthand);
+            var typingLine = TypingLine.ForMods(Line, Literate, Polyglot, PolyglotLanguage, japaneseCharacterTiming: true, legacyJapaneseSpaces: LegacyJapaneseSpaces, shorthand: Shorthand,
+                spaceless: Spaceless);
 
 
             for (int i = 0; i < typingLine.Cells.Count; i++)

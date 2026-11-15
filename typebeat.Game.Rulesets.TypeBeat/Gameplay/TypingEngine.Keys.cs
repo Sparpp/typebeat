@@ -58,6 +58,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         private bool processKey(char c, double time)
         {
+            // SPACELESS: the space key is not input. Refused FIRST, ahead of every step below, so
+            // no path can read it: not the first line's opening press, not the manual newline, not
+            // the Japanese confirmation, not mashing (which would otherwise rewrite it into the
+            // caret's letter), not the word skip, and not either wrong-key path, so it can never
+            // be a typo, a rejection, a combo break or a mash-fail streak. Unlike Shorthand's
+            // refusal below this one is not habit forgiven mid-line: the key means nothing at all.
+            if (Spaceless && c == ' ')
+                return false;
+
             var press = new KeyPress(c, time);
 
             openTheFirstLineOnAPress(time);

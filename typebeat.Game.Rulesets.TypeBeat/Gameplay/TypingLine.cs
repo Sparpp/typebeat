@@ -60,7 +60,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public bool IsCountable => IsTypeable && Expected != ' ';
 
-        /// <summary>A character completed for the player (Shorthand): built non-typeable, drawn darker.</summary>
+        /// <summary>A character completed for the player (Shorthand, and every space under Spaceless): built non-typeable, drawn darker.</summary>
         public bool IsAutoCompleted { get; }
 
         /// <summary>A letter the player types in an onsets-only word, drawn a step brighter.</summary>
@@ -161,7 +161,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             IsAutoCompleted = autoCompleted;
         }
 
-        /// <summary>The same character and target, completed by the Shorthand mod instead of typed.</summary>
+        /// <summary>The same character and target, completed by the Shorthand or Spaceless mod instead of typed.</summary>
         internal static TypingCell AutoCompleted(TypingCell typed) => new TypingCell(typed.Expected, typed.TargetTime, autoCompleted: true);
     }
 
@@ -340,6 +340,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         /// <summary>Whether this line was flattened under the Shorthand mod.</summary>
         public bool Shorthand { get; private set; }
+
+        /// <summary>Whether this line was flattened under the Spaceless mod (every inter-word space completed).</summary>
+        public bool Spaceless { get; private set; }
 
         /// <summary>
         /// The line's SYLLABLE groups (backlog 174): ordered, non-overlapping cell ranges, one per
@@ -793,9 +796,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// engine holds.</para>
         ///
         /// <para>Word objects (holds) apply here; a line without them flattens as before.</para>
+        ///
+        /// <para><paramref name="spaceless"/> (the Spaceless mod) completes every space cell for the
+        /// player (see <see cref="completeSpaces"/>); nothing else moves.</para>
         /// </summary>
-        public static TypingLine FromLyricLine(LyricLine line, bool literate = false, bool alignSubdivisionTargets = false, bool shorthand = false)
-            => withTargetEra(build(line, literate, CellRules.Default, null, null, shorthand: shorthand, wordObjects: true), alignSubdivisionTargets);
+        public static TypingLine FromLyricLine(LyricLine line, bool literate = false, bool alignSubdivisionTargets = false, bool shorthand = false, bool spaceless = false)
+            => withTargetEra(build(line, literate, CellRules.Default, null, null, shorthand: shorthand, spaceless: spaceless, wordObjects: true), alignSubdivisionTargets);
 
         private static TypingLine withTargetEra(TypingLine line, bool alignSubdivisionTargets)
         {
@@ -829,11 +835,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// extended bit 8 (see <see cref="PolyglotLine.Derive"/>). Unlike the timing eras it changes
         /// the CELL LIST, so it is fixed here, at construction, and every era swap keeps it.</param>
         /// <param name="shorthand">The Shorthand mod; incompatible with Polyglot.</param>
+        /// <param name="spaceless">The Spaceless mod; incompatible with Polyglot, and ignored under it
+        /// exactly as <paramref name="shorthand"/> is (the engine does the same, see
+        /// <see cref="TypingEngine.Spaceless"/>), so a stack claiming both still cuts one cell list.</param>
         public static TypingLine ForMods(LyricLine line, bool literate, bool polyglot, string? language, bool alignSubdivisionTargets = false, bool japaneseWordTiming = true, bool japaneseCharacterTiming = false,
-                                         bool legacyJapaneseSpaces = false, bool shorthand = false)
+                                         bool legacyJapaneseSpaces = false, bool shorthand = false, bool spaceless = false)
         {
             if (!polyglot)
-                return FromLyricLine(line, literate, alignSubdivisionTargets, shorthand);
+                return FromLyricLine(line, literate, alignSubdivisionTargets, shorthand, spaceless);
 
             var derived = PolyglotLine.Derive(line, language, japaneseWordTiming, japaneseCharacterTiming, legacyJapaneseSpaces);
             var result = withTargetEra(build(derived.Line, literate, CellRules.Polyglot, derived.NaturalSplits, derived.RawCluster), alignSubdivisionTargets);
@@ -886,7 +895,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             => jamoHead != null && cellIndex >= 0 && cellIndex < jamoHead.Length ? jamoHead[cellIndex] : -1;
 
         private static TypingLine build(LyricLine line, bool literate, CellRules rules, PolyglotLine.NaturalSplit?[]? naturalSplits, int[]? rawCluster, bool alignSubdivisions = false,
-                                        bool shorthand = false, bool wordObjects = false)
+                                        bool shorthand = false, bool spaceless = false, bool wordObjects = false)
         {
             string text = line.RawText;
             var units = line.Units;
@@ -1058,6 +1067,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (shorthand)
                 cells = applyOnsetsOnly(cells, authored, heldCells);
 
+            // Spaceless, at the same point and for the same reason: the groupings and the word
+            // ranges were cut from the full cell list, so no syllable, word or hold moves.
+            if (spaceless)
+                cells = completeSpaces(cells);
+
             if (heldCells != null)
             {
                 foreach (var (i, hold) in heldCells)
@@ -1074,8 +1088,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 buildJamoHeads(cells, defaultSources, rawCluster));
             result.rawCellIndices = defaultSources?.ToArray();
             result.Shorthand = shorthand;
+            result.Spaceless = spaceless;
             if (!alignSubdivisions)
-                result.alignedTimingFactory = () => build(line, literate, rules, naturalSplits, rawCluster, alignSubdivisions: true, shorthand: shorthand, wordObjects: wordObjects);
+                result.alignedTimingFactory = () => build(line, literate, rules, naturalSplits, rawCluster, alignSubdivisions: true, shorthand: shorthand, spaceless: spaceless, wordObjects: wordObjects);
             return result;
         }
 
@@ -1127,6 +1142,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 else
                     result[i] = TypingCell.AutoCompleted(cell);
             }
+
+            return result;
+        }
+
+        /// <summary>
+        /// SPACELESS: every typeable SPACE cell is completed for the player
+        /// (<see cref="TypingCell.AutoCompleted"/>, the cell Shorthand completes its spaces with), so
+        /// it is never typed, never judged and never counted: no nested scoring object is built for it
+        /// (<c>TypeBeatHitObject.CreateNestedHitObjects</c> skips non-typeable cells), the caret hops it
+        /// like any other auto-skipped cell, and it stays out of the accuracy denominator, the combo
+        /// and <see cref="TypeableCount"/> alike. Every other cell is returned as it is, and no target
+        /// moves, so no era bit is needed.
+        /// </summary>
+        private static TypingCell[] completeSpaces(TypingCell[] cells)
+        {
+            var result = new TypingCell[cells.Length];
+
+            for (int i = 0; i < cells.Length; i++)
+                result[i] = cells[i].IsTypeable && cells[i].Expected == ' ' ? TypingCell.AutoCompleted(cells[i]) : cells[i];
 
             return result;
         }

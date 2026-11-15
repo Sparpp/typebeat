@@ -234,10 +234,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // the stored replay before this beatmap was built (TypeBeatModPolyglot.ApplyToStoredReplay).
             bool legacyJapaneseSpaces = polyglot && lineObjects.Any(h => h.LegacyJapaneseSpaces);
 
-            // SHORTHAND changes the cell list too.
+            // SHORTHAND changes the cell list too, and so does SPACELESS.
             bool shorthand = Mods?.Any(m => m is TypeBeatModShorthand) == true;
+            bool spaceless = Mods?.Any(m => m is TypeBeatModSpaceless) == true;
 
-            var created = new TypingEngine(lyricBeatmap, literate, polyglot, polyglotLanguage, legacyJapaneseSpaces, shorthand)
+            var created = new TypingEngine(lyricBeatmap, literate, polyglot, polyglotLanguage, legacyJapaneseSpaces, shorthand, spaceless)
             {
                 // THE live judgement rule since backlog 179, for every player and (since backlog
                 // 180) every mod stack but Hard Rock, which turns it back off from its own
