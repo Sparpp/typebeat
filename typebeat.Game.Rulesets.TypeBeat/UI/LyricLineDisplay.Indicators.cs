@@ -2,11 +2,16 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using osu.Framework.Allocation;
 using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Colour;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
+using osu.Framework.IO.Stores;
+using osu.Framework.Text;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
@@ -277,6 +282,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             private readonly Container clip;
             private readonly OsuSpriteText glyph;
 
+            [Resolved]
+            private FontStore? fontStore { get; set; }
+
+            // The glyph's ink, top and bottom in its unscaled bounds, for the text it was measured on.
+            private (float Top, float Bottom)? ink;
+            private string? inkText;
+
             public GlyphColourFill(LyricLineDisplay owner, int index)
             {
                 this.owner = owner;
@@ -316,26 +328,82 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 if (!glyph.Text.Equals(source.Text))
                     glyph.Text = source.Text;
                 glyph.Colour = TypeBeatStyle.SungCharForBrightness(owner.sungBrightness * owner.indicatorRelease[index]);
-                var mask = IndicatorMaskGeometry(owner.judgementIndicator, source.DrawSize, amount);
+
+                // The fill rises over the letter's INK, not its box: the box is the font's whole line
+                // height, so a lowercase letter looked completely filled at about half progress, long
+                // before its target (backlog 467).
+                string text = source.Text.ToString();
+                if (inkText != text)
+                {
+                    inkText = text;
+                    ink = InkExtent(fontStore, source, text);
+                }
+
+                var (inkTop, inkBottom) = ink ?? (0, source.DrawSize.Y);
+                var mask = IndicatorMaskGeometry(owner.judgementIndicator, source.DrawSize, amount, inkTop, inkBottom);
                 clip.Position = mask.Position;
                 clip.Size = mask.Size;
                 glyph.Position = -mask.Position;
             }
 
             public ColourInfo FillColour => glyph.Colour;
-            public float FillFraction => Size.X > 0 && Size.Y > 0 ? clip.Width * clip.Height / (Size.X * Size.Y) : 0;
+            /// <summary>How much of the letter's ink the fill covers, 0 to 1.</summary>
+            public float FillFraction
+            {
+                get
+                {
+                    var (top, bottom) = ink ?? (0, Size.Y);
+                    float covered = Math.Clamp(bottom - clip.Y, 0, bottom - top);
+                    return bottom > top && clip.Width > 0 ? covered / (bottom - top) : 0;
+                }
+            }
+
+            /// <summary>The letter's ink as last measured, in its unscaled bounds (test support).</summary>
+            public (float Top, float Bottom)? Ink => ink;
             public osu.Framework.Graphics.Primitives.Quad ClipScreenQuad => clip.ScreenSpaceDrawQuad;
         }
 
-        /// <summary>Clip geometry within the glyph's unscaled bounds.</summary>
-        public static (Vector2 Position, Vector2 Size) IndicatorMaskGeometry(JudgementIndicatorMode mode, Vector2 glyphSize, float progress)
+        /// <summary>
+        /// Clip geometry within the glyph's unscaled bounds. The fill rises from the bottom of the ink
+        /// (<paramref name="inkBottom"/>) to its top (<paramref name="inkTop"/>), so it reads complete
+        /// exactly at progress 1; without ink bounds it spans the whole box.
+        /// </summary>
+        public static (Vector2 Position, Vector2 Size) IndicatorMaskGeometry(JudgementIndicatorMode mode, Vector2 glyphSize, float progress,
+                                                                             float inkTop = 0, float? inkBottom = null)
         {
             float amount = Math.Clamp(progress, 0, 1);
-            return mode switch
-            {
-                JudgementIndicatorMode.BottomToTopFill => (new Vector2(0, glyphSize.Y * (1 - amount)), new Vector2(glyphSize.X, glyphSize.Y * amount)),
-                _ => (Vector2.Zero, Vector2.Zero),
-            };
+            float bottom = Math.Clamp(inkBottom ?? glyphSize.Y, 0, glyphSize.Y);
+            float top = Math.Clamp(inkTop, 0, bottom);
+
+            if (mode != JudgementIndicatorMode.BottomToTopFill)
+                return (Vector2.Zero, Vector2.Zero);
+
+            // Below the ink is covered from the start (nothing is drawn there), so the clip is always
+            // anchored on the box's bottom edge and only its top moves.
+            float y = amount >= 1 ? 0 : bottom - (bottom - top) * amount;
+            return (new Vector2(0, y), new Vector2(glyphSize.X, glyphSize.Y - y));
+        }
+
+        /// <summary>
+        /// The top and bottom of <paramref name="text"/>'s ink in <paramref name="source"/>'s unscaled
+        /// bounds, laid out by the framework's own text builder exactly as the sprite lays it out. Null
+        /// when there is no store or no ink (whitespace), and the fill then spans the box.
+        /// </summary>
+        internal static (float Top, float Bottom)? InkExtent(FontStore? store, OsuSpriteText source, string text)
+        {
+            if (store == null || string.IsNullOrEmpty(text))
+                return null;
+
+            var glyphs = new List<TextBuilderGlyph>();
+            var builder = new TextBuilder(store, source.Font, float.MaxValue, source.UseFullGlyphHeight,
+                new Vector2(source.Padding.Left, source.Padding.Top), source.Spacing, glyphs, Array.Empty<char>(), '?', 'm');
+            builder.AddText(text);
+
+            var inked = glyphs.Where(g => g.Height > 0 && !char.IsWhiteSpace(g.Character)).ToList();
+            if (inked.Count == 0)
+                return null;
+
+            return (inked.Min(g => g.DrawRectangle.Top), inked.Max(g => g.DrawRectangle.Bottom));
         }
 
         private sealed partial class JudgementColourBar : Box

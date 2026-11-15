@@ -319,12 +319,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             at("fill midpoint", () => display.Line.Cells[index].TargetTime - 100);
             AddUntilStep("glyph is half filled", () => Math.Abs(display.CellColourFillFraction(index) - 0.5f) < 0.0001);
             AddAssert("base remains grey", () => colourIs(index, TypeBeatStyle.UntypedChar));
-            AddAssert("mask covers the lower glyph half", () =>
+            AddAssert("mask covers the lower half of the ink", () =>
             {
                 var glyph = display.CellScreenQuad(index);
                 var clip = display.CellColourFillClipQuad(index);
-                return Math.Abs(clip.BottomLeft.Y - glyph.BottomLeft.Y) < 0.01
-                       && Math.Abs(clip.Height - glyph.Height * 0.5f) < 0.01
+                return display.CellInkScreenSpan(index) is var (inkTop, inkBottom)
+                       && Math.Abs(clip.BottomLeft.Y - glyph.BottomLeft.Y) < 0.01
+                       && Math.Abs(clip.TopLeft.Y - (inkTop + inkBottom) / 2) < 0.01
                        && Math.Abs(clip.Width - glyph.Width) < 0.01;
             });
             if (text == "cat")

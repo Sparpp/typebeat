@@ -194,6 +194,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         internal osu.Framework.Graphics.Primitives.Quad CellColourFillClipQuad(int index) => glyphColourFills[index].ClipScreenQuad;
 
+        /// <summary>The top and bottom of a cell's ink in screen space, as the fill measured it; null before it is measured.</summary>
+        internal (float Top, float Bottom)? CellInkScreenSpan(int index)
+        {
+            if (glyphColourFills[index].Ink is not var (top, bottom))
+                return null;
+
+            var quad = cells[index].ScreenSpaceDrawQuad;
+            float scale = quad.Height / cells[index].DrawHeight;
+            return (quad.TopLeft.Y + top * scale, quad.TopLeft.Y + bottom * scale);
+        }
+
         /// <summary>The group index last highlighted; -1 also covers ungrouped character timing.</summary>
         internal int SungSyllable => sungSyllable;
 

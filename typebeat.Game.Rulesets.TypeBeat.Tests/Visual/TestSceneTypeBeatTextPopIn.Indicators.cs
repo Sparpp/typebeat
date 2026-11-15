@@ -37,10 +37,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 const double epsilon = 0.01;
                 return mode switch
                 {
-                    JudgementIndicatorMode.BottomToTopFill => Math.Abs(mask.BottomLeft.Y - glyph.BottomLeft.Y) < epsilon
-                        && Math.Abs(mask.Height - glyph.Height / 2) < epsilon && Math.Abs(mask.Width - glyph.Width) < epsilon,
+                    // Halfway up the INK, not the box (backlog 467).
+                    JudgementIndicatorMode.BottomToTopFill => display.CellInkScreenSpan(0) is var (inkTop, inkBottom)
+                        && Math.Abs(mask.BottomLeft.Y - glyph.BottomLeft.Y) < epsilon
+                        && Math.Abs(mask.TopLeft.Y - (inkTop + inkBottom) / 2) < epsilon && Math.Abs(mask.Width - glyph.Width) < epsilon,
                     _ => false,
                 };
+            });
+            // The bug: the box is the font's whole line height, so a lowercase letter's ink sits well
+            // inside it and a box-based fill covered all of it at about half progress.
+            AddAssert("a lowercase letter's ink sits well inside its box", () =>
+            {
+                var glyph = display.CellScreenQuad(0);
+                return display.CellInkScreenSpan(0) is var (inkTop, inkBottom)
+                       && inkTop - glyph.TopLeft.Y > glyph.Height * 0.2f && inkBottom <= glyph.BottomLeft.Y + 0.01f;
             });
             AddStep("record layout", () => { width = display.FullOnScreenWidth; position = display.CellScreenPosition(0); });
             at("alignment", () => 1000);
