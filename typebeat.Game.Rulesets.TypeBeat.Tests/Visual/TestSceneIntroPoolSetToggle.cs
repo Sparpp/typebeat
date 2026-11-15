@@ -7,6 +7,7 @@ using NUnit.Framework;
 using osu.Framework.Allocation;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
+using osu.Framework.Graphics.Shapes;
 using osu.Framework.Graphics.UserInterface;
 using osu.Framework.Testing;
 using typebeat.Game.Configuration;
@@ -171,10 +172,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         /// <summary>
-        /// Backlog 348: the difficulty spread button inherited from osu! is gone from both panels (it grouped its dots
-        /// by ruleset, and type!beat has one). The only button left on either panel is the update button, the set
-        /// panel's status row holds just the status pill and that button, and the standalone panel's star row holds
-        /// just the star rating. Rides on this scene because it already loads a multi-difficulty set in both panels.
+        /// Backlog 348: the difficulty spread BUTTON inherited from osu! is gone from both panels (it grouped its dots
+        /// by ruleset, and type!beat has one, and its click scoped song select to the set). The only button left on
+        /// either panel is the update button, and the standalone panel's star row holds just the star rating.
+        /// Backlog 471 brought the set panel's dots back as a plain display (no icon, no click), so its status row is
+        /// the status pill, the update button, then that spectrum; see TestScenePanelSetDifficultySpectrum.
+        /// Rides on this scene because it already loads a multi-difficulty set in both panels.
         /// </summary>
         [Test]
         public void PanelsCarryNoSpreadControl()
@@ -184,10 +187,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("standalone panel's only button is the update button",
                 () => standalonePanel.ChildrenOfType<OsuAnimatedButton>().All(b => b is PanelUpdateBeatmapButton));
 
-            AddAssert("set status row is pill then update button", () =>
+            AddAssert("set status row is pill, update button, then the spectrum", () =>
             {
                 var row = (FillFlowContainer)setPanel.ChildrenOfType<BeatmapSetOnlineStatusPill>().Single().Parent!;
-                return row.Children.Count == 2 && row.Children[0] is BeatmapSetOnlineStatusPill && row.Children[1] is PanelUpdateBeatmapButton;
+                return row.Children.Count == 3
+                       && row.Children[0] is BeatmapSetOnlineStatusPill
+                       && row.Children[1] is PanelUpdateBeatmapButton
+                       && row.Children[2] is PanelBeatmapSet.SpreadDisplay;
             });
 
             AddAssert("standalone star row is the star rating alone", () =>
@@ -196,6 +202,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 return row.Children.Count == 1;
             });
         }
+
+        /// <summary>
+        /// Backlog 471: the carousel tells its set panel which difficulties survive the filter, and the spectrum draws
+        /// the filtered out ones smaller and faded (upstream's behaviour). Rides on this scene for its live song select.
+        /// </summary>
+        [Test]
+        public void CarouselFeedsSpectrumTheFilteredDifficulties()
+        {
+            AddUntilStep("carousel set panel sees both difficulties", () => carouselSetPanel()?.VisibleBeatmaps.Value?.Count, () => Is.EqualTo(2));
+            AddUntilStep("two full dots", () => spectrumDots().Count(d => d.Alpha == 1), () => Is.EqualTo(2));
+
+            AddStep("filter to the hard difficulty", () => ((ISongSelect)songSelect).AddToSearch(@"diff=Hard"));
+
+            AddUntilStep("panel sees only hard", () => carouselSetPanel()?.VisibleBeatmaps.Value?.Select(b => b.DifficultyName),
+                () => Is.EquivalentTo(new[] { "Hard" }));
+            AddUntilStep("one full dot, one faded", () =>
+            {
+                var dots = spectrumDots();
+                return dots.Length == 2 && dots.Count(d => d.Alpha == 1) == 1 && dots.Count(d => d.Alpha == 0.5f) == 1;
+            });
+        }
+
+        private PanelBeatmapSet? carouselSetPanel() => songSelect.ChildrenOfType<BeatmapCarousel>().SingleOrDefault()?
+                                                              .ChildrenOfType<PanelBeatmapSet>()
+                                                              .FirstOrDefault(p => p.Item?.Model is GroupedBeatmapSet g && g.BeatmapSet.ID == beatmapSet.ID);
+
+        private Circle[] spectrumDots() => carouselSetPanel()?.ChildrenOfType<PanelBeatmapSet.SpreadDisplay>().Single().ChildrenOfType<Circle>().ToArray() ?? [];
 
         private string? groupOfSet()
         {

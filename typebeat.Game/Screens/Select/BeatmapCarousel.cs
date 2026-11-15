@@ -525,6 +525,9 @@ namespace typebeat.Game.Screens.Select
             // Transfer the previous flag states across to the new models.
             if (ExpandedBeatmapSet != null) setExpandedSet(ExpandedBeatmapSet);
             if (ExpandedGroup != null) setExpandedGroup(ExpandedGroup);
+
+            foreach (var item in Scroll.Panels.OfType<PanelBeatmapSet>().Where(p => p.Item != null))
+                updateVisibleBeatmaps((GroupedBeatmapSet)item.Item!.Model, item);
         }
 
         private void selectRecommendedDifficultyForBeatmapSet(GroupedBeatmapSet set)
@@ -965,11 +968,26 @@ namespace typebeat.Game.Screens.Select
 
                     return beatmapPanelPool.Get();
 
-                case GroupedBeatmapSet:
-                    return setPanelPool.Get();
+                case GroupedBeatmapSet groupedBeatmapSet:
+                    var setPanel = setPanelPool.Get();
+                    updateVisibleBeatmaps(groupedBeatmapSet, setPanel);
+                    return setPanel;
             }
 
             throw new InvalidOperationException();
+        }
+
+        /// <summary>
+        /// Tells a set panel which of its difficulties survived the current filter, for its difficulty spectrum
+        /// (<see cref="PanelBeatmapSet.SpreadDisplay"/>). Restored from upstream along with that display (backlog 471).
+        /// </summary>
+        private void updateVisibleBeatmaps(GroupedBeatmapSet groupedBeatmapSet, PanelBeatmapSet setPanel)
+        {
+            HashSet<BeatmapInfo> visibleBeatmaps = [];
+            if (grouping.SetItems.TryGetValue(groupedBeatmapSet, out var visibleItems))
+                visibleBeatmaps = visibleItems.Where(i => i.Model is GroupedBeatmap).Select(i => ((GroupedBeatmap)i.Model).Beatmap).ToHashSet();
+
+            setPanel.VisibleBeatmaps.Value = visibleBeatmaps;
         }
 
         #endregion
