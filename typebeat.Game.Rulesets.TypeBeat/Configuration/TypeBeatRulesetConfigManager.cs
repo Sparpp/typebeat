@@ -565,6 +565,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
                 paceColourGradientBindable.Disabled = change.NewValue;
             }, true);
 
+            // The pin also holds against a write made with the gate lifted for it: "Reset all settings" and
+            // Gameplay presets write a greyed-out setting that way, and a crafted preset code can ask for a
+            // gradient with approach bars on. While a lease holds the gradient nothing can be written, so it
+            // is left to the lease.
+            paceColourGradientBindable.BindValueChanged(change =>
+            {
+                if (approachBarsBindable.Value && change.NewValue != 0 && !paceColourGradientBindable.Disabled)
+                    paceColourGradientBindable.Value = 0;
+            });
+
             // The two alignments are greyed out, never rewritten, while they have nothing to move:
             // the stored value is kept and applies again as soon as the control is enabled.
             approachBarAlignmentBindable = GetBindable<float>(TypeBeatRulesetSetting.ApproachBarAlignment);

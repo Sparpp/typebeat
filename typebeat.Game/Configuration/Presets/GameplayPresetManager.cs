@@ -29,6 +29,13 @@ namespace typebeat.Game.Configuration.Presets
     /// starts a fresh Custom. Deleting the selected preset selects Custom without touching a setting.</item>
     /// </list>
     ///
+    /// <para>LEASES: while another part of the game holds a covered setting under a bindable lease (the
+    /// skin editor holds HUD visibility at Always while it is open), presets read the setting as the
+    /// player's own value, the one the lease puts back (<see cref="LiveGameplaySetting.OwnValue"/>), and
+    /// the lease's writes do not count as an edit. A preset selected meanwhile applies everything else at
+    /// once and holds back its value for the leased setting, which is written the moment the lease is
+    /// returned; until then it counts as the setting's value, so exports, Custom and the label all agree.</para>
+    ///
     /// <para>STORAGE: one JSON file in the game's storage (<see cref="FILENAME"/>), each preset kept as its
     /// share code. Not game.ini, because "Reset all settings" resets that wholesale, and presets are the
     /// player's own content, like skins, rather than preferences; not Realm, because it would need a
@@ -37,10 +44,12 @@ namespace typebeat.Game.Configuration.Presets
     /// settings it is about to reset as Custom (when Custom was selected), and selects Minimal, which is
     /// precisely what the reset leaves the covered settings at (<see cref="ResetAllSettings"/>).</para>
     ///
-    /// <para>MIGRATION: the first run of a build with presets has no file yet. An install that has run
-    /// before (<see cref="HasRunBefore"/>) selects Custom and changes nothing; a new install selects
-    /// Minimal. Later, an install whose settings moved while nothing was watching (a default changed by
-    /// an update, an older build, a hand-edited file) is relabelled Custom rather than moved.</para>
+    /// <para>MIGRATION: the first run of a build with presets has no file yet, and never writes a setting.
+    /// An install that has run before (<see cref="HasRunBefore"/>) selects Custom; a new install selects
+    /// Minimal, which its settings are. An install that looks new but whose settings are not all
+    /// defaults (game.ini deleted while the ruleset settings in client.realm stayed) selects Custom too.
+    /// Later, an install whose settings moved while nothing was watching (a default changed by an update,
+    /// an older build, a hand-edited file) is relabelled Custom rather than moved.</para>
     /// </summary>
     public partial class GameplayPresetManager : Component
     {
@@ -94,6 +103,11 @@ namespace typebeat.Game.Configuration.Presets
         // its values, so this is only refreshed on the way out (no write on every slider tick).
         private string? customCode;
 
+        // What the last application of values could not write because a lease held the setting, by
+        // setting: written when the lease is returned (see the class doc), and read as the setting's value
+        // until then.
+        private readonly Dictionary<LiveGameplaySetting, object> heldBack = new Dictionary<LiveGameplaySetting, object>();
+
         private int applying;
 
         /// <param name="storage">Where <see cref="FILENAME"/> lives.</param>
@@ -140,7 +154,10 @@ namespace typebeat.Game.Configuration.Presets
             settingsByKey = settings.ToDictionary(s => s.Key);
 
             foreach (var setting in settings)
-                setting.Changed += onSettingChanged;
+            {
+                setting.Edited += onSettingEdited;
+                setting.Released += onSettingReleased;
+            }
 
             var stored = read();
 
@@ -259,11 +276,18 @@ namespace typebeat.Game.Configuration.Presets
             if (error != ShareCodeError.None)
                 return new ImportResult(null, error);
 
-            var preset = new GameplayPreset(GameplayPresetKind.Saved, nextImportedName(), encodeValues(valuesOf(schema!, digits)));
+            rememberCustom();
+            applyValues(valuesOf(schema!, digits));
+
+            // The preset holds what applying the code left the settings at, not the code itself: snapped
+            // into this build's domains and into what the configs allow (a crafted code cannot keep a pace
+            // colour gradient with approach bars on), so it exports exactly what selecting it applies.
+            var preset = new GameplayPreset(GameplayPresetKind.Saved, nextImportedName(), encodeLive());
 
             saved.Add(preset);
             rebuildEntries();
-            Select(preset);
+            current.Value = preset;
+            write();
             return new ImportResult(preset, ShareCodeError.None);
         }
 
@@ -317,8 +341,11 @@ namespace typebeat.Game.Configuration.Presets
             }
         }
 
-        private void onSettingChanged()
+        private void onSettingEdited(LiveGameplaySetting setting)
         {
+            // The player's own change wins over a value still held back for the end of a lease.
+            heldBack.Remove(setting);
+
             if (applying > 0 || current.Value == Custom)
                 return;
 
@@ -326,20 +353,33 @@ namespace typebeat.Game.Configuration.Presets
             write();
         }
 
-        private void startFresh()
+        private void onSettingReleased(LiveGameplaySetting setting)
         {
-            if (hasRunBefore)
+            // Raised inside the framework's propagation of the returned lease, after its revert; writing
+            // here is safe (only a disabled bindable refuses a value, and this one no longer is).
+            if (!heldBack.Remove(setting, out object? target) || setting.Disabled || setting.Holds(target))
+                return;
+
+            applying++;
+
+            try
             {
-                // The settings as the player left them, labelled Custom; nothing moves.
-                current.Value = Custom;
+                setting.SetValue(target);
             }
-            else
+            finally
             {
-                // A new install's settings are already the defaults; applying them makes the label exact.
-                applyValues(new Dictionary<string, object>());
-                current.Value = Minimal;
+                applying--;
             }
 
+            write();
+        }
+
+        private void startFresh()
+        {
+            // Nothing is written either way. An install that has run before keeps its settings as Custom.
+            // One that looks new is on Minimal only if its settings really are the defaults: game.ini (where
+            // the run-before stamp lives) can be deleted while the ruleset settings in client.realm stay.
+            current.Value = !hasRunBefore && encodeLive() == codeOf(Minimal) ? Minimal : Custom;
             customCode = encodeLive();
         }
 
@@ -415,7 +455,13 @@ namespace typebeat.Game.Configuration.Presets
         /// settings: each snapped into its live domain, the default where a value is missing or cannot
         /// be read. Two passes and then a lifted gate for whatever is still greyed out, exactly like
         /// "Reset all settings" (see <see cref="ConfigDefaults.Reset{TLookup}"/>): one covered setting can
-        /// grey out another, and a greyed-out setting refuses a value.
+        /// grey out another, and a greyed-out setting refuses a value. A gate that PINS a value holds its
+        /// pin against such a write itself (the pace colour gradient puts itself back to 0 while approach
+        /// bars are on), so this never leaves a combination the config does not allow.
+        ///
+        /// <para>A setting a lease holds is never lifted (that would fight the lease, and the framework
+        /// refuses it): its value is held back for the lease's end instead, so this never throws and never
+        /// leaves the settings half applied.</para>
         /// </summary>
         private void applyValues(IReadOnlyDictionary<string, object> values)
         {
@@ -423,6 +469,8 @@ namespace typebeat.Game.Configuration.Presets
 
             try
             {
+                heldBack.Clear();
+
                 var pending = settings.Select(s => (setting: s, target: s.Domain.ValueOf(digitFor(s, values)))).ToList();
 
                 for (int pass = 0; pass < 2 && pending.Count > 0; pass++)
@@ -442,6 +490,17 @@ namespace typebeat.Game.Configuration.Presets
 
                 foreach (var (setting, target) in pending)
                 {
+                    if (setting.IsLeased)
+                    {
+                        if (setting.Domain.DigitOf(target) != setting.OwnDigit)
+                        {
+                            heldBack[setting] = target;
+                            Logger.Log($"Gameplay presets: {setting.Key} is held by another part of the game (a lease), so its preset value is written when that lets go.");
+                        }
+
+                        continue;
+                    }
+
                     if (setting.Holds(target))
                         continue;
 
@@ -459,9 +518,16 @@ namespace typebeat.Game.Configuration.Presets
         private static int digitFor(LiveGameplaySetting setting, IReadOnlyDictionary<string, object> values) =>
             values.TryGetValue(setting.Key, out object? value) && setting.Domain.DigitOf(value) is int digit ? digit : setting.DefaultDigit;
 
-        /// <summary>The live settings as a code in the latest schema.</summary>
+        /// <summary>
+        /// The digit presets read <paramref name="setting"/> as: a value held back for the end of a lease
+        /// if there is one, otherwise the player's own value (which ignores a lease's temporary one).
+        /// </summary>
+        private int digitOf(LiveGameplaySetting setting) =>
+            heldBack.TryGetValue(setting, out object? target) && setting.Domain.DigitOf(target) is int digit ? digit : setting.OwnDigit;
+
+        /// <summary>The live settings, as presets read them (<see cref="digitOf"/>), as a code in the latest schema.</summary>
         private string encodeLive() =>
-            GameplayShareCode.Encode(latest, latest.Entries.Select(e => settingsByKey.TryGetValue(e.Key, out var s) ? s.CurrentDigit : 0).ToArray());
+            GameplayShareCode.Encode(latest, latest.Entries.Select(e => settingsByKey.TryGetValue(e.Key, out var s) ? digitOf(s) : 0).ToArray());
 
         /// <summary>
         /// <paramref name="values"/> as a code in the latest schema: what applying them would leave the
@@ -605,7 +671,10 @@ namespace typebeat.Game.Configuration.Presets
             base.Dispose(isDisposing);
 
             foreach (var setting in settings)
-                setting.Changed -= onSettingChanged;
+            {
+                setting.Edited -= onSettingEdited;
+                setting.Released -= onSettingReleased;
+            }
         }
 
         public readonly struct ImportResult

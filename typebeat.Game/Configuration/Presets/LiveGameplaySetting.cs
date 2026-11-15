@@ -14,6 +14,12 @@ namespace typebeat.Game.Configuration.Presets
     /// as the domain-shaped values <see cref="PresetDomain"/> describes, whatever the stored type is.
     /// Holds (strongly) a bound copy of the config's bindable, so it sees every change from anywhere (the settings
     /// panel, a gameplay hotkey, the in-play visual settings) and writes straight through to the config.
+    ///
+    /// <para>LEASES: another part of the game can take a setting over for a while with a bindable lease
+    /// (the skin editor holds HUD visibility at Always while it is open, then puts the player's value
+    /// back). A leased setting is disabled, and nothing but the lease can write a disabled bindable, so a
+    /// change that arrives while the setting is disabled is never the player's: it is not an
+    /// <see cref="Edited"/>, and <see cref="OwnValue"/> keeps the value from before the lease.</para>
     /// </summary>
     public abstract class LiveGameplaySetting
     {
@@ -22,8 +28,14 @@ namespace typebeat.Game.Configuration.Presets
         /// <summary>The domain the LATEST schema gives this setting: what a decoded value is snapped into before it is written.</summary>
         public PresetDomain Domain { get; }
 
-        /// <summary>Raised on every change of the stored value.</summary>
-        public event Action? Changed;
+        /// <summary>
+        /// Raised when the stored value changes while the setting is enabled: a change the player could
+        /// have made. A lease's writes and its revert arrive while it is disabled and are not raised.
+        /// </summary>
+        public event Action<LiveGameplaySetting>? Edited;
+
+        /// <summary>Raised when the setting stops being disabled: a gate opened, or a lease was returned.</summary>
+        public event Action<LiveGameplaySetting>? Released;
 
         protected LiveGameplaySetting(string key, PresetDomain domain)
         {
@@ -31,17 +43,31 @@ namespace typebeat.Game.Configuration.Presets
             Domain = domain;
         }
 
-        /// <summary>The current value, as a domain value (see <see cref="PresetDomain"/>).</summary>
+        /// <summary>The stored value right now, as a domain value (see <see cref="PresetDomain"/>).</summary>
         public abstract object Value { get; }
+
+        /// <summary>
+        /// The player's own value, as a domain value: <see cref="Value"/>, except while a lease holds the
+        /// setting, when it is the value the setting had before (what the lease puts back when it ends).
+        /// </summary>
+        public abstract object OwnValue { get; }
 
         /// <summary>The setting's default, as a domain value: what Minimal holds.</summary>
         public abstract object DefaultValue { get; }
 
         /// <summary>
-        /// Whether the config currently greys this setting out (another setting gates it). Writable so a
-        /// preset can lift the gate for one write, exactly as "Reset all settings" does.
+        /// Whether the config currently greys this setting out (another setting gates it) or a lease holds
+        /// it. Writable so a preset can lift a gate for one write, exactly as "Reset all settings" does;
+        /// never lift it while <see cref="IsLeased"/>.
         /// </summary>
         public abstract bool Disabled { get; set; }
+
+        /// <summary>
+        /// Whether a lease taken elsewhere holds this setting. Only meaningful for a disabled setting (a
+        /// leased one always is, unless its holder enables it), where finding out changes nothing; an
+        /// enabled setting answers false.
+        /// </summary>
+        public abstract bool IsLeased { get; }
 
         /// <summary>Writes a domain value. The caller has made sure the setting is not disabled.</summary>
         public abstract void SetValue(object value);
@@ -52,9 +78,14 @@ namespace typebeat.Game.Configuration.Presets
         /// <summary>The digit the current value encodes as (the default's when the value is unreadable).</summary>
         public int CurrentDigit => Domain.DigitOf(Value) ?? DefaultDigit;
 
+        /// <summary>The digit <see cref="OwnValue"/> encodes as: what presets read the setting as.</summary>
+        public int OwnDigit => Domain.DigitOf(OwnValue) ?? DefaultDigit;
+
         public int DefaultDigit => Domain.DigitOf(DefaultValue) ?? 0;
 
-        protected void OnChanged() => Changed?.Invoke();
+        protected void OnEdited() => Edited?.Invoke(this);
+
+        protected void OnReleased() => Released?.Invoke(this);
 
         /// <summary>
         /// Attaches <paramref name="bindable"/> as the setting <paramref name="key"/> in <paramref name="domain"/>,
@@ -132,12 +163,24 @@ namespace typebeat.Game.Configuration.Presets
         {
             protected readonly Bindable<T> Bindable;
 
+            // The player's own stored value: follows every change made while the setting is enabled, and
+            // is read again whenever it is enabled again (a returned lease that did not revert left its value).
+            private T own;
+
             protected Typed(string key, PresetDomain domain, Bindable<T> bindable)
                 : base(key, domain)
             {
                 Bindable = bindable;
-                Bindable.ValueChanged += _ => OnChanged();
+                own = bindable.Value;
+                Bindable.ValueChanged += onValueChanged;
+                Bindable.DisabledChanged += onDisabledChanged;
             }
+
+            public override object Value => FromStored(Bindable.Value);
+
+            public override object OwnValue => FromStored(own);
+
+            public override object DefaultValue => FromStored(Bindable.Default);
 
             public override bool Disabled
             {
@@ -145,12 +188,56 @@ namespace typebeat.Game.Configuration.Presets
                 set => Bindable.Disabled = value;
             }
 
+            public override bool IsLeased
+            {
+                get
+                {
+                    if (!Bindable.Disabled)
+                        return false;
+
+                    // The framework's own test: beginning a lease throws, before it changes anything, while
+                    // any bindable this one is bound to (directly or through others) holds a lease. Otherwise
+                    // the probe lease is returned at once, and beginning and returning one on a bindable that
+                    // is already disabled moves neither its value nor its disabled state.
+                    try
+                    {
+                        Bindable.BeginLease(false).Return();
+                        return false;
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            /// <summary>The domain value <paramref name="stored"/> reads as.</summary>
+            protected abstract object FromStored(T stored);
+
             /// <summary>What writing the domain value <paramref name="value"/> stores.</summary>
             protected abstract T ToStored(object value);
 
             public override void SetValue(object value) => Bindable.Value = ToStored(value);
 
             public override bool Holds(object value) => EqualityComparer<T>.Default.Equals(Bindable.Value, ToStored(value));
+
+            private void onValueChanged(ValueChangedEvent<T> change)
+            {
+                if (Bindable.Disabled)
+                    return;
+
+                own = change.NewValue;
+                OnEdited();
+            }
+
+            private void onDisabledChanged(bool disabled)
+            {
+                if (disabled)
+                    return;
+
+                own = Bindable.Value;
+                OnReleased();
+            }
         }
 
         private sealed class BoolSetting : Typed<bool>
@@ -160,9 +247,7 @@ namespace typebeat.Game.Configuration.Presets
             {
             }
 
-            public override object Value => Bindable.Value;
-
-            public override object DefaultValue => Bindable.Default;
+            protected override object FromStored(bool stored) => stored;
 
             protected override bool ToStored(object value) => (bool)value;
         }
@@ -176,9 +261,7 @@ namespace typebeat.Game.Configuration.Presets
             {
             }
 
-            public override object Value => Bindable.Value.ToString();
-
-            public override object DefaultValue => Bindable.Default.ToString();
+            protected override object FromStored(T stored) => stored.ToString();
 
             // Enum.TryParse would also take "3" or "A, B"; only a declared member's own name is a value,
             // and anything else is the default.
@@ -196,9 +279,7 @@ namespace typebeat.Game.Configuration.Presets
 
             // Through Convert, not a generic cast: float converts at its own 7 significant digits and
             // double at 15, so 0.4 and 0.01 come out as 0.4 and 0.01, never their binary expansions.
-            public override object Value => Convert.ToDecimal(Bindable.Value, CultureInfo.InvariantCulture);
-
-            public override object DefaultValue => Convert.ToDecimal(Bindable.Default, CultureInfo.InvariantCulture);
+            protected override object FromStored(T stored) => Convert.ToDecimal(stored, CultureInfo.InvariantCulture);
 
             protected override T ToStored(object value) => (T)Convert.ChangeType((decimal)value, typeof(T), CultureInfo.InvariantCulture);
         }
@@ -211,9 +292,7 @@ namespace typebeat.Game.Configuration.Presets
             }
 
             // A malformed stored colour already renders as the default, so that is what it reads as.
-            public override object Value => ParseColour(Bindable.Value) ?? (int)DefaultValue;
-
-            public override object DefaultValue => ParseColour(Bindable.Default) ?? 0;
+            protected override object FromStored(string stored) => ParseColour(stored) ?? ParseColour(Bindable.Default) ?? 0;
 
             protected override string ToStored(object value) => FormatColour((int)value);
         }
@@ -225,9 +304,7 @@ namespace typebeat.Game.Configuration.Presets
             {
             }
 
-            public override object Value => toRgb(Bindable.Value);
-
-            public override object DefaultValue => toRgb(Bindable.Default);
+            protected override object FromStored(Colour4 stored) => toRgb(stored);
 
             protected override Colour4 ToStored(object value)
             {

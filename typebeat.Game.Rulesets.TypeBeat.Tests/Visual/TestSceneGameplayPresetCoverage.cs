@@ -85,21 +85,55 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             var entries = new List<(string, string, PresetDomain?)>();
 
-            foreach (var item in gameplay.ChildrenOfType<SettingsItemV2>().Where(i => i.FindClosestParent<PresetSettings>() == null))
+            foreach (var control in settingControls(gameplay))
             {
-                string caption = item.Control.FilterTerms.First().ToString();
-                string key = settingWrittenBy(item.Control, caption, sources);
-                entries.Add((caption, key, domainOf(item.Control, key, sources)));
+                string caption = captionOf(control);
+
+                if (settingWrittenBy(control, caption, sources) is string key)
+                    entries.Add((caption, key, domainOf(control, key, sources)));
             }
 
             return entries;
         }
 
         /// <summary>
-        /// The one stored setting <paramref name="control"/> writes: change the control's value, see which
-        /// setting moved, put it back. A greyed-out control is ungreyed for the probe.
+        /// Every control in Gameplay, outside the presets block, that can write a setting: each form control
+        /// and anything else with a <c>Current</c>, whether a <see cref="SettingsItemV2"/> wraps it or not.
+        /// Only the outermost of nested ones counts (a slider's own text box is part of its form control).
         /// </summary>
-        private static string settingWrittenBy(IFormControl control, string caption, IReadOnlyDictionary<string, INamedSettingSource> sources)
+        private static IEnumerable<Drawable> settingControls(GameplaySection gameplay)
+        {
+            bool isControl(Drawable d) => d is IFormControl || currentInterfaceOf(d) != null;
+
+            bool insideAnotherControl(Drawable d)
+            {
+                for (var parent = d.Parent; parent != null && parent != gameplay; parent = parent.Parent)
+                {
+                    if (isControl(parent))
+                        return true;
+                }
+
+                return false;
+            }
+
+            return gameplay.ChildrenOfType<Drawable>()
+                           .Where(d => isControl(d) && d is not PresetSettings && d.FindClosestParent<PresetSettings>() == null && !insideAnotherControl(d))
+                           .ToList();
+        }
+
+        private static string captionOf(Drawable control) =>
+            control is IHasFilterTerms filterable && filterable.FilterTerms.Any() ? filterable.FilterTerms.First().ToString() : control.GetType().Name;
+
+        private static Type? currentInterfaceOf(Drawable control) =>
+            control.GetType().GetInterfaces().FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IHasCurrentValue<>));
+
+        /// <summary>
+        /// The one stored setting <paramref name="control"/> writes: change the control's value, see which
+        /// setting moved, put it back. A greyed-out control is ungreyed for the probe. Null for a control
+        /// that is not a form control and writes no setting (a display with a <c>Current</c>); a form
+        /// control must write exactly one.
+        /// </summary>
+        private static string? settingWrittenBy(Drawable control, string caption, IReadOnlyDictionary<string, INamedSettingSource> sources)
         {
             object current = currentOf(control);
             var type = current.GetType();
@@ -119,19 +153,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             valueProperty.SetValue(current, before);
             disabledProperty.SetValue(current, wasDisabled);
 
+            if (changed.Length == 0 && control is not IFormControl)
+                return null;
+
             Assert.That(changed, Has.Length.EqualTo(1), $"Changing the Gameplay control \"{caption}\" should change exactly one stored setting, but changed: {string.Join(", ", changed)}");
             return changed[0];
         }
 
-        private static object currentOf(IFormControl control)
+        private static object currentOf(Drawable control)
         {
-            var hasCurrent = control.GetType().GetInterfaces().FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IHasCurrentValue<>));
+            var hasCurrent = currentInterfaceOf(control);
 
             Assert.That(hasCurrent, Is.Not.Null, $"{control.GetType().Name} has no Current to probe");
             return hasCurrent!.GetProperty(nameof(IHasCurrentValue<int>.Current))!.GetValue(control)!;
         }
 
-        private static object anotherValue(IFormControl control, object current, object? value)
+        private static object anotherValue(Drawable control, object current, object? value)
         {
             object[] offered = offeredItems(control)?.Cast<object>().ToArray() ?? Array.Empty<object>();
 
@@ -160,7 +197,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         /// <summary>The items a dropdown offers, or null for any other control.</summary>
-        private static IEnumerable? offeredItems(IFormControl control) =>
+        private static IEnumerable? offeredItems(Drawable control) =>
             control.GetType().GetProperty(nameof(Dropdown<int>.Items))?.GetValue(control) as IEnumerable;
 
         /// <summary>
@@ -169,7 +206,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         /// dropdown of an enum the members it offers, in declaration order (so reordering the dropdown is not
         /// a schema change). Anything else must be excluded.
         /// </summary>
-        private static PresetDomain? domainOf(IFormControl control, string key, IReadOnlyDictionary<string, INamedSettingSource> sources)
+        private static PresetDomain? domainOf(Drawable control, string key, IReadOnlyDictionary<string, INamedSettingSource> sources)
         {
             if (control is FormColourSwatch)
                 return PresetDomain.Colour();
@@ -181,6 +218,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             {
                 case bool:
                     return PresetDomain.Bool();
+
+                case Colour4:
+                    return PresetDomain.Colour();
 
                 case Enum e:
                     var offered = offeredItems(control)?.Cast<object>().Select(o => o.ToString()).ToHashSet() ?? new HashSet<string?>();

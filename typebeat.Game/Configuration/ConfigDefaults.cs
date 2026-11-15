@@ -29,7 +29,8 @@ namespace typebeat.Game.Configuration
         /// install while still holding its own default), so a stale value there is put back on its
         /// default with the gate lifted for that one write; otherwise the old value would come back
         /// the moment the gate opened. A gate that FORCES a value (the pace colour gradient pinned to 0
-        /// while approach bars are on) must not be disabled by its own default, or this would fight it.</para>
+        /// while approach bars are on) must hold its pin against a write made with the gate lifted, as the
+        /// gradient does (Gameplay presets lift gates the same way, with values that are not defaults).</para>
         /// </summary>
         public static int Reset<TLookup>(IEnumerable<KeyValuePair<TLookup, IBindable>> store, Func<TLookup, bool> keep)
             where TLookup : struct, Enum
