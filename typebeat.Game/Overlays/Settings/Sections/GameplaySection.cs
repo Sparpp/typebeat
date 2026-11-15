@@ -51,7 +51,6 @@ namespace typebeat.Game.Overlays.Settings.Sections
 
             AddRange(new Drawable[]
             {
-                new GeneralSettings(),
                 new BackgroundSettings(),
                 new BeatmapSettings(),
                 new HUDSettings(),

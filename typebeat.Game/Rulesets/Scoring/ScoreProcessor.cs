@@ -687,15 +687,6 @@ namespace typebeat.Game.Rulesets.Scoring
         }
     }
 
-    public enum ScoringMode
-    {
-        [LocalisableDescription(typeof(GameplaySettingsStrings), nameof(GameplaySettingsStrings.StandardisedScoreDisplay))]
-        Standardised,
-
-        [LocalisableDescription(typeof(GameplaySettingsStrings), nameof(GameplaySettingsStrings.ClassicScoreDisplay))]
-        Classic
-    }
-
     [Serializable]
     [MessagePackObject]
     public class ScoreProcessorStatistics

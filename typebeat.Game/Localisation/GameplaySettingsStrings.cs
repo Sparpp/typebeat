@@ -90,11 +90,6 @@ namespace typebeat.Game.Localisation
         public static LocalisableString AlwaysRequireHoldForMenu => new TranslatableString(getKey(@"require_holding_key_to_pause_gameplay"), @"Require holding key to pause gameplay");
 
         /// <summary>
-        /// "Score display mode"
-        /// </summary>
-        public static LocalisableString ScoreDisplayMode => new TranslatableString(getKey(@"score_display_mode"), @"Score display mode");
-
-        /// <summary>
         /// "Disable Windows key during gameplay"
         /// </summary>
         public static LocalisableString DisableWinKey => new TranslatableString(getKey(@"disable_win_key"), @"Disable Windows key during gameplay");
@@ -113,16 +108,6 @@ namespace typebeat.Game.Localisation
         /// "Never"
         /// </summary>
         public static LocalisableString NeverShowHUD => new TranslatableString(getKey(@"never_show_hud"), @"Never");
-
-        /// <summary>
-        /// "Standardised"
-        /// </summary>
-        public static LocalisableString StandardisedScoreDisplay => new TranslatableString(getKey(@"standardised_score_display"), @"Standardised");
-
-        /// <summary>
-        /// "Classic"
-        /// </summary>
-        public static LocalisableString ClassicScoreDisplay => new TranslatableString(getKey(@"classic_score_display"), @"Classic");
 
         private static string getKey(string key) => $@"{prefix}:{key}";
     }

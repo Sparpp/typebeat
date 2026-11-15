@@ -18,7 +18,6 @@ using typebeat.Game.Online.Leaderboards;
 using typebeat.Game.Overlays;
 using typebeat.Game.Overlays.Dashboard.Friends;
 using typebeat.Game.Overlays.Mods.Input;
-using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Online.Rooms;
 using typebeat.Game.Screens.Select;
 using typebeat.Game.Screens.Select.Filter;
@@ -162,8 +161,6 @@ namespace typebeat.Game.Configuration
             SetDefault(OsuSetting.AlwaysPlayFirstComboBreak, true);
 
             SetDefault(OsuSetting.FloatingComments, false);
-
-            SetDefault(OsuSetting.ScoreDisplayMode, ScoringMode.Standardised);
 
             SetDefault(OsuSetting.GameplayDisableWinKey, true);
 
@@ -460,7 +457,6 @@ namespace typebeat.Game.Configuration
         BeatmapSkins,
         BeatmapColours,
         BeatmapHitsounds,
-        ScoreDisplayMode,
         ExternalLinkWarning,
         PreferNoVideo,
         Scaling,

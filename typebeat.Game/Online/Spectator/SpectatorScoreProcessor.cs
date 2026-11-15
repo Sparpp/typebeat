@@ -14,7 +14,6 @@ using typebeat.Game.Rulesets;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Scoring;
-using typebeat.Game.Scoring.Legacy;
 
 namespace typebeat.Game.Online.Spectator
 {
@@ -45,16 +44,9 @@ namespace typebeat.Game.Online.Spectator
         public readonly BindableInt HighestCombo = new BindableInt();
 
         /// <summary>
-        /// The <see cref="ScoringMode"/> used to calculate scores.
-        /// </summary>
-        public readonly Bindable<ScoringMode> Mode = new Bindable<ScoringMode>();
-
-        /// <summary>
         /// The applied <see cref="Mod"/>s.
         /// </summary>
         public IReadOnlyList<Mod> Mods => scoreInfo?.Mods ?? Array.Empty<Mod>();
-
-        public Func<ScoringMode, long> GetDisplayScore => mode => scoreInfo?.GetDisplayScore(mode) ?? 0;
 
         private IClock? referenceClock;
 
@@ -88,8 +80,6 @@ namespace typebeat.Game.Online.Spectator
         protected override void LoadComplete()
         {
             base.LoadComplete();
-
-            Mode.BindValueChanged(_ => UpdateScore());
 
             spectatorStates.BindTo(spectatorClient.WatchedUserStates);
             spectatorStates.BindCollectionChanged(onSpectatorStatesChanged, true);
