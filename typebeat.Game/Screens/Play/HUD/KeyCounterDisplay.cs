@@ -6,7 +6,6 @@ using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
-using typebeat.Game.Configuration;
 using typebeat.Game.Rulesets.UI;
 using typebeat.Game.Skinning;
 
@@ -18,14 +17,17 @@ namespace typebeat.Game.Screens.Play.HUD
     public abstract partial class KeyCounterDisplay : Container, ISerialisableDrawable
     {
         /// <summary>
-        /// Whether the key counter should be visible regardless of the configuration value.
-        /// This is true by default, but can be changed.
+        /// Whether the key counter is shown. This is true by default, but can be changed; in gameplay it
+        /// follows whether a replay is loaded, so the counter shows when watching a replay only.
         /// </summary>
+        /// <remarks>
+        /// osu! could also show it in gameplay through a setting ("KeyOverlay", off by default). That
+        /// setting had no control in type!beat and was removed in backlog 483; the component itself stays,
+        /// because saved skin layouts can name it.
+        /// </remarks>
         public Bindable<bool> AlwaysVisible { get; } = new Bindable<bool>(true);
 
         protected abstract FillFlowContainer<KeyCounter> KeyFlow { get; }
-
-        protected readonly Bindable<bool> ConfigVisibility = new Bindable<bool>();
 
         private readonly IBindableList<InputTrigger> triggers = new BindableList<InputTrigger>();
 
@@ -46,11 +48,9 @@ namespace typebeat.Game.Screens.Play.HUD
         }
 
         [BackgroundDependencyLoader]
-        private void load(OsuConfigManager config, DrawableRuleset? drawableRuleset)
+        private void load(DrawableRuleset? drawableRuleset)
         {
             AutoSizeAxes = Axes.Both;
-
-            config.BindWith(OsuSetting.KeyOverlay, ConfigVisibility);
 
             if (drawableRuleset != null)
                 AlwaysVisible.BindTo(drawableRuleset.HasReplayLoaded);
@@ -63,13 +63,12 @@ namespace typebeat.Game.Screens.Play.HUD
             triggers.BindTo(controller.Triggers);
             triggers.BindCollectionChanged(triggersChanged, true);
 
-            AlwaysVisible.BindValueChanged(_ => UpdateVisibility());
-            ConfigVisibility.BindValueChanged(_ => UpdateVisibility(), true);
+            AlwaysVisible.BindValueChanged(_ => UpdateVisibility(), true);
         }
 
         protected void UpdateVisibility()
         {
-            bool visible = AlwaysVisible.Value || ConfigVisibility.Value;
+            bool visible = AlwaysVisible.Value;
 
             // Isolate changing visibility of the key counters from fading this component.
             Content.FadeTo(visible ? 1 : 0, duration);

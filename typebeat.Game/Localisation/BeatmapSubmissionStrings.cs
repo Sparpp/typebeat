@@ -146,11 +146,6 @@ namespace typebeat.Game.Localisation
             @"Explicit lyrics, themes or imagery. Flagged beatmaps show an ""explicit"" badge on the website and in-game.");
 
         /// <summary>
-        /// "Receive notifications for discussion replies"
-        /// </summary>
-        public static LocalisableString NotifyOnDiscussionReplies => new TranslatableString(getKey(@"notify_for_discussion_replies"), @"Receive notifications for discussion replies");
-
-        /// <summary>
         /// "Load in browser after submission"
         /// </summary>
         public static LocalisableString LoadInBrowserAfterSubmission => new TranslatableString(getKey(@"load_in_browser_after_submission"), @"Load in browser after submission");

@@ -15,7 +15,6 @@ using osu.Framework.Extensions.LocalisationExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Platform;
-using typebeat.Game.Configuration;
 using typebeat.Game.Graphics;
 using typebeat.Game.Online.API;
 using typebeat.Game.Online.API.Requests.Responses;
@@ -45,18 +44,8 @@ namespace typebeat.Game.Online.Chat
         [Resolved]
         private GameHost host { get; set; }
 
-        private Bindable<bool> notifyOnUsername;
-        private Bindable<bool> notifyOnPrivateMessage;
-
         private readonly IBindable<APIUser> localUser = new Bindable<APIUser>();
         private readonly IBindableList<Channel> joinedChannels = new BindableList<Channel>();
-
-        [BackgroundDependencyLoader]
-        private void load(OsuConfigManager config)
-        {
-            notifyOnUsername = config.GetBindable<bool>(OsuSetting.NotifyOnUsernameMentioned);
-            notifyOnPrivateMessage = config.GetBindable<bool>(OsuSetting.NotifyOnPrivateMessage);
-        }
 
         protected override void LoadComplete()
         {
@@ -129,7 +118,8 @@ namespace typebeat.Game.Online.Chat
         /// <returns>Whether a notification was fired.</returns>
         private bool checkForPMs(Channel channel, Message message)
         {
-            if (!notifyOnPrivateMessage.Value || channel.Type != ChannelType.PM)
+            // Always on: the "NotifyOnPrivateMessage" setting (default on, no control) was removed in backlog 483.
+            if (channel.Type != ChannelType.PM)
                 return false;
 
             notifications.Post(new PrivateMessageNotification(message, channel));
@@ -138,9 +128,7 @@ namespace typebeat.Game.Online.Chat
 
         private void checkForMentions(Channel channel, Message message)
         {
-            if (!notifyOnUsername.Value)
-                return;
-
+            // Always on: the "NotifyOnUsernameMentioned" setting (default on, no control) was removed in backlog 483.
             var match = MatchUsername(message.Content, localUser.Value.Username);
             if (!match.Success)
                 return;

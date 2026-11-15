@@ -6,7 +6,6 @@ using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using typebeat.Game.Online.Rooms;
 using typebeat.Game.Online.Spectator;
-using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Scoring;
 using typebeat.Game.Users;
 

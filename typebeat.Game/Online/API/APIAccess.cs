@@ -119,7 +119,7 @@ namespace typebeat.Game.Online.API
             authentication.TokenString = config.Get<string>(OsuSetting.Token);
             authentication.Token.ValueChanged += onTokenChanged;
 
-            AddInternal(localUserState = new LocalUserState(this, config));
+            AddInternal(localUserState = new LocalUserState(this));
 
             if (HasLogin)
             {

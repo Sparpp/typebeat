@@ -29,14 +29,6 @@ namespace typebeat.Game.Overlays.Settings.Sections.UserInterface
                 {
                     Keywords = new[] { "separate", "difficulties", "all" }
                 },
-                new SettingsItemV2(new FormCheckBox
-                {
-                    Caption = UserInterfaceStrings.ShowConvertedBeatmaps,
-                    Current = config.GetBindable<bool>(OsuSetting.ShowConvertedBeatmaps),
-                })
-                {
-                    Keywords = new[] { "converts", "converted" }
-                },
                 new SettingsItemV2(new FormEnumDropdown<RandomSelectAlgorithm>
                 {
                     Caption = UserInterfaceStrings.RandomSelectionAlgorithm,

@@ -11,7 +11,6 @@ using osu.Framework.Graphics.Colour;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
 using osu.Framework.Layout;
-using typebeat.Game.Configuration;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Online.API;
@@ -81,9 +80,6 @@ namespace typebeat.Game.Screens.Play.HUD
         private OsuSpriteText comboText = null!;
 
         private bool isFriend;
-
-        [Resolved]
-        private OsuConfigManager config { get; set; } = null!;
 
         [Resolved]
         private IAPIProvider api { get; set; } = null!;

@@ -10,16 +10,6 @@ namespace typebeat.Game.Localisation
         private const string prefix = @"typebeat.Game.Resources.Localisation.LoginPanel";
 
         /// <summary>
-        /// "Do not disturb"
-        /// </summary>
-        public static LocalisableString DoNotDisturb => new TranslatableString(getKey(@"do_not_disturb"), @"Do not disturb");
-
-        /// <summary>
-        /// "Appear offline"
-        /// </summary>
-        public static LocalisableString AppearOffline => new TranslatableString(getKey(@"appear_offline"), @"Appear offline");
-
-        /// <summary>
         /// "Signed in"
         /// </summary>
         public static LocalisableString SignedIn => new TranslatableString(getKey(@"signed_in"), @"Signed in");

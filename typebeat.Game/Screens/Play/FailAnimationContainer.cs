@@ -16,7 +16,6 @@ using osu.Framework.Utils;
 using typebeat.Game.Audio;
 using typebeat.Game.Audio.Effects;
 using typebeat.Game.Beatmaps;
-using typebeat.Game.Configuration;
 using typebeat.Game.Graphics;
 using typebeat.Game.Rulesets.Objects.Drawables;
 using typebeat.Game.Rulesets.UI;
@@ -50,9 +49,6 @@ namespace typebeat.Game.Screens.Play
         private const float duration = 2500;
 
         private SkinnableSound failSample = null!;
-
-        [Resolved]
-        private OsuConfigManager config { get; set; } = null!;
 
         protected override Container<Drawable> Content { get; } = new Container
         {
@@ -132,8 +128,9 @@ namespace typebeat.Game.Screens.Play
             applyToPlayfield(drawableRuleset.Playfield);
             drawableRuleset.Playfield.HitObjectContainer.FadeOut(duration / 2);
 
-            if (config.Get<bool>(OsuSetting.FadePlayfieldWhenHealthLow))
-                redFlashLayer.FadeOutFromOne(1000);
+            // The fail flash used to sit behind "Fade playfield to red when health is low" (on by
+            // default); that setting is gone (backlog 483), so the flash always plays.
+            redFlashLayer.FadeOutFromOne(1000);
 
             Content.Masking = true;
 

@@ -8,11 +8,11 @@ using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Primitives;
 using osu.Framework.Input.Events;
-using typebeat.Game.Configuration;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Graphics.UserInterface;
+using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Localisation;
 using typebeat.Game.Online.API;
 using typebeat.Game.Overlays.Settings;
@@ -27,24 +27,15 @@ namespace typebeat.Game.Overlays.Login
 
         private Drawable? form;
 
-        [Resolved]
-        private OsuColour colours { get; set; } = null!;
-
-        private UserDropdown? dropdown;
-
         /// <summary>
         /// Called to request a hide of a parent displaying this container.
         /// </summary>
         public Action? RequestHide;
 
         private readonly IBindable<APIState> apiState = new Bindable<APIState>();
-        private readonly Bindable<UserStatus> configUserStatus = new Bindable<UserStatus>();
 
         [Resolved]
         private IAPIProvider api { get; set; } = null!;
-
-        [Resolved]
-        private OsuConfigManager config { get; set; } = null!;
 
         public override RectangleF BoundingBox => bounding ? base.BoundingBox : RectangleF.Empty;
 
@@ -67,9 +58,6 @@ namespace typebeat.Game.Overlays.Login
         protected override void LoadComplete()
         {
             base.LoadComplete();
-
-            config.BindWith(OsuSetting.UserOnlineStatus, configUserStatus);
-            configUserStatus.BindValueChanged(e => updateDropdownCurrent(e.NewValue), true);
 
             apiState.BindTo(api.State);
             apiState.BindValueChanged(onlineStateChanged, true);
@@ -171,35 +159,17 @@ namespace typebeat.Game.Overlays.Login
                                 RelativeSizeAxes = Axes.X,
                                 Action = RequestHide
                             },
-                            dropdown = new UserDropdown { RelativeSizeAxes = Axes.X },
+                            // osu!'s status dropdown (Online / Do not disturb / Appear offline / Sign out)
+                            // stood here. The status is always Online now (backlog 483), which leaves
+                            // signing out as the one thing to offer.
+                            new RoundedButton
+                            {
+                                RelativeSizeAxes = Axes.X,
+                                Text = LoginPanelStrings.SignOut,
+                                Action = api.Logout,
+                            },
                         },
                     };
-
-                    updateDropdownCurrent(configUserStatus.Value);
-                    dropdown.Current.BindValueChanged(action =>
-                    {
-                        switch (action.NewValue)
-                        {
-                            case UserAction.Online:
-                                configUserStatus.Value = UserStatus.Online;
-                                dropdown.StatusColour = colours.Green;
-                                break;
-
-                            case UserAction.DoNotDisturb:
-                                configUserStatus.Value = UserStatus.DoNotDisturb;
-                                dropdown.StatusColour = colours.Red;
-                                break;
-
-                            case UserAction.AppearOffline:
-                                configUserStatus.Value = UserStatus.Offline;
-                                dropdown.StatusColour = colours.Gray7;
-                                break;
-
-                            case UserAction.SignOut:
-                                api.Logout();
-                                break;
-                        }
-                    }, true);
 
                     break;
             }
@@ -207,27 +177,6 @@ namespace typebeat.Game.Overlays.Login
             if (form != null)
                 ScheduleAfterChildren(() => GetContainingFocusManager()?.ChangeFocus(form));
         });
-
-        private void updateDropdownCurrent(UserStatus? status)
-        {
-            if (dropdown == null)
-                return;
-
-            switch (status)
-            {
-                case UserStatus.Online:
-                    dropdown.Current.Value = UserAction.Online;
-                    break;
-
-                case UserStatus.DoNotDisturb:
-                    dropdown.Current.Value = UserAction.DoNotDisturb;
-                    break;
-
-                case UserStatus.Offline:
-                    dropdown.Current.Value = UserAction.AppearOffline;
-                    break;
-            }
-        }
 
         public override bool AcceptsFocus => true;
 

@@ -20,26 +20,6 @@ namespace typebeat.Game.Localisation
         public static LocalisableString AlertsAndPrivacyHeader => new TranslatableString(getKey(@"alerts_and_privacy_header"), @"Alerts and Privacy");
 
         /// <summary>
-        /// "Show a notification when someone mentions your name"
-        /// </summary>
-        public static LocalisableString NotifyOnMentioned => new TranslatableString(getKey(@"notify_on_mentioned"), @"Show a notification when someone mentions your name");
-
-        /// <summary>
-        /// "Show a notification when you receive a private message"
-        /// </summary>
-        public static LocalisableString NotifyOnPrivateMessage => new TranslatableString(getKey(@"notify_on_private_message"), @"Show a notification when you receive a private message");
-
-        /// <summary>
-        /// "Show notification popups when friends change status"
-        /// </summary>
-        public static LocalisableString NotifyOnFriendPresenceChange => new TranslatableString(getKey(@"notify_on_friend_presence_change"), @"Show notification popups when friends change status");
-
-        /// <summary>
-        /// "Notifications will be shown when friends go online/offline."
-        /// </summary>
-        public static LocalisableString NotifyOnFriendPresenceChangeTooltip => new TranslatableString(getKey(@"notify_on_friend_presence_change_tooltip"), @"Notifications will be shown when friends go online/offline.");
-
-        /// <summary>
         /// "Integrations"
         /// </summary>
         public static LocalisableString IntegrationsHeader => new TranslatableString(getKey(@"integrations_header"), @"Integrations");

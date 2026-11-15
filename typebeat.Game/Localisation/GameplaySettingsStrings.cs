@@ -15,11 +15,6 @@ namespace typebeat.Game.Localisation
         public static LocalisableString GameplaySectionHeader => new TranslatableString(getKey(@"gameplay_section_header"), @"Gameplay");
 
         /// <summary>
-        /// "Beatmap"
-        /// </summary>
-        public static LocalisableString BeatmapHeader => new TranslatableString(getKey(@"beatmap_header"), @"Beatmap");
-
-        /// <summary>
         /// "HUD"
         /// </summary>
         public static LocalisableString HUDHeader => new TranslatableString(getKey(@"h_u_d"), @"HUD");
@@ -63,16 +58,6 @@ namespace typebeat.Game.Localisation
         /// "Show replay settings overlay"
         /// </summary>
         public static LocalisableString ShowReplaySettingsOverlay => new TranslatableString(getKey(@"show_replay_settings_overlay"), @"Show replay settings overlay");
-
-        /// <summary>
-        /// "Fade playfield to red when health is low"
-        /// </summary>
-        public static LocalisableString FadePlayfieldWhenHealthLow => new TranslatableString(getKey(@"fade_playfield_when_health_low"), @"Fade playfield to red when health is low");
-
-        /// <summary>
-        /// "Always show key overlay"
-        /// </summary>
-        public static LocalisableString AlwaysShowKeyOverlay => new TranslatableString(getKey(@"key_overlay"), @"Always show key overlay");
 
         /// <summary>
         /// "Always show gameplay leaderboard"

@@ -25,16 +25,6 @@ namespace typebeat.Game.Localisation
         public static LocalisableString ShowStoryboard => new TranslatableString(getKey(@"show_storyboard"), @"Show storyboard");
 
         /// <summary>
-        /// "Show hit markers"
-        /// </summary>
-        public static LocalisableString ShowHitMarkers => new TranslatableString(getKey(@"show_hit_markers"), @"Show hit markers");
-
-        /// <summary>
-        /// "Automatically seek after placing objects"
-        /// </summary>
-        public static LocalisableString AutoSeekOnPlacement => new TranslatableString(getKey(@"auto_seek_on_placement"), @"Automatically seek after placing objects");
-
-        /// <summary>
         /// "Timing"
         /// </summary>
         public static LocalisableString Timing => new TranslatableString(getKey(@"timing"), @"Timing");
@@ -48,12 +38,6 @@ namespace typebeat.Game.Localisation
         /// "Snap all notes to current snap divisor..."
         /// </summary>
         public static LocalisableString SnapAllNotesToCurrentSnapDivisor => new TranslatableString(getKey(@"snap_all_notes_to_current_snap_divisor"), @"Snap all notes to current snap divisor...");
-
-        /// <summary>
-        /// "Move already placed objects when changing timing"
-        /// </summary>
-        public static LocalisableString AdjustExistingObjectsOnTimingChanges =>
-            new TranslatableString(getKey(@"adjust_existing_objects_on_timing_changes"), @"Move already placed objects when changing timing");
 
         /// <summary>
         /// "For editing (.typb)"
@@ -146,16 +130,6 @@ namespace typebeat.Game.Localisation
         public static LocalisableString RotationSnapped(float newRotation) => new TranslatableString(getKey(@"rotation_snapped"), @"{0:0}° (snapped)", newRotation);
 
         /// <summary>
-        /// "Limit placement to current time"
-        /// </summary>
-        public static LocalisableString LimitedDistanceSnap => new TranslatableString(getKey(@"limit_placement_to_current_time"), @"Limit placement to current time");
-
-        /// <summary>
-        /// "Contract sidebars when not hovered"
-        /// </summary>
-        public static LocalisableString ContractSidebars => new TranslatableString(getKey(@"contract_sidebars"), @"Contract sidebars when not hovered");
-
-        /// <summary>
         /// "Must be in edit mode to handle editor links"
         /// </summary>
         public static LocalisableString MustBeInEditorToHandleLinks => new TranslatableString(getKey(@"must_be_in_editor_to_handle_links"), @"Must be in edit mode to handle editor links");
@@ -179,16 +153,6 @@ namespace typebeat.Game.Localisation
         /// "Finish editing and import changes"
         /// </summary>
         public static LocalisableString FinishEditingExternally => new TranslatableString(getKey(@"Finish editing and import changes"), @"Finish editing and import changes");
-
-        /// <summary>
-        /// "Show breaks"
-        /// </summary>
-        public static LocalisableString TimelineShowBreaks => new TranslatableString(getKey(@"timeline_show_breaks"), @"Show breaks");
-
-        /// <summary>
-        /// "Show ticks"
-        /// </summary>
-        public static LocalisableString TimelineShowTicks => new TranslatableString(getKey(@"timeline_show_ticks"), @"Show ticks");
 
         /// <summary>
         /// "Bookmarks"

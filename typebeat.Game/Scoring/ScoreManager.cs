@@ -17,7 +17,6 @@ using typebeat.Game.IO.Archives;
 using typebeat.Game.Online.API;
 using typebeat.Game.Overlays.Notifications;
 using typebeat.Game.Rulesets;
-using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Scoring.Legacy;
 
 namespace typebeat.Game.Scoring

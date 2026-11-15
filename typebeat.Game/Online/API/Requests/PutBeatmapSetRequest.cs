@@ -42,9 +42,6 @@ namespace typebeat.Game.Online.API.Requests
         [JsonProperty("target")]
         public BeatmapSubmissionTarget SubmissionTarget { get; init; }
 
-        [JsonProperty("notify_on_discussion_replies")]
-        public bool NotifyOnDiscussionReplies { get; init; }
-
         /// <summary>
         /// Whether the mapset is flagged as containing explicit content.
         /// </summary>
@@ -63,7 +60,6 @@ namespace typebeat.Game.Online.API.Requests
         {
             BeatmapsToCreate = beatmapCount,
             SubmissionTarget = settings.Target.Value,
-            NotifyOnDiscussionReplies = settings.NotifyOnDiscussionReplies.Value,
             ExplicitContent = settings.ExplicitContent.Value,
         };
 
@@ -73,7 +69,6 @@ namespace typebeat.Game.Online.API.Requests
             BeatmapsToKeep = beatmapsToKeep.ToArray(),
             BeatmapsToCreate = beatmapsToCreate,
             SubmissionTarget = settings.Target.Value,
-            NotifyOnDiscussionReplies = settings.NotifyOnDiscussionReplies.Value,
             ExplicitContent = settings.ExplicitContent.Value,
         };
 

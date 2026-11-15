@@ -9,7 +9,6 @@ using osu.Framework.Bindables;
 using osu.Framework.Extensions.Color4Extensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Sprites;
-using typebeat.Game.Configuration;
 using typebeat.Game.Graphics;
 using typebeat.Game.Localisation;
 using typebeat.Game.Online.API;
@@ -44,11 +43,6 @@ namespace typebeat.Game.Online
         [Resolved]
         private MetadataClient metadataClient { get; set; } = null!;
 
-        [Resolved]
-        private OsuConfigManager config { get; set; } = null!;
-
-        private readonly Bindable<bool> notifyOnFriendPresenceChange = new BindableBool();
-
         private readonly IBindableList<APIRelation> friends = new BindableList<APIRelation>();
         private readonly IBindableDictionary<int, UserPresence> friendPresences = new BindableDictionary<int, UserPresence>();
 
@@ -82,16 +76,6 @@ namespace typebeat.Game.Online
         {
             base.LoadComplete();
 
-            config.BindWith(OsuSetting.NotifyOnFriendPresenceChange, notifyOnFriendPresenceChange);
-            notifyOnFriendPresenceChange.BindValueChanged(_ =>
-            {
-                onlineAlertQueue.Clear();
-                offlineAlertQueue.Clear();
-
-                nextOfflineAlertTime = null;
-                nextOnlineAlertTime = null;
-            });
-
             friends.BindTo(api.LocalUserState.Friends);
             friends.BindCollectionChanged(onFriendsChanged, true);
 
@@ -103,11 +87,9 @@ namespace typebeat.Game.Online
         {
             base.Update();
 
-            if (notifyOnFriendPresenceChange.Value)
-            {
-                alertOnlineUsers();
-                alertOfflineUsers();
-            }
+            // Always on: the "NotifyOnFriendPresenceChange" setting (default on, no control) was removed in backlog 483.
+            alertOnlineUsers();
+            alertOfflineUsers();
         }
 
         private void onFriendsChanged(object? sender, NotifyCollectionChangedEventArgs e)

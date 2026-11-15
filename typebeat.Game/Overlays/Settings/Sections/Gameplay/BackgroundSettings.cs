@@ -41,10 +41,12 @@ namespace typebeat.Game.Overlays.Settings.Sections.Gameplay
                 {
                     Keywords = new[] { "dim", "level" }
                 },
+                // Moved here from the "Beatmap" group when that group was removed (backlog 483): a
+                // beatmap's storyboard and video are part of the gameplay background.
                 new SettingsItemV2(new FormCheckBox
                 {
-                    Caption = GameplaySettingsStrings.FadePlayfieldWhenHealthLow,
-                    Current = config.GetBindable<bool>(OsuSetting.FadePlayfieldWhenHealthLow),
+                    Caption = GraphicsSettingsStrings.StoryboardVideo,
+                    Current = config.GetBindable<bool>(OsuSetting.ShowStoryboard)
                 }),
             };
         }

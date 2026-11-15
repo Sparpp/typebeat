@@ -52,7 +52,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                         Assert.That(config.Get<string>(OsuSetting.Username), Is.EqualTo("someone"));
                         Assert.That(config.Get<string>(OsuSetting.Version), Is.EqualTo("2026.1025.0"));
                         Assert.That(config.Get<bool>(OsuSetting.ShowFirstRunSetup), Is.False);
-                        Assert.That(config.Get<SeasonalBackgroundMode>(OsuSetting.SeasonalBackgroundMode), Is.EqualTo(SeasonalBackgroundMode.Never));
                     });
                 }
 

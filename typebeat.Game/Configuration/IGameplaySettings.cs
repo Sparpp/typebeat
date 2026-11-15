@@ -17,7 +17,5 @@ namespace typebeat.Game.Configuration
     public interface IGameplaySettings
     {
         IBindable<float> ComboColourNormalisationAmount { get; }
-
-        IBindable<float> PositionalHitsoundsLevel { get; }
     }
 }

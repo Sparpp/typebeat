@@ -12,7 +12,6 @@ using JetBrains.Annotations;
 using osu.Framework.Allocation;
 using osu.Framework.Platform;
 using osu.Framework.Audio;
-using osu.Framework.Audio.Sample;
 using osu.Framework.Audio.Track;
 using osu.Framework.Bindables;
 using osu.Framework.Extensions;
@@ -20,19 +19,16 @@ using osu.Framework.Graphics;
 using osu.Framework.Logging;
 using osu.Framework.Screens;
 using osu.Framework.Utils;
-using typebeat.Game.Audio;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Configuration;
 using typebeat.Game.Database;
 using typebeat.Game.Extensions;
 using typebeat.Game.Localisation;
-using typebeat.Game.Online.API;
 using typebeat.Game.Overlays;
 using typebeat.Game.Overlays.Notifications;
 using typebeat.Game.Overlays.Volume;
 using typebeat.Game.Rulesets;
 using typebeat.Game.Screens.Backgrounds;
-using typebeat.Game.Skinning;
 using osuTK;
 using osuTK.Graphics;
 using Realms;
@@ -45,8 +41,6 @@ namespace typebeat.Game.Screens.Menu
         /// Whether we have loaded the menu previously.
         /// </summary>
         public bool DidLoadMenu { get; private set; }
-
-        protected IBindable<bool> MenuVoice { get; private set; }
 
         protected IBindable<bool> MenuMusic { get; private set; }
 
@@ -67,19 +61,17 @@ namespace typebeat.Game.Screens.Menu
 
         private const int exit_delay = 3000;
 
-        private SkinnableSound skinnableSeeya;
-        private ISample seeya;
-
-        protected virtual string SeeyaSampleName => "Intro/seeya";
+        /// <summary>
+        /// How long quitting takes to fade the game and the music out before it closes. This is the short
+        /// fade osu! used when its outro voice was off; with the voice gone (backlog 483) it is the only one.
+        /// </summary>
+        public const double EXIT_FADE_DURATION = 500;
 
         protected override bool PlayExitSound => false;
 
         private LeasedBindable<WorkingBeatmap> beatmap;
 
         private OsuScreen nextScreen;
-
-        [Resolved]
-        private AudioManager audio { get; set; }
 
         [Resolved]
         private MusicController musicController { get; set; }
@@ -106,18 +98,15 @@ namespace typebeat.Game.Screens.Menu
         private Storage storage { get; set; }
 
         [BackgroundDependencyLoader]
-        private void load(OsuConfigManager config, RealmAccess realm, IAPIProvider api)
+        private void load(OsuConfigManager config, RealmAccess realm)
         {
             // prevent user from changing beatmap while the intro is still running.
             beatmap = Beatmap.BeginLease(false);
 
-            MenuVoice = config.GetBindable<bool>(OsuSetting.MenuVoice);
+            // There is no intro or exit voice (osu!'s "welcome" and "seeya", supporter variants
+            // included): the "Interface voices" setting that gated them was removed in backlog 483,
+            // and the game never plays a voice clip on start or quit.
             MenuMusic = config.GetBindable<bool>(OsuSetting.MenuMusic);
-
-            if (api.LocalUser.Value.IsSupporter)
-                AddInternal(skinnableSeeya = new SkinnableSound(new SampleInfo(SeeyaSampleName)));
-            else
-                seeya = audio.Samples.Get(SeeyaSampleName);
 
             // The editor's beatdrop demo reboots the game and parks a handoff naming the map it wants
             // heard (see IntroBeatdropDemo). Consuming it here reads and CLEARS it in one step, so the
@@ -337,44 +326,17 @@ namespace typebeat.Game.Screens.Menu
 
             ApplyToBackground(b => b.FadeColour(Color4.Black, 100));
 
-            double fadeOutTime = exit_delay;
-
             var track = musicController.CurrentTrack;
 
             // ensure the track doesn't change or loop as we are exiting.
             track.Looping = false;
             Beatmap.Disabled = true;
 
-            // we also handle the exit transition.
-            if (MenuVoice.Value)
-            {
-                if (skinnableSeeya != null)
-                {
-                    // resuming a screen (i.e. calling OnResume) happens before the screen itself becomes alive,
-                    // therefore skinnable samples may not be updated yet with the recently selected skin.
-                    // schedule after children to ensure skinnable samples have processed skin changes before playing.
-                    ScheduleAfterChildren(() => skinnableSeeya.Play());
-                }
-                else
-                    seeya.Play();
-
-                // if playing the outro voice, we have more time to have fun with the background track.
-                // initially fade to almost silent then ramp out over the remaining time.
-                const double initial_fade = 200;
-                track
-                    .VolumeTo(0.03f, initial_fade).Then()
-                    .VolumeTo(0, fadeOutTime - initial_fade, Easing.In);
-            }
-            else
-            {
-                fadeOutTime = 500;
-
-                // if outro voice is turned off, just do a simple fade out.
-                track.VolumeTo(0, fadeOutTime, Easing.Out);
-            }
+            // we also handle the exit transition: no outro voice (see load), so a simple fade out.
+            track.VolumeTo(0, EXIT_FADE_DURATION, Easing.Out);
 
             //don't want to fade out completely else we will stop running updates.
-            Game.FadeTo(0.01f, fadeOutTime).OnComplete(_ => this.Exit());
+            Game.FadeTo(0.01f, EXIT_FADE_DURATION).OnComplete(_ => this.Exit());
 
             base.OnResuming(e);
         }

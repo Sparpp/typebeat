@@ -16,7 +16,6 @@ using osu.Framework.Graphics.Shapes;
 using osu.Framework.Graphics.UserInterface;
 using osu.Framework.Input.Events;
 using osu.Framework.Localisation;
-using typebeat.Game.Configuration;
 using typebeat.Game.Extensions;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Backgrounds;
@@ -32,7 +31,6 @@ using typebeat.Game.Online.Leaderboards;
 using typebeat.Game.Overlays;
 using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Rulesets.Mods;
-using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Rulesets.UI;
 using typebeat.Game.Scoring;
 using typebeat.Game.Users;
@@ -74,9 +72,6 @@ namespace typebeat.Game.Screens.Select
 
         [Resolved]
         private ScoreManager scoreManager { get; set; } = null!;
-
-        [Resolved]
-        private OsuConfigManager config { get; set; } = null!;
 
         [Resolved]
         private OsuGame? game { get; set; }
