@@ -3,9 +3,11 @@
 
 #nullable enable
 
+using System;
 using System.Linq;
 using Newtonsoft.Json;
 using NUnit.Framework;
+using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Testing;
 using typebeat.Game.Graphics.Sprites;
@@ -26,6 +28,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
     [TestFixture]
     public partial class TestSceneBeatmapListingResultCount : OsuTestScene
     {
+        private Container overlayHost = null!;
         private BeatmapListingOverlay overlay = null!;
 
         private DummyAPIAccess dummyApi => (DummyAPIAccess)API;
@@ -33,6 +36,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         // What the mocked search answers with: the next response's total and how many cards come back with it.
         private int? nextTotal;
         private int nextPageCount;
+        private bool nextFails;
         private int searchesAnswered;
 
         [SetUpSteps]
@@ -42,6 +46,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             {
                 nextTotal = 1234;
                 nextPageCount = 3;
+                nextFails = false;
                 searchesAnswered = 0;
 
                 dummyApi.SetState(APIState.Online);
@@ -49,6 +54,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 {
                     if (request is not SearchBeatmapSetsRequest search)
                         return false;
+
+                    if (nextFails)
+                    {
+                        search.TriggerFailure(new InvalidOperationException(@"search failed"));
+                        searchesAnswered++;
+                        return true;
+                    }
 
                     search.TriggerSuccess(new SearchBeatmapSetsResponse
                     {
@@ -60,7 +72,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 };
             });
 
-            AddStep("show the listing", () => Child = overlay = new BeatmapListingOverlay { State = { Value = Visibility.Visible } });
+            AddStep("show the listing", () => Child = overlayHost = new Container
+            {
+                Anchor = Anchor.Centre,
+                Origin = Anchor.Centre,
+                RelativeSizeAxes = Axes.Both,
+                Child = overlay = new BeatmapListingOverlay { State = { Value = Visibility.Visible } }
+            });
         }
 
         [Test]
@@ -91,7 +109,46 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("count shown", () => shownCount(), () => Is.EqualTo("1,234 results"));
 
             searchFor("stars>6", total: null, cards: 3);
-            AddUntilStep("count hidden", () => shownCount(), () => Is.Null);
+            AddUntilStep("count hidden", () => countAlpha(), () => Is.Zero);
+        }
+
+        [Test]
+        public void TestAFailedSearchHidesTheCount()
+        {
+            searchFor("stars>5", total: 1234, cards: 3);
+            AddUntilStep("count shown", () => shownCount(), () => Is.EqualTo("1,234 results"));
+
+            // The dimmed old count would otherwise sit there as if it were the failed search's.
+            AddStep("fail the next search", () => nextFails = true);
+            searchFor("stars>6", total: null, cards: 0);
+            AddUntilStep("count hidden", () => countAlpha(), () => Is.Zero);
+
+            AddStep("answer again", () => nextFails = false);
+            searchFor("stars>7", total: 12, cards: 3);
+            AddUntilStep("count back", () => shownCount(), () => Is.EqualTo("12 results"));
+        }
+
+        [Test]
+        public void TestTheCountClearsTheSortTabsAtTheNarrowestWidth()
+        {
+            // The game's scaling container keeps at least 1024 logical units of width (OsuGame.ScalingContainerTargetDrawSize)
+            // at 4:3 and wider, so that is the narrowest the sort row gets. A query adds the seventh (Relevance) tab, and a
+            // seven digit count is the widest text the row should have to fit.
+            AddStep("narrow the listing to 1024", () =>
+            {
+                overlayHost.RelativeSizeAxes = Axes.Y;
+                overlayHost.Width = 1024;
+            });
+            searchFor("a long query", total: 1_234_567, cards: 3);
+            AddUntilStep("shows the count", () => shownCount(), () => Is.EqualTo("1,234,567 results"));
+
+            AddAssert("sort tabs end left of the count", () =>
+            {
+                var filterControl = overlay.ChildrenOfType<BeatmapListingFilterControl>().Single();
+                var sortTabs = filterControl.ChildrenOfType<BeatmapListingSortTabControl>().Single();
+
+                return sortTabs.ScreenSpaceDrawQuad.TopRight.X < resultCountSprite().ScreenSpaceDrawQuad.TopLeft.X;
+            });
         }
 
         [Test]
@@ -130,10 +187,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         /// <summary>The fully shown result count in the sort row, or null while none is shown.</summary>
         private string? shownCount()
         {
-            var count = overlay.ChildrenOfType<BeatmapListingFilterControl>().Single()
-                               .ChildrenOfType<OsuSpriteText>().Single(t => t.Name == BeatmapListingFilterControl.RESULT_COUNT_NAME);
-
+            var count = resultCountSprite();
             return count.Alpha == 1 ? count.Text.ToString() : null;
         }
+
+        /// <summary>The count's alpha: 1 shown, 0.5 dimmed while a search is in flight, 0 hidden.</summary>
+        private float countAlpha() => resultCountSprite().Alpha;
+
+        private OsuSpriteText resultCountSprite() => overlay.ChildrenOfType<BeatmapListingFilterControl>().Single()
+                                                           .ChildrenOfType<OsuSpriteText>().Single(t => t.Name == BeatmapListingFilterControl.RESULT_COUNT_NAME);
     }
 }

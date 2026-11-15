@@ -299,6 +299,20 @@ namespace typebeat.Game.Overlays.BeatmapListing
                 SearchFinished?.Invoke(resultsReturned);
             };
 
+            var request = getSetsRequest;
+
+            getSetsRequest.Failure += e =>
+            {
+                // A cancellation is a newer search replacing this one (resetSearch), and that search sets the count.
+                if (e is OperationCanceledException || request != getSetsRequest)
+                    return;
+
+                // The first page failed, so the dimmed count still describes the previous criteria: hide it rather than
+                // let it pass for this search's. A later page failing leaves the (still right) count alone.
+                if (CurrentPage == 0)
+                    resultCount.FadeOut(200, Easing.OutQuint);
+            };
+
             api.Queue(getSetsRequest);
         }
 
