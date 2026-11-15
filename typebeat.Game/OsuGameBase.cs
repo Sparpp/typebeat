@@ -40,6 +40,7 @@ using typebeat.Game.Beatmaps;
 using typebeat.Game.Beatmaps.ControlPoints;
 using typebeat.Game.Beatmaps.Formats;
 using typebeat.Game.Configuration;
+using typebeat.Game.Configuration.Presets;
 using typebeat.Game.Database;
 using typebeat.Game.Extensions;
 using typebeat.Game.Graphics;
@@ -247,6 +248,8 @@ namespace typebeat.Game
 
         private RulesetConfigCache rulesetConfigCache;
 
+        private GameplayPresetManager gameplayPresets;
+
         private SessionAverageHitErrorTracker hitErrorTracker;
 
         protected SpectatorClient SpectatorClient { get; private set; }
@@ -413,6 +416,11 @@ namespace typebeat.Game
 
             dependencies.CacheAs<IRulesetConfigCache>(rulesetConfigCache = new RulesetConfigCache(realm, RulesetStore));
 
+            // Gameplay presets (backlog 484). Whether this install has run before is read HERE, before
+            // OsuGame stamps the running version; the settings are attached once the ruleset configs
+            // exist (the manager loads after rulesetConfigCache, below).
+            dependencies.Cache(gameplayPresets = new GameplayPresetManager(Storage, GameplayPresetManager.HasRunBefore(LocalConfig), resolveGameplayPresetSettings));
+
             var powerStatus = CreateBatteryInfo();
             if (powerStatus != null)
                 dependencies.CacheAs(powerStatus);
@@ -447,6 +455,7 @@ namespace typebeat.Game
             base.Content.Add(metadataClient);
 
             base.Content.Add(rulesetConfigCache);
+            base.Content.Add(gameplayPresets);
 
             PreviewTrackManager previewTrackManager;
             dependencies.Cache(previewTrackManager = new PreviewTrackManager(BeatmapManager.BeatmapTrackStore));
@@ -502,6 +511,14 @@ namespace typebeat.Game
         }
 
         private void updateLanguage() => CurrentLanguage.Value = LanguageExtensions.GetLanguageFor(frameworkLocale.Value, localisationParameters.Value);
+
+        private IReadOnlyList<LiveGameplaySetting> resolveGameplayPresetSettings(PresetSchema schema)
+        {
+            // The manager initialises on its LoadComplete, which follows the cache's (it is added after it),
+            // so the ruleset configs exist; if they ever did not, GetConfigFor throws and RulesetSources logs it.
+            var rulesets = RulesetStore.AvailableRulesets.Select(info => (info.ShortName, new Func<INamedSettingSource>(() => rulesetConfigCache.GetConfigFor(info.CreateInstance()))));
+            return GameplayPresetBindings.Resolve(schema, LocalConfig, GameplayPresetBindings.RulesetSources(rulesets));
+        }
 
         private void addFilesWarning()
         {

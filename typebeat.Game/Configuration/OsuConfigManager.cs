@@ -2,6 +2,7 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Collections.Generic;
 using osu.Framework;
 using osu.Framework.Bindables;
 using osu.Framework.Configuration;
@@ -22,7 +23,7 @@ using typebeat.Game.Skinning;
 
 namespace typebeat.Game.Configuration
 {
-    public class OsuConfigManager : IniConfigManager<OsuSetting>, IGameplaySettings
+    public class OsuConfigManager : IniConfigManager<OsuSetting>, IGameplaySettings, INamedSettingSource
     {
         public OsuConfigManager(Storage storage)
             : base(storage)
@@ -299,6 +300,10 @@ namespace typebeat.Game.Configuration
         public Func<GlobalAction, LocalisableString> LookupKeyBindings { private get; set; } = _ => @"unknown";
 
         IBindable<float> IGameplaySettings.ComboColourNormalisationAmount => GetOriginalBindable<float>(OsuSetting.ComboColourNormalisationAmount);
+
+        public IEnumerable<string> SettingNames => NamedSettings.NamesIn(ConfigStore);
+
+        public IBindable? FindSetting(string name) => NamedSettings.Find(ConfigStore, name);
     }
 
     // IMPORTANT: These are used in user configuration files.
