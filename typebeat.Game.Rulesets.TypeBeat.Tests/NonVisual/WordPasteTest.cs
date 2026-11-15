@@ -322,7 +322,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var target = lineAt(editorBeatmap, 1);
             var before = target.Line;
 
-            var outside = TypeBeatEditorOperations.PasteWords(editorBeatmap, target, -1, 4000, apple);
+            var outside = TypeBeatEditorOperations.PasteWordsAtTime(editorBeatmap, target, 4000, apple);
 
             Assert.Multiple(() =>
             {
@@ -330,7 +330,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(target.Line, Is.SameAs(before));
             });
 
-            var inside = TypeBeatEditorOperations.PasteWords(editorBeatmap, target, -1, 6500, apple);
+            var inside = TypeBeatEditorOperations.PasteWordsAtTime(editorBeatmap, target, 6500, apple);
             var pasted = target.Line;
 
             Assert.Multiple(() =>
@@ -344,19 +344,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             });
         }
 
+        /// <summary>
+        /// The timing-only word paste (Paste timings) re-times the SELECTED word, wherever the playhead
+        /// is, and with no word selected it is refused rather than inserting or landing on word zero.
+        /// </summary>
         [Test]
-        public void ASelectedWordIsRetimedAndAStaleSelectionIsNoSelection()
+        public void TheTimingPasteRetimesTheSelectedWordAndRefusesWithoutOne()
         {
             var editorBeatmap = createBeatmap();
             var apple = copyApple(editorBeatmap);
             var target = lineAt(editorBeatmap, 1);
 
-            Assert.That(TypeBeatEditorOperations.PasteWords(editorBeatmap, target, 2, 4000, apple), Is.EqualTo(new WordPasteResult(WordPasteOutcome.Retimed, 2, 1)),
-                "a selected word wins, wherever the playhead is");
+            Assert.That(TypeBeatEditorOperations.RetimeWords(editorBeatmap, target, 2, apple), Is.EqualTo(new WordPasteResult(WordPasteOutcome.Retimed, 2, 1)));
             Assert.That(target.Line.RawText, Is.EqualTo("red apple pie"));
 
-            Assert.That(TypeBeatEditorOperations.PasteWords(editorBeatmap, target, 7, 4000, apple).Outcome, Is.EqualTo(WordPasteOutcome.OutsideLine),
-                "an index naming no word is no selection: the insertion arm, which refuses outside the line");
+            var before = target.Line;
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(TypeBeatEditorOperations.RetimeWords(editorBeatmap, target, -1, apple).Outcome, Is.EqualTo(WordPasteOutcome.NoWordSelected));
+                Assert.That(TypeBeatEditorOperations.RetimeWords(editorBeatmap, target, 7, apple).Outcome, Is.EqualTo(WordPasteOutcome.NoWordSelected),
+                    "an index naming no word is no selection");
+                Assert.That(target.Line, Is.SameAs(before));
+            });
         }
 
         [Test]

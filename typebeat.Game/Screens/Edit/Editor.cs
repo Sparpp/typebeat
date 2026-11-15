@@ -399,11 +399,8 @@ namespace typebeat.Game.Screens.Edit
                                             new OsuMenuItemSpacer(),
                                             cutMenuItem = new EditorMenuItem(CommonStrings.Cut, MenuItemType.Standard, Cut) { Hotkey = new Hotkey(PlatformAction.Cut) },
                                             copyMenuItem = new EditorMenuItem(CommonStrings.Copy, MenuItemType.Standard, Copy) { Hotkey = new Hotkey(PlatformAction.Copy) },
-                                            pasteMenuItem = new EditorMenuItem(CommonStrings.Paste, MenuItemType.Standard, Paste) { Hotkey = new Hotkey(PlatformAction.Paste) },
-                                            pasteTimingsMenuItem = new EditorMenuItem("Paste timings", MenuItemType.Standard, PasteTimings)
-                                            {
-                                                Hotkey = new Hotkey(new KeyCombination(InputKey.Control, InputKey.Shift, InputKey.V)),
-                                            },
+                                            pasteMenuItem = new EditorMenuItem(CommonStrings.Paste, MenuItemType.Standard, Paste) { Hotkey = new Hotkey(GlobalAction.EditorPaste) },
+                                            pasteTimingsMenuItem = new EditorMenuItem("Paste timings", MenuItemType.Standard, PasteTimings) { Hotkey = new Hotkey(GlobalAction.EditorPasteTimings) },
                                             cloneMenuItem = new EditorMenuItem(CommonStrings.Clone, MenuItemType.Standard, Clone) { Hotkey = new Hotkey(GlobalAction.EditorCloneSelection) },
                                         }
                                     },
@@ -638,10 +635,6 @@ namespace typebeat.Game.Screens.Edit
                     Copy();
                     return true;
 
-                case PlatformAction.Paste:
-                    Paste();
-                    return true;
-
                 case PlatformAction.Undo:
                     Undo();
                     return true;
@@ -750,6 +743,22 @@ namespace typebeat.Game.Screens.Edit
             {
                 case GlobalAction.EditorCloneSelection:
                     Clone();
+                    return true;
+
+                // Rebindable (Ctrl+V and Ctrl+Shift+V by default). A focused text box keeps the
+                // keystroke: it pastes text through its own platform action.
+                case GlobalAction.EditorPaste:
+                    if (GetContainingInputManager()?.FocusedDrawable is TextBox)
+                        return false;
+
+                    Paste();
+                    return true;
+
+                case GlobalAction.EditorPasteTimings:
+                    if (GetContainingInputManager()?.FocusedDrawable is TextBox)
+                        return false;
+
+                    PasteTimings();
                     return true;
 
                 case GlobalAction.EditorComposeMode:

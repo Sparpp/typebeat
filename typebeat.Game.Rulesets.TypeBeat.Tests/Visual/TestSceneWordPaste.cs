@@ -114,7 +114,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("line 1 is active", () => state().ActiveLine.Value == lineAt(1));
             AddUntilStep("and its apple is selected", () => state().SelectedUnitIndex.Value == 1);
 
-            AddStep("paste", () => screen().Paste());
+            AddStep("paste timings", () => screen().PasteTimings());
 
             // 600 of room (up to pie) for the 1000 pattern: scaled by 0.6, the cut 300 in lands 180 in.
             AddAssert("the apple took the cut", () => lineAt(1).Line.Units[1].SyllableBoundaries.SequenceEqual(new[] { 3580d }));
@@ -159,7 +159,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("Ctrl+V", () =>
             {
                 playhead = EditorClock.CurrentTime;
-                InputManager.Keys(PlatformAction.Paste);
+                pressCtrlV();
             });
 
             AddAssert("the apple went in after pie", () => lineAt(1).Line.RawText == "red apple pie apple");
@@ -193,6 +193,67 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddAssert("refused", () => refusals == 1);
             AddAssert("line 1 unchanged, its own apple included", () => describe(lineAt(1).Line) == before);
+        }
+
+        /// <summary>
+        /// The reported bug: a word copied and pasted straight back into its OWN line did nothing, because
+        /// the copy leaves it selected and the one paste re-timed a selected word (onto its own timing).
+        /// Paste now always inserts at the playhead, so the word goes in again; re-timing is Paste timings.
+        /// </summary>
+        [Test]
+        public void TestAWordPastedBackIntoItsOwnLineGoesInAgain()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+            AddStep("park the playhead in the gap after apple", () =>
+            {
+                EditorClock.Stop();
+                EditorClock.Seek(2450);
+            });
+            AddStep("select line 0", () => state().SelectedLine.Value = lineAt(0));
+            AddUntilStep("line 0 active", () => state().ActiveLine.Value == lineAt(0));
+            AddStep("select its apple", () => state().SelectUnit(1));
+            AddStep("Ctrl+C", () => InputManager.Keys(PlatformAction.Copy));
+            AddAssert("apple is still selected", () => state().SelectedUnitIndex.Value == 1);
+
+            AddStep("Ctrl+V", pressCtrlV);
+
+            AddAssert("a second apple went in", () => lineAt(0).Line.RawText == "eat apple apple now");
+            AddAssert("at the playhead", () => lineAt(0).Line.Units[2].StartTime == 2450);
+            AddAssert("the copied apple was not re-timed", () => lineAt(0).Line.Units[1].StartTime == 1400 && lineAt(0).Line.Units[1].EndTime == 2400);
+        }
+
+        [Test]
+        public void TestPasteTimingsWithNoWordSelectedIsRefused()
+        {
+            int refusals = 0;
+            string before = string.Empty;
+
+            copyTheSourceApple();
+
+            AddStep("select line 1, no word", () => state().SelectedLine.Value = lineAt(1));
+            AddUntilStep("line 1 active, nothing selected", () => state().ActiveLine.Value == lineAt(1) && state().SelectedUnitIndex.Value == -1);
+
+            AddStep("Ctrl+Shift+V", () =>
+            {
+                state().ActionRefused += () => refusals++;
+                before = describe(lineAt(1).Line);
+                InputManager.PressKey(Key.ControlLeft);
+                InputManager.PressKey(Key.ShiftLeft);
+                InputManager.Key(Key.V);
+                InputManager.ReleaseKey(Key.ShiftLeft);
+                InputManager.ReleaseKey(Key.ControlLeft);
+            });
+
+            AddAssert("refused", () => refusals == 1);
+            AddAssert("line 1 unchanged", () => describe(lineAt(1).Line) == before);
+        }
+
+        /// <summary>Ctrl+V as keys, which the editor reads as its rebindable paste action.</summary>
+        private void pressCtrlV()
+        {
+            InputManager.PressKey(Key.ControlLeft);
+            InputManager.Key(Key.V);
+            InputManager.ReleaseKey(Key.ControlLeft);
         }
 
         private static string describe(LyricLine line)

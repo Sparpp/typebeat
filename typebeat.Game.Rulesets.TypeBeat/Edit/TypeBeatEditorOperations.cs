@@ -4376,33 +4376,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             => !string.IsNullOrEmpty(copied.Text) && string.Equals(copied.Text, target.Text, StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
-        /// THE WORD PASTE DISPATCH (backlogs 343 and 344), everything a word paste onto
-        /// <paramref name="hitObject"/> (the active line) decides, in one place so it can be pinned
-        /// without a screen:
+        /// THE TIMING-ONLY WORD PASTE (Paste timings, Ctrl+Shift+V by default): the copied run re-times
+        /// the SELECTED word of <paramref name="hitObject"/> and those after it
+        /// (<see cref="PasteUnitTimings"/>). With no word selected (or an index that names none) it is
+        /// refused, never landing on word zero, which is the defect 343 replaced.
         ///
-        /// <list type="bullet">
-        /// <item>A word SELECTED on the line (<paramref name="selectedIndex"/> naming one of its
-        /// words): the run re-times the words from that one on (<see cref="PasteUnitTimings"/>).</item>
-        /// <item>NO word selected (or an index that names none): the copied words are INSERTED at
-        /// <paramref name="playhead"/> (<see cref="PasteWordsAtTime"/>), which refuses, with its
-        /// reason, when it cannot.</item>
-        /// </list>
-        ///
-        /// <para>It never falls back to word zero, which is the defect 343 replaced. And it no longer
-        /// looks for a word SPELLED like the copied one either: 343 landed a no-selection paste on the
-        /// first matching word as a stand-in for "no anchor", and 344 gives the no-selection gesture
-        /// its own meaning. Keeping both would make the same keystroke either re-time an existing word
-        /// or insert a new one depending on where the playhead happens to sit relative to a window the
-        /// mapper cannot see from the keyboard, and the re-time it would stand in for is one click
-        /// away since 343 (a click on another line's word selects that line and that word).</para>
+        /// <para>The two word pastes are two gestures. Until this split one keystroke did either, by
+        /// whether a word was selected, and a word stays selected after it is copied, so pasting it back
+        /// into its own line re-timed the copied word onto its own timing and visibly did nothing.
+        /// Inserting is now always <see cref="PasteWordsAtTime"/> (Paste, Ctrl+V).</para>
         /// </summary>
-        public static WordPasteResult PasteWords(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int selectedIndex, double playhead,
-                                                 LyricTimingClipboard.UnitTimingsPayload payload)
+        public static WordPasteResult RetimeWords(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int selectedIndex, LyricTimingClipboard.UnitTimingsPayload payload)
         {
             int n = hitObject.Line.Units.Count;
 
             if (selectedIndex < 0 || selectedIndex >= n)
-                return PasteWordsAtTime(editorBeatmap, hitObject, playhead, payload);
+                return new WordPasteResult(WordPasteOutcome.NoWordSelected);
 
             return PasteUnitTimings(editorBeatmap, hitObject, selectedIndex, payload)
                 ? new WordPasteResult(WordPasteOutcome.Retimed, selectedIndex, Math.Min(payload.Units.Count, n - selectedIndex))
@@ -4410,7 +4399,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         }
 
         /// <summary>
-        /// The word paste with NO word selected (backlog 344): the copied words are INSERTED into the
+        /// THE WORD PASTE (Paste, Ctrl+V by default; backlog 344), whatever is selected: the copied words are INSERTED into the
         /// line as new words at <paramref name="time"/> (the playhead). Each carries everything the
         /// copy took (<see cref="CopyUnitTimings"/>): its text (added to <see cref="LyricLine.RawText"/>
         /// at the matching position), its span, its subdivision boundaries, its authored split, its
@@ -5000,14 +4989,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>Refused: less than <see cref="TypeBeatEditorOperations.MIN_WORD_SPAN_MS"/> per copied word of room at the playhead.</summary>
         InsertNoRoom,
 
-        /// <summary>Refused: nothing selected and the playhead is outside the line's window.</summary>
+        /// <summary>Refused: an insert with the playhead outside the line's window.</summary>
         OutsideLine,
 
-        /// <summary>Refused: nothing selected and the payload carries no words to insert (copied before backlog 343).</summary>
+        /// <summary>Refused: an insert whose payload carries no words (copied before backlog 343).</summary>
         NoText,
 
-        /// <summary>Refused: nothing selected on a LINE-granularity map, which persists no word timing.</summary>
+        /// <summary>Refused: an insert on a LINE-granularity map, which persists no word timing.</summary>
         LineGranularity,
+
+        /// <summary>Refused: a timing-only paste with no word selected to put the timing on.</summary>
+        NoWordSelected,
     }
 
     /// <summary>

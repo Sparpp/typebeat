@@ -210,6 +210,16 @@ namespace typebeat.Game.Localisation
         public static LocalisableString EditorCloneSelection => new TranslatableString(getKey(@"editor_clone_selection"), @"Clone selection");
 
         /// <summary>
+        /// "Paste"
+        /// </summary>
+        public static LocalisableString EditorPaste => new TranslatableString(getKey(@"editor_paste"), @"Paste");
+
+        /// <summary>
+        /// "Paste timings"
+        /// </summary>
+        public static LocalisableString EditorPasteTimings => new TranslatableString(getKey(@"editor_paste_timings"), @"Paste timings");
+
+        /// <summary>
         /// "Cycle grid spacing"
         /// </summary>
         public static LocalisableString EditorCycleGridSpacing => new TranslatableString(getKey(@"editor_cycle_grid_spacing"), @"Cycle grid spacing");

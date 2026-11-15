@@ -147,6 +147,8 @@ namespace typebeat.Game.Input.Bindings
             new KeyBinding(new[] { InputKey.Alt, InputKey.E }, GlobalAction.EditorToggleAdditionSoftBank),
             new KeyBinding(new[] { InputKey.Alt, InputKey.R }, GlobalAction.EditorToggleAdditionDrumBank),
             new KeyBinding(new[] { InputKey.Control, InputKey.D }, GlobalAction.EditorCloneSelection),
+            new KeyBinding(new[] { InputKey.Control, InputKey.V }, GlobalAction.EditorPaste),
+            new KeyBinding(new[] { InputKey.Control, InputKey.Shift, InputKey.V }, GlobalAction.EditorPasteTimings),
             new KeyBinding(new[] { InputKey.J }, GlobalAction.EditorNudgeLeft),
             new KeyBinding(new[] { InputKey.K }, GlobalAction.EditorNudgeRight),
             new KeyBinding(new[] { InputKey.F5 }, GlobalAction.EditorTestGameplay),
@@ -632,6 +634,20 @@ namespace typebeat.Game.Input.Bindings
 
         [LocalisableDescription(typeof(GlobalActionKeyBindingStrings), nameof(GlobalActionKeyBindingStrings.TakeAndUploadScreenshot))]
         TakeAndUploadScreeshot,
+
+        /// <summary>
+        /// The editor's paste, rebindable (it was the framework's fixed Ctrl+V). In the lyric editor a
+        /// copied word goes in as a new word at the playhead, whatever is selected.
+        /// </summary>
+        [LocalisableDescription(typeof(GlobalActionKeyBindingStrings), nameof(GlobalActionKeyBindingStrings.EditorPaste))]
+        EditorPaste,
+
+        /// <summary>
+        /// The editor's timing-only paste, rebindable (it was a fixed Ctrl+Shift+V). In the lyric editor a
+        /// copied word's timing goes onto the selected word and those after it.
+        /// </summary>
+        [LocalisableDescription(typeof(GlobalActionKeyBindingStrings), nameof(GlobalActionKeyBindingStrings.EditorPasteTimings))]
+        EditorPasteTimings,
     }
 
     public enum GlobalActionCategory

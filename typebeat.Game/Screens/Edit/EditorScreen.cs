@@ -97,7 +97,7 @@ namespace typebeat.Game.Screens.Edit
         public BindableBool CanPasteTimings { get; } = new BindableBool();
 
         /// <summary>
-        /// A paste that transfers TIMING only (Ctrl+Shift+V), for a screen whose default paste also
+        /// A paste that transfers TIMING only (<see cref="Input.Bindings.GlobalAction.EditorPasteTimings"/>, Ctrl+Shift+V by default), for a screen whose default paste also
         /// carries content: the lyric editor, where <see cref="Paste"/> puts a copied line down as is.
         /// </summary>
         /// <remarks>

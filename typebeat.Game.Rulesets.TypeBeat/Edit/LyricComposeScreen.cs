@@ -46,8 +46,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// line payload is put down AS IS over selected destination lines (broadcast/zip, rebased per target),
     /// or from one selected line into consecutive rows; with no line selected, one copied line is
     /// inserted at the playhead (see <see cref="Paste"/>);
-    /// Ctrl+Shift+V (<see cref="PasteTimings"/>) is the timing-only paste the clipboard was built
-    /// for, and a unit run applies at the focused word under either gesture.
+    /// Paste timings (<see cref="PasteTimings"/>, Ctrl+Shift+V by default) is the timing-only paste
+    /// the clipboard was built for. A copied word run is INSERTED at the playhead by Paste and laid
+    /// over the selected word by Paste timings. Both keys are rebindable editor actions.
     /// </summary>
     [Cached]
     public partial class LyricComposeScreen : EditorScreenWithTimeline, IKeyBindingHandler<PlatformAction>
@@ -461,15 +462,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         }
 
         /// <summary>
-        /// The default paste ("Paste line", Ctrl+V). A LINE payload that carries its text is put down
+        /// The default paste ("Paste line", Ctrl+V by default). A LINE payload that carries its text is put down
         /// AS IS (<see cref="TypeBeatEditorOperations.PasteLine"/>): over the multi-selection, or
         /// from one selected line into consecutive rows. With NO line selected, one copied line is
         /// inserted at the playhead (<see cref="TypeBeatEditorOperations.InsertCopiedLine"/>), refused with a
-        /// message when a line already starts there. A payload with no text (copied by an older build)
-        /// and a unit run paste exactly as <see cref="PasteTimings"/> does.
+        /// message when a line already starts there. A copied WORD run is inserted at the playhead
+        /// (<see cref="insertUnitRun"/>). A line payload with no text (copied by an older build) pastes
+        /// exactly as <see cref="PasteTimings"/> does.
         /// </summary>
         public override void Paste()
         {
+            if (tapOverlay.Active)
+                return;
+
+            if (clipboardUnits is LyricTimingClipboard.UnitTimingsPayload words)
+            {
+                insertUnitRun(words);
+                return;
+            }
+
             if (clipboardBacking != null)
             {
                 pasteBackingRun(clipboardBacking);
@@ -530,18 +541,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         }
 
         /// <summary>
-        /// The timing-only paste ("Paste timings", Ctrl+Shift+V), which is the paste this clipboard
+        /// The timing-only paste ("Paste timings", Ctrl+Shift+V by default), which is the paste this clipboard
         /// was built for: a line payload lays its timing over the target lines' OWN words
         /// (<see cref="TypeBeatEditorOperations.PasteLineTimings"/>, the repeated-chorus workflow) and
-        /// ignores any text it carries; a unit run is the word paste (<see cref="pasteUnitRun"/>).
+        /// ignores any text it carries; a unit run re-times the selected word (<see cref="retimeUnitRun"/>).
         /// Line targets are the multi-selection, else the active line.
         /// </summary>
         public override void PasteTimings()
         {
+            if (tapOverlay.Active || !CanPasteTimings.Value)
+                return;
+
             if (clipboardBacking != null)
                 pasteBackingRun(clipboardBacking);
             else if (clipboardUnits is LyricTimingClipboard.UnitTimingsPayload unitRun)
-                pasteUnitRun(unitRun);
+                retimeUnitRun(unitRun);
             else if (clipboardLines is LyricTimingClipboard.LineTimingsPayload lines)
             {
                 var targets = state.MultiSelectedLines.Count > 0
@@ -553,21 +567,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         }
 
         /// <summary>
-        /// The WORD paste, which both paste gestures reach with a unit payload
-        /// (<see cref="TypeBeatEditorOperations.PasteWords"/> holds the whole dispatch). With a word
-        /// of the active line selected it re-times that word and those after it (backlog 343); with
-        /// NO word selected the copied words are INSERTED at the playhead (backlog 344). It never
-        /// falls back to word zero. Every refusal (no room, the playhead outside the line, a payload
-        /// from an older build with no words in it, a line-timed map) changes nothing and flashes the
-        /// panel with its one-line reason.
+        /// The WORD paste (Paste): the copied words are INSERTED into the active line at the playhead
+        /// (backlog 344, <see cref="TypeBeatEditorOperations.PasteWordsAtTime"/>), whatever word is
+        /// selected, so a word copied and pasted straight back into its own line goes in again.
         /// </summary>
-        private void pasteUnitRun(LyricTimingClipboard.UnitTimingsPayload run)
+        private void insertUnitRun(LyricTimingClipboard.UnitTimingsPayload run)
         {
-            if (state.ActiveLine.Value is not TypeBeatHitObject line)
-                return;
+            if (state.ActiveLine.Value is TypeBeatHitObject line)
+                showWordPasteResult(TypeBeatEditorOperations.PasteWordsAtTime(EditorBeatmap, line, editorClock.CurrentTime, run));
+        }
 
-            var result = TypeBeatEditorOperations.PasteWords(EditorBeatmap, line, state.SelectedUnitIndex.Value, editorClock.CurrentTime, run);
+        /// <summary>
+        /// The word TIMING paste (Paste timings): the copied run re-times the selected word of the
+        /// active line and those after it (backlog 343, <see cref="TypeBeatEditorOperations.RetimeWords"/>).
+        /// </summary>
+        private void retimeUnitRun(LyricTimingClipboard.UnitTimingsPayload run)
+        {
+            if (state.ActiveLine.Value is TypeBeatHitObject line)
+                showWordPasteResult(TypeBeatEditorOperations.RetimeWords(EditorBeatmap, line, state.SelectedUnitIndex.Value, run));
+        }
 
+        /// <summary>
+        /// Selects what a word paste inserted, or flashes the panel with a refusal's one-line reason.
+        /// Every refusal changes nothing.
+        /// </summary>
+        private void showWordPasteResult(WordPasteResult result)
+        {
             switch (result.Outcome)
             {
                 case WordPasteOutcome.Inserted:
@@ -584,15 +609,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     break;
 
                 case WordPasteOutcome.OutsideLine:
-                    refuse("Put the playhead inside this line, or select a word, to paste onto it");
+                    refuse("Put the playhead inside this line to paste the copied word into it");
                     break;
 
                 case WordPasteOutcome.NoText:
-                    refuse("This copy has no words to insert: select a word to paste its timing onto");
+                    refuse("This copy has no words to insert: use Paste timings on a selected word instead");
                     break;
 
                 case WordPasteOutcome.LineGranularity:
-                    refuse("A line-timed map keeps no word timing: select a word to paste onto");
+                    refuse("A line-timed map keeps no word timing: use Paste timings on a selected word instead");
+                    break;
+
+                case WordPasteOutcome.NoWordSelected:
+                    refuse("Select a word to paste the copied timing onto");
                     break;
             }
         }
@@ -842,18 +871,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             // holds focus and normally eats these first; this is the belt-and-braces guard.
             if (tapOverlay.Active)
                 return base.OnKeyDown(e);
-
-            // Ctrl+Shift+V: the timing-only paste. Not a platform action (the framework binds only
-            // Ctrl+V), so it is read here. A text box that has focus (the line box, mid-edit) is left
-            // alone: a timing paste would land on the line the mapper is retyping.
-            if (e.Key == Key.V && e.ControlPressed && e.ShiftPressed && !e.AltPressed && !e.SuperPressed && !e.Repeat)
-            {
-                if (!CanPasteTimings.Value || GetContainingInputManager()?.FocusedDrawable is TextBox)
-                    return false;
-
-                PasteTimings();
-                return true;
-            }
 
             if (e.Repeat || e.ControlPressed || e.AltPressed || e.SuperPressed)
                 return base.OnKeyDown(e);
