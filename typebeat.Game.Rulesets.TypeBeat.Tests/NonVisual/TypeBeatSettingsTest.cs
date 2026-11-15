@@ -60,7 +60,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 {
                     "Space to skip current word",
                     "Manual newlines",
-                    "Keyboard hitsounds",
                     "Use map fonts",
                     "Use typing font in Editor",
                     "Use space error dot",
@@ -82,7 +81,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 {
                     TypeBeatRulesetSetting.SpaceSkipsWord,
                     TypeBeatRulesetSetting.ManualNewlines,
-                    TypeBeatRulesetSetting.KeyboardHitsounds,
                     TypeBeatRulesetSetting.UseMapFonts,
                     TypeBeatRulesetSetting.UseTypingFontInEditor,
                     TypeBeatRulesetSetting.UseSpaceErrorDot,
@@ -113,7 +111,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 // And the defaults a NEW install ships with (2026-10-25): Space to skip, Approach bars
                 // and word pace colours are off; the rest are on, backing vocals (backlog 445) included.
                 // The four that came from Experimental (backlog 479) are all opt-in, so all off.
-                Assert.That(checkboxes.Select(c => c.Current.Value), Is.EqualTo(new[] { false, true, false, true, true, true, false, true, true, true, false, false, false, false, false }));
+                Assert.That(checkboxes.Select(c => c.Current.Value), Is.EqualTo(new[] { false, true, true, true, true, false, true, true, true, false, false, false, false, false }));
             }
         }
 
@@ -148,7 +146,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 {
                     "Space to skip current word",
                     "Manual newlines",
-                    "Keyboard hitsounds",
 
 
                     "Use map fonts",

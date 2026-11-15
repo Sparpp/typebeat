@@ -113,12 +113,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ManualNewlines),
                 }),
-                new SettingsItemV2(new FormCheckBox
-                {
-                    Caption = "Keyboard hitsounds",
-                    HintText = "Play a keyboard click for every key you press while playing, and in replays. Each key has its own click: the letter rows, numbers, punctuation, space, Backspace and Enter all sound different.",
-                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.KeyboardHitsounds),
-                }),
 
                 CreateSubsectionHeader("Lyric text"),
                 new SettingsItemV2(new FormCheckBox

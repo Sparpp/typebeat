@@ -58,6 +58,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// </summary>
         public const string HIGH_QUALITY_CAPTION = "High-accuracy alignment (about 4x slower per import)";
 
+        /// <summary>The heading of the group the keyboard hitsounds sit in, after the aligner's.</summary>
+        public const string SOUND_HEADING = "Sound";
+
+        /// <summary>The keyboard hitsounds toggle (<see cref="KeyboardHitsounds"/>), on trial here.</summary>
+        public const string KEYBOARD_HITSOUNDS_CAPTION = "Keyboard hitsounds";
+
         public const string HIGH_QUALITY_HINT = "The aligner listens to the song eight times instead of twice. That times about one more word in a hundred "
                                                 + "correctly on stamped lyrics, and about two more when the lyrics have no timestamps at all. On a 6-core CPU "
                                                 + "a 4 minute song takes roughly 2 minutes to import instead of 30 seconds; on a 2-core machine, about twice that.";
@@ -116,6 +122,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                         Action = startDemucsInstall,
                     },
                 },
+                CreateSubsectionHeader(SOUND_HEADING),
+                new SettingsItemV2(new FormCheckBox
+                {
+                    Caption = KEYBOARD_HITSOUNDS_CAPTION,
+                    HintText = "Play a keyboard click for every key you press while playing, and in replays. Each key has its own click: the letter rows, numbers, punctuation, space, Backspace and Enter all sound different.",
+                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.KeyboardHitsounds),
+                }),
             };
 
             // ILocalAlignerManager is registered CanBeNull (headless scenes have no installer), so

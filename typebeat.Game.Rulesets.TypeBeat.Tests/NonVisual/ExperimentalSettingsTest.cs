@@ -43,11 +43,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <summary>
         /// Backlog 479: the "Visual feedback" and "Timing tint" groups settled and moved to the
         /// ruleset's own settings in Settings &gt; Gameplay. What is left here is the "Lyric timing"
-        /// group alone, and none of the moved controls may come back (their home is pinned by
+        /// group and the "Sound" group (the keyboard hitsounds, on trial), and none of the moved
+        /// controls may come back (their home is pinned by
         /// <c>TypeBeatSettingsTest.TheSettingsMovedFromExperimentalKeepTheirWiring</c>).
         /// </summary>
         [Test]
-        public void OnlyLyricTimingIsLeftHere()
+        public void OnlyLyricTimingAndSoundAreLeftHere()
         {
             var ruleset = new TypeBeatRuleset();
             var subsection = (TypeBeatExperimentalSettingsSubsection)ruleset.CreateExperimentalSettings()!;
@@ -56,7 +57,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 var controls = subsection.BuildControls(config);
 
-                Assert.That(controls.OfType<OsuSpriteText>().Select(t => t.Text.ToString()), Is.EqualTo(new[] { LocalAlignerVersion.SETTINGS_HEADING }));
+                Assert.That(controls.OfType<OsuSpriteText>().Select(t => t.Text.ToString()), Is.EqualTo(new[] { LocalAlignerVersion.SETTINGS_HEADING, TypeBeatExperimentalSettingsSubsection.SOUND_HEADING }));
 
                 var terms = controls.OfType<SettingsItemV2>().SelectMany(c => c.Control.FilterTerms).Select(t => t.ToString()).ToArray();
 
@@ -102,6 +103,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>().Select(c => c.Caption.ToString()), Is.EqualTo(new[]
                 {
                     "High-accuracy alignment (about 4x slower per import)",
+                    TypeBeatExperimentalSettingsSubsection.KEYBOARD_HITSOUNDS_CAPTION,
                 }), "backlog 413 deleted the 'Use local auto-aligner' switch: the install is the opt-in");
 
                 Assert.That(controls.OfType<SettingsCheckbox>(), Is.Empty, "all experimental toggles use the shared form UI");
