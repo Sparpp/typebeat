@@ -52,6 +52,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private float[] backingTilts = Array.Empty<float>();
         private Vector2[] backingRest = Array.Empty<Vector2>();
         private bool backingEnabled = true;
+        private float backingStageWidth;
 
         /// <summary>The backing words this line shows (its source line's, see <see cref="LyricLine.BackingVocals"/>).</summary>
         private IReadOnlyList<BackingVocal> backingWords => Line.Source.BackingVocals;
@@ -93,12 +94,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             if (backingTexts.Length == 0)
                 return;
 
-            float width = cellX[^1];
+            float lyricWidth = cellX[^1];
+            float span = backingStageWidth > 0 ? backingStageWidth : lyricWidth;
+            float left = (lyricWidth - span) * 0.5f;
             float ruby = furigana.Count > 0 ? requestedFontSize * 0.36f * 1.15f + 2 * SizeRatio : 0;
             float lift = ruby + BACKING_GAP * SizeRatio;
 
             for (int i = 0; i < backingTexts.Length; i++)
-                backingRest[i] = new Vector2(width * (float)BackingVocals.AnchorOf(backingWords, i), -lift);
+                backingRest[i] = new Vector2(left + span * (float)BackingVocals.AnchorOf(backingWords, i), -lift);
 
             updateBackingVocals(Time.Current);
         }
@@ -130,6 +133,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             if (IsLoaded)
                 updateBackingVocals(Time.Current);
+        }
+
+        /// <summary>Sets the full stage width used to place backing vocals across the screen.</summary>
+        public void SetBackingStageWidth(float width)
+        {
+            if (width <= 0 || Math.Abs(backingStageWidth - width) < 0.1f)
+                return;
+
+            backingStageWidth = width;
+
+            if (IsLoaded)
+                layoutBackingVocals();
         }
 
         /// <summary>How many backing words this line draws (test support).</summary>

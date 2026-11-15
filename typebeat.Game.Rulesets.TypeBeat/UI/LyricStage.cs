@@ -826,7 +826,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 bool resized = false;
 
                 foreach (var display in displays)
+                {
+                    display.SetBackingStageWidth(DrawWidth);
                     resized |= display.SetMaximumWidth(lineWidth);
+                }
 
                 if (resized)
                 {
