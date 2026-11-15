@@ -364,24 +364,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         /// <summary>
-        /// Clip geometry within the glyph's unscaled bounds. The fill rises from the bottom of the ink
+        /// Clip geometry in the glyph's unscaled bounds. The fill rises from the bottom of the ink
         /// (<paramref name="inkBottom"/>) to its top (<paramref name="inkTop"/>), so it reads complete
-        /// exactly at progress 1; without ink bounds it spans the whole box.
+        /// exactly at progress 1; without ink bounds it spans the whole box. The ink may reach past the
+        /// box (a tall font's descenders, an accent above a capital), and the clip follows it there.
         /// </summary>
         public static (Vector2 Position, Vector2 Size) IndicatorMaskGeometry(JudgementIndicatorMode mode, Vector2 glyphSize, float progress,
                                                                              float inkTop = 0, float? inkBottom = null)
         {
-            float amount = Math.Clamp(progress, 0, 1);
-            float bottom = Math.Clamp(inkBottom ?? glyphSize.Y, 0, glyphSize.Y);
-            float top = Math.Clamp(inkTop, 0, bottom);
-
             if (mode != JudgementIndicatorMode.BottomToTopFill)
                 return (Vector2.Zero, Vector2.Zero);
 
-            // Below the ink is covered from the start (nothing is drawn there), so the clip is always
-            // anchored on the box's bottom edge and only its top moves.
-            float y = amount >= 1 ? 0 : bottom - (bottom - top) * amount;
-            return (new Vector2(0, y), new Vector2(glyphSize.X, glyphSize.Y - y));
+            float amount = Math.Clamp(progress, 0, 1);
+            float bottom = inkBottom ?? glyphSize.Y;
+            float top = Math.Min(inkTop, bottom);
+
+            // Anchored on whichever is lower, the box's bottom edge or the ink's (nothing is drawn below
+            // the ink, so covering it from the start changes nothing); only the top moves.
+            float floor = Math.Max(glyphSize.Y, bottom);
+            float y = amount >= 1 ? Math.Min(0, top) : bottom - (bottom - top) * amount;
+            return (new Vector2(0, y), new Vector2(glyphSize.X, floor - y));
         }
 
         /// <summary>
@@ -395,7 +397,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 return null;
 
             var glyphs = new List<TextBuilderGlyph>();
-            var builder = new TextBuilder(store, source.Font, float.MaxValue, source.UseFullGlyphHeight,
+            // Wrapped as OsuSpriteText wraps it, so an emoji measures as the placeholder the sprite draws.
+            var builder = new TextBuilder(new SurrogatePlaceholderGlyphStore(store), source.Font, float.MaxValue, source.UseFullGlyphHeight,
                 new Vector2(source.Padding.Left, source.Padding.Top), source.Spacing, glyphs, Array.Empty<char>(), '?', 'm');
             builder.AddText(text);
 
