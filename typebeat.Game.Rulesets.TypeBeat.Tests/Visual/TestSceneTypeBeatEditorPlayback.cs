@@ -68,7 +68,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         {
             AddUntilStep("playback section present", () => playback().IsLoaded);
 
-            AddAssert("no play/pause icon button", () => !playback().ChildrenOfType<IconButton>().Any());
+            // The only icon button is the reset-to-100-percent one (backlog 469); there is still no
+            // play/pause button.
+            AddAssert("no play/pause icon button", () =>
+                playback().ChildrenOfType<IconButton>().SequenceEqual(new[] { playback().ResetButton }));
             AddAssert("slider present", () => playback().Slider.IsLoaded);
             AddAssert("speed box present", () => playback().SpeedField.IsLoaded);
             AddAssert("starts at 100 percent", () =>
@@ -132,6 +135,49 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 InputManager.ReleaseButton(MouseButton.Right);
             });
             AddUntilStep("right-click resets to 100 percent", () =>
+                playback().Tempo.Value == 1.0 && playback().SpeedField.Text == "100%");
+        }
+
+        /// <summary>
+        /// Backlog 469: a small button right of the percent box puts a non-100 percent speed back to
+        /// 100 percent. It is dimmed (disabled) while the speed is already 100 percent.
+        /// </summary>
+        [Test]
+        public void TestResetButtonRestoresFullSpeed()
+        {
+            AddUntilStep("playback section present", () => playback().IsLoaded);
+
+            AddAssert("reset button sits right of the box", () =>
+                playback().ResetButton.ScreenSpaceDrawQuad.TopLeft.X > playback().SpeedField.ScreenSpaceDrawQuad.TopRight.X);
+            AddAssert("reset button is level with the box", () =>
+                Precision.AlmostEquals(playback().ResetButton.ScreenSpaceDrawQuad.Centre.Y, playback().SpeedField.ScreenSpaceDrawQuad.Centre.Y, 1.5));
+            AddAssert("reset button stays inside the section", () =>
+                playback().ResetButton.ScreenSpaceDrawQuad.TopRight.X <= playback().ScreenSpaceDrawQuad.TopRight.X);
+            AddAssert("disabled at 100 percent", () => !playback().ResetButton.Enabled.Value);
+
+            enterSpeed("63");
+            AddUntilStep("speed is 63 percent", () =>
+                Precision.AlmostEquals(playback().Tempo.Value, 0.63, 1e-6) && playback().SpeedField.Text == "63%");
+            AddAssert("enabled away from 100 percent", () => playback().ResetButton.Enabled.Value);
+
+            AddStep("click the reset button", () =>
+            {
+                InputManager.MoveMouseTo(playback().ResetButton);
+                InputManager.Click(MouseButton.Left);
+            });
+            AddUntilStep("reset to 100 percent", () =>
+                playback().Tempo.Value == 1.0 && playback().SpeedField.Text == "100%");
+            AddAssert("clock rate back to 1x", () => Precision.AlmostEquals(((IAdjustableClock)EditorClock).Rate, 1.0, 1e-3));
+            AddAssert("disabled again", () => !playback().ResetButton.Enabled.Value);
+
+            clickSliderAtFraction(0.98f);
+            AddUntilStep("speed is 200 percent", () => playback().Tempo.Value == PlaybackControl.MAX_TEMPO);
+            AddStep("click the reset button", () =>
+            {
+                InputManager.MoveMouseTo(playback().ResetButton);
+                InputManager.Click(MouseButton.Left);
+            });
+            AddUntilStep("reset from the slider's end too", () =>
                 playback().Tempo.Value == 1.0 && playback().SpeedField.Text == "100%");
         }
 

@@ -17,6 +17,7 @@ using osu.Framework.Graphics.Sprites;
 using osu.Framework.Graphics.UserInterface;
 using osu.Framework.Input.Events;
 using osu.Framework.Localisation;
+using osu.Framework.Utils;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Graphics.UserInterface;
@@ -28,7 +29,8 @@ namespace typebeat.Game.Screens.Edit.Components
 {
     /// <summary>
     /// The editor bottom bar's playback-speed section: a rounded slider over the editor clock's
-    /// pitch-preserving tempo, with a compact typeable whole-percent box beside it.
+    /// pitch-preserving tempo, with a compact typeable whole-percent box beside it and a small reset
+    /// button past the box that puts the speed back to 100 percent (backlog 469).
     ///
     /// Space (and the existing transport shortcuts) is the only way to start/stop playback now; the
     /// old play/pause <see cref="IconButton"/> is gone, so the bottom bar shows no running state at all.
@@ -70,9 +72,22 @@ namespace typebeat.Game.Screens.Edit.Components
         /// </summary>
         private const float slider_box_gap = 8;
 
+        /// <summary>The reset button is square and as tall as the text box, so the row's height is unchanged.</summary>
+        private const float reset_button_size = speed_box_height;
+
+        /// <summary>The gap between the text box and the reset button to its right.</summary>
+        private const float box_reset_gap = 4;
+
+        /// <summary>
+        /// The horizontal space the reset button (backlog 469) takes past the text box. The bottom
+        /// bar widens this section's cell by exactly this much, so the slider keeps its length.
+        /// </summary>
+        public const float RESET_BUTTON_EXTRA_WIDTH = reset_button_size + box_reset_gap;
+
         private PlaybackSpeedControl playbackSpeedControl = null!;
         private SpeedSlider speedSlider = null!;
         private SpeedTextBox speedBox = null!;
+        private IconButton resetButton = null!;
 
         [Resolved]
         private EditorClock editorClock { get; set; } = null!;
@@ -94,6 +109,9 @@ namespace typebeat.Game.Screens.Edit.Components
         public SpeedSlider Slider => speedSlider;
 
         public SpeedTextBox SpeedField => speedBox;
+
+        /// <summary>The reset-to-100-percent button right of the text box, exposed for scene tests.</summary>
+        public IconButton ResetButton => resetButton;
 
         [BackgroundDependencyLoader]
         private void load(OverlayColourProvider colourProvider)
@@ -128,7 +146,7 @@ namespace typebeat.Game.Screens.Edit.Components
                                     AutoSizeAxes = Axes.Y,
                                     Anchor = Anchor.CentreLeft,
                                     Origin = Anchor.CentreLeft,
-                                    Padding = new MarginPadding { Right = speed_box_width + slider_box_gap },
+                                    Padding = new MarginPadding { Right = speed_box_width + slider_box_gap + RESET_BUTTON_EXTRA_WIDTH },
                                     Child = speedSlider = new SpeedSlider(tempoAdjustment)
                                     {
                                         RelativeSizeAxes = Axes.X,
@@ -149,6 +167,23 @@ namespace typebeat.Game.Screens.Edit.Components
                                     Height = speed_box_height,
                                     Anchor = Anchor.CentreRight,
                                     Origin = Anchor.CentreRight,
+                                    X = -RESET_BUTTON_EXTRA_WIDTH,
+                                },
+                                // The same undo glyph the settings' revert-to-default buttons use, so
+                                // "put this back to its default" reads the same across the game. It
+                                // stays in place (dimmed, not hidden) at 100 percent so the box never
+                                // shifts and the target is always where the hand expects it.
+                                resetButton = new IconButton
+                                {
+                                    Size = new Vector2(reset_button_size),
+                                    Icon = FontAwesome.Solid.Undo,
+                                    // IconButton's stock 18px glyph is sized for a 30px button;
+                                    // scale it with the smaller square.
+                                    IconScale = new Vector2(0.6f),
+                                    TooltipText = EditorStrings.ResetPlaybackSpeed,
+                                    Anchor = Anchor.CentreRight,
+                                    Origin = Anchor.CentreRight,
+                                    Action = () => tempoAdjustment.Value = DEFAULT_TEMPO,
                                 },
                             },
                         },
@@ -167,7 +202,12 @@ namespace typebeat.Game.Screens.Edit.Components
         {
             base.LoadComplete();
 
-            tempoAdjustment.BindValueChanged(_ => speedText.Value = formatPercent(tempoAdjustment.Value), true);
+            tempoAdjustment.BindValueChanged(_ =>
+            {
+                speedText.Value = formatPercent(tempoAdjustment.Value);
+                // Dimmed at 100 percent, like the settings' revert buttons fade out at their default.
+                resetButton.Enabled.Value = !Precision.AlmostEquals(tempoAdjustment.Value, DEFAULT_TEMPO);
+            }, true);
         }
 
         protected override void Dispose(bool isDisposing)

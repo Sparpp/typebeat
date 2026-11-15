@@ -126,6 +126,11 @@ namespace typebeat.Game.Localisation
         public static LocalisableString PlaybackSpeed => new TranslatableString(getKey(@"playback_speed"), @"Playback speed");
 
         /// <summary>
+        /// "Reset to 100%"
+        /// </summary>
+        public static LocalisableString ResetPlaybackSpeed => new TranslatableString(getKey(@"reset_playback_speed"), @"Reset to 100%");
+
+        /// <summary>
         /// "Test!"
         /// </summary>
         public static LocalisableString TestBeatmap => new TranslatableString(getKey(@"test_beatmap"), @"Test!");
