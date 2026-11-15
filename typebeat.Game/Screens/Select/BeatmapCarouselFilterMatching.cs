@@ -107,7 +107,15 @@ namespace typebeat.Game.Screens.Select
 
             match &= !criteria.DifficultyName.HasFilter || criteria.DifficultyName.Matches(beatmap.DifficultyName);
             match &= !criteria.Source.HasFilter || criteria.Source.Matches(beatmap.Metadata.Source);
-            match &= criteria.Languages.All(language => beatmap.Metadata.Language == language);
+
+            // Each lang: term must name one of the map's languages (backlog 472: a map matches a language if ANY of
+            // its languages is that one), so two terms find the maps that declare both. Same rule as the website's
+            // language: operator (typebeat-web Search/BeatmapSearchSql.cs).
+            if (criteria.Languages.Count > 0)
+            {
+                var languages = beatmap.Metadata.Languages;
+                match &= criteria.Languages.All(languages.Contains);
+            }
 
             if (criteria.UserTags.Any())
             {

@@ -93,6 +93,15 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
             MaxHeight = MaxHeight,
         };
 
+        /// <summary>
+        /// Text the header shows in place of the selected item's, or null (the default) to show the selected item as
+        /// every single-choice dropdown does. <see cref="FormMultiDropdown{T}"/> uses it to show its whole selection.
+        /// </summary>
+        protected virtual LocalisableString? HeaderLabelOverride => null;
+
+        /// <summary>Re-reads <see cref="HeaderLabelOverride"/> into the header after it changed.</summary>
+        protected void RefreshHeaderLabel() => header.RefreshLabel();
+
         private partial class FormDropdownHeader : DropdownHeader
         {
             public FormDropdown<T> Dropdown { get; set; } = null!;
@@ -136,10 +145,14 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
                 set
                 {
                     labelText = value;
-
-                    if (label.IsNotNull())
-                        label.Text = labelText;
+                    RefreshLabel();
                 }
+            }
+
+            public void RefreshLabel()
+            {
+                if (label.IsNotNull())
+                    label.Text = Dropdown.HeaderLabelOverride ?? labelText;
             }
 
             protected new FormDropdownSearchBar SearchBar { get; set; } = null!;
@@ -287,7 +300,7 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
             }
         }
 
-        private partial class FormDropdownMenu : OsuDropdownMenu
+        protected partial class FormDropdownMenu : OsuDropdownMenu
         {
             [BackgroundDependencyLoader]
             private void load(OverlayColourProvider colourProvider)

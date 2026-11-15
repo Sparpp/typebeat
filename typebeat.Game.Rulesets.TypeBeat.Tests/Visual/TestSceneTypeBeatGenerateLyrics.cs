@@ -59,18 +59,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 return children[timing + 1] == button();
             });
             AddAssert("enabled for Japanese without originals", () => button().Enabled.Value);
-            AddStep("select English", () => languagePicker().Current.Value = BeatmapLanguage.English);
+            AddStep("select English", () => languagePicker().SelectedValues.Value = new[] { BeatmapLanguage.English });
             AddUntilStep("disabled for English", () => !button().Enabled.Value);
             AddAssert("hover tooltip explains original scripts", () => ((IHasTooltip)button()).TooltipText.ToString() == TypeBeatSetupSection.GENERATE_LYRICS_TOOLTIP);
             AddStep("scroll disabled button into view", () => Editor.ChildrenOfType<SetupScreen>().Single().ChildrenOfType<OsuScrollContainer>().First().ScrollIntoView(button(), animated: false));
             AddStep("hover the disabled button", () => InputManager.MoveMouseTo(button().ChildrenOfType<FormButton.Button>().Single()));
             AddUntilStep("tooltip appears over the disabled button", () => this.ChildrenOfType<OsuTooltipContainer.OsuTooltip>()
                 .Any(t => t.Alpha > 0 && string.Concat(t.ChildrenOfType<SpriteText>().Select(text => text.Text.ToString())).Contains("non-English")));
-            AddStep("select Korean", () => languagePicker().Current.Value = BeatmapLanguage.Korean);
+            AddStep("select Korean", () => languagePicker().SelectedValues.Value = new[] { BeatmapLanguage.Korean });
             AddUntilStep("enabled for Korean", () => button().Enabled.Value);
             AddStep("undo language change", () => Editor.Undo());
             AddUntilStep("disabled after undo restores English", () => !button().Enabled.Value);
-            AddUntilStep("language picker follows undo", () => languagePicker().Current.Value == BeatmapLanguage.English);
+            AddUntilStep("language picker follows undo", () => languagePicker().SelectedValues.Value.SequenceEqual(new[] { BeatmapLanguage.English }));
         }
 
         [Test]
@@ -101,6 +101,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
         private TypeBeatSetupSection section() => Editor.ChildrenOfType<TypeBeatSetupSection>().Single();
         private FormButton button() => section().ChildrenOfType<FormButton>().Single(b => b.ButtonText.ToString() == "Generate lyrics");
-        private FormEnumDropdown<BeatmapLanguage> languagePicker() => Editor.ChildrenOfType<MetadataSection>().Single().ChildrenOfType<FormEnumDropdown<BeatmapLanguage>>().Single();
+        private FormMultiEnumDropdown<BeatmapLanguage> languagePicker() => Editor.ChildrenOfType<MetadataSection>().Single().ChildrenOfType<FormMultiEnumDropdown<BeatmapLanguage>>().Single();
     }
 }

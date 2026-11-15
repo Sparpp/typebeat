@@ -2,8 +2,10 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
+using osu.Framework.Extensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
@@ -115,22 +117,32 @@ namespace typebeat.Game.Overlays.BeatmapSet
             {
                 description.Metadata = b.NewValue?.Description ?? string.Empty;
                 source.Metadata = b.NewValue?.Source ?? string.Empty;
-                language.Metadata = songLanguage(b.NewValue);
+                language.Metadata = songLanguages(b.NewValue);
                 mapperTags.Metadata = b.NewValue?.Tags ?? string.Empty;
             });
             Beatmap.BindValueChanged(b => successRate.Beatmap = b.NewValue);
         }
 
         /// <summary>
-        /// The set's song language as lazer's language metadata. The server sends it as <c>song_language</c>, a canonical
-        /// name (osu's language list, lower-cased) or empty when unknown, rather than osu's <c>{id, name}</c> object, and
-        /// the names are <see cref="SearchLanguage"/>'s members.
+        /// The set's song languages as lazer's language metadata, one entry per language (backlog 472: a set may
+        /// declare several). The server sends them as <c>song_languages</c> (with the single <c>song_language</c> from
+        /// an older server as the fallback, see <see cref="APIBeatmapSet.SongLanguageList"/>), canonical names rather
+        /// than osu's <c>{id, name}</c> object. A name that is one of <see cref="SearchLanguage"/>'s members keeps its
+        /// id, so it links to the listing's language filter; a type!beat language osu's list lacks (Dutch, say) gets
+        /// no id and shows as plain text under its own name instead of reading as Unspecified. A set with none shows
+        /// Unspecified, as it always did.
         /// </summary>
-        private static BeatmapSetOnlineLanguage songLanguage(APIBeatmapSet? set)
+        private static BeatmapSetOnlineLanguage[] songLanguages(APIBeatmapSet? set)
         {
-            var parsed = Enum.TryParse(set?.SongLanguage, ignoreCase: true, out SearchLanguage language) ? language : SearchLanguage.Unspecified;
+            var languages = set?.SongLanguageList ?? Array.Empty<BeatmapLanguage>();
 
-            return new BeatmapSetOnlineLanguage { Id = (int)parsed, Name = parsed.ToString() };
+            if (languages.Count == 0)
+                return [new BeatmapSetOnlineLanguage { Id = (int)SearchLanguage.Unspecified, Name = SearchLanguage.Unspecified.ToString() }];
+
+            return languages.Select(l => Enum.TryParse(l.ToString(), out SearchLanguage searchLanguage)
+                                ? new BeatmapSetOnlineLanguage { Id = (int)searchLanguage, Name = searchLanguage.ToString() }
+                                : new BeatmapSetOnlineLanguage { Id = -1, Name = l.GetDescription() })
+                            .ToArray();
         }
 
         [BackgroundDependencyLoader]

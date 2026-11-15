@@ -102,14 +102,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void MetadataStoresThroughItsIntBackingField()
+        public void MetadataStoresThroughItsIdsBackingField()
         {
+            // Since realm schema 68 (backlog 472) the backing field is the list's persisted ids as text.
             var metadata = new BeatmapMetadata { Language = BeatmapLanguage.Korean };
 
             Assert.Multiple(() =>
             {
-                Assert.That(metadata.LanguageInt, Is.EqualTo((int)BeatmapLanguage.Korean));
+                Assert.That(metadata.LanguageIDs, Is.EqualTo(((int)BeatmapLanguage.Korean).ToString()));
                 Assert.That(metadata.Language, Is.EqualTo(BeatmapLanguage.Korean));
+                Assert.That(metadata.Languages, Is.EqualTo(new[] { BeatmapLanguage.Korean }));
             });
         }
 

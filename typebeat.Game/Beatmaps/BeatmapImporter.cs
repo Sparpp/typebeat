@@ -450,7 +450,9 @@ namespace typebeat.Game.Beatmaps
                         // good, and song select's language grouping, the set overlay and anything else that
                         // reads realm metadata sees "not chosen" for a map whose file says otherwise.
                         // UserTags is the one decoder-free field (filled from online lookups).
-                        Language = decoded.Metadata.Language,
+                        // The whole language list (backlog 472), through its stored text so nothing is re-derived:
+                        // copying Language would keep only the primary of a multi-language map.
+                        LanguageIDs = decoded.Metadata.LanguageIDs,
                         AudioGain = decoded.Metadata.AudioGain,
                         LyricFont = decoded.Metadata.LyricFont,
                         LyricFontFile = decoded.Metadata.LyricFontFile,

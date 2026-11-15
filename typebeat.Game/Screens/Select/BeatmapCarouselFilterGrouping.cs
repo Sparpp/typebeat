@@ -241,7 +241,7 @@ namespace typebeat.Game.Screens.Select
                     return getGroupsBy(b => DefineGroupByIntro(b.BeatmapSet!), items);
 
                 case GroupMode.Language:
-                    return getGroupsBy(b => DefineGroupByLanguage(b.Metadata.Language), items);
+                    return getGroupsBy(b => DefineGroupsByLanguages(b.Metadata.Languages), items);
 
                 case GroupMode.Variant:
                 {
@@ -435,6 +435,19 @@ namespace typebeat.Game.Screens.Select
         /// key existed, and any local map not yet set up for submission) goes last under its own heading rather than
         /// being mistaken for a language.
         /// </summary>
+        /// <remarks>
+        /// A map with several languages (backlog 472) is listed under EACH of them, as a beatmap in several collections
+        /// is listed under each collection: a reader browsing the Japanese group expects the Japanese and English map
+        /// there just as much as under English.
+        /// </remarks>
+        internal static IEnumerable<GroupDefinition> DefineGroupsByLanguages(IReadOnlyList<BeatmapLanguage> languages)
+        {
+            if (languages.Count == 0)
+                return DefineGroupByLanguage(BeatmapLanguage.Unspecified);
+
+            return languages.SelectMany(DefineGroupByLanguage);
+        }
+
         internal static IEnumerable<GroupDefinition> DefineGroupByLanguage(BeatmapLanguage language)
         {
             if (language == BeatmapLanguage.Unspecified)

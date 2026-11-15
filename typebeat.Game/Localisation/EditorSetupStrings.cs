@@ -180,9 +180,9 @@ namespace typebeat.Game.Localisation
         public static LocalisableString Language => new TranslatableString(getKey(@"language"), @"Language");
 
         /// <summary>
-        /// "The language the song is sung in. Required before the beatmap can be submitted."
+        /// "Every language the song is sung in: click to pick or unpick. At least one is required before the beatmap can be submitted."
         /// </summary>
-        public static LocalisableString LanguageDescription => new TranslatableString(getKey(@"language_description"), @"The language the song is sung in. Required before the beatmap can be submitted.");
+        public static LocalisableString LanguageDescription => new TranslatableString(getKey(@"language_description"), @"Every language the song is sung in: click to pick or unpick. At least one is required before the beatmap can be submitted.");
 
         /// <summary>
         /// "Resources"
