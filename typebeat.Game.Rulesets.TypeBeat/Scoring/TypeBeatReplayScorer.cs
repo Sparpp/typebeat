@@ -452,7 +452,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // SHORTHAND, likewise.
             bool shorthand = mods.Any(m => m is TypeBeatModShorthand);
 
-            var engine = new TypingEngine(lyricBeatmap, literate, polyglot, polyglot ? TypeBeatModPolyglot.LanguageFor(playable) : null, legacyJapaneseSpaces, shorthand);
+            // SPACELESS, likewise: the mod list is the whole of its replay contract (no CONFIG bit),
+            // and the space frames a run under it could hold are refused by the engine itself.
+            bool spaceless = mods.Any(m => m is TypeBeatModSpaceless);
+
+            var engine = new TypingEngine(lyricBeatmap, literate, polyglot, polyglot ? TypeBeatModPolyglot.LanguageFor(playable) : null, legacyJapaneseSpaces, shorthand, spaceless);
 
             // SyllableTiming is NOT selected here, and deliberately not: it is the one era axis
             // that travels in the replay itself (CONFIG frame, bit 2), so ReplayEngineFeed.Apply

@@ -40,6 +40,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             Single<TypeBeatModDaycore>(hasMultiplier: daycore => TypeBeatRateMultiplier.For(daycore.SpeedChange.Value));
             // Shorthand asks for a fraction of the keypresses, each still judged on the same windows.
             Single<TypeBeatModShorthand>(hasMultiplier: 0.6);
+            // Spaceless takes the spacebar off the player: every space is completed and never judged.
+            // Shorthand's 0.6x (owner decision, backlog 470). Unranked, so this is display-only.
+            Single<TypeBeatModSpaceless>(hasMultiplier: 0.6);
 
             // Difficulty increase.
             // Hard Rock at 1.10x, and the value is NOT read off osu: this fork keeps no copy of

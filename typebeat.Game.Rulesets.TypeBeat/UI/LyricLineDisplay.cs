@@ -1900,8 +1900,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// engine's own <c>isWordGap</c> uses (a non-typeable cell rides inside the word it is
         /// attached to and is never a boundary). Shared here so the display and the engine cannot
         /// disagree about where a word ends.
+        ///
+        /// <para>This overload is the space error dots' test, and it is right for them on every
+        /// stack: a dot marks a wrong character typed into a gap, and only a typeable gap can hold
+        /// one. Anything that asks where a WORD ends on a line that may have been flattened uses the
+        /// <c>spaceless</c> overload below.</para>
         /// </summary>
         public static bool IsWordGap(TypingCell cell) => cell.IsTypeable && cell.Expected == ' ';
+
+        /// <summary>
+        /// <see cref="IsWordGap(TypingCell)"/> on a line built under the Spaceless mod
+        /// (<paramref name="spaceless"/>, <see cref="TypingLine.Spaceless"/>): there every space is
+        /// completed for the player and no longer typeable, yet it still separates two words, exactly
+        /// as the engine's <c>isWordGap</c> reads it (backlog 470). Without this the pace underline
+        /// would price a whole Spaceless line as one word. Shorthand's completed spaces stay
+        /// non-boundaries here as they do in the engine.
+        /// </summary>
+        public static bool IsWordGap(TypingCell cell, bool spaceless) => cell.Expected == ' ' && (cell.IsTypeable || (spaceless && cell.IsAutoCompleted));
 
         /// <summary>
         /// The space error dot marks only a wrong character currently typed into a word-gap cell.

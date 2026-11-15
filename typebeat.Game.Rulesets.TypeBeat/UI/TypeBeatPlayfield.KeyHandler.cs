@@ -757,6 +757,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
                 foreach (char c in characters)
                 {
+                    // SPACELESS (backlog 470): the space is not input at all, so it is dropped here,
+                    // BEFORE the selection collapse below. The engine refuses it too, but only after
+                    // collapseSelection would already have erased a live retype selection (and
+                    // recorded the erases), so a habitual space under the mod would wipe a Ctrl+A
+                    // selection. Dropping it first leaves the selection, the caret and the replay
+                    // exactly as they were; the press itself is still swallowed by the spacebar arm.
+                    if (c == ' ' && engine.Spaceless)
+                        continue;
+
                     // A FINISHED line takes a letter only as the typed-through newline (the era bit
                     // engine.NewlineOnTypedLetter carries), and never a space: the space that closes a
                     // line is the manual newline, which the spacebar's key decides (OnKeyDown).

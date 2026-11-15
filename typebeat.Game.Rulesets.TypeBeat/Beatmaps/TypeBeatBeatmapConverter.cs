@@ -62,6 +62,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             Polyglot = source.Polyglot,
             PolyglotLanguage = source.PolyglotLanguage,
             Shorthand = source.Shorthand,
+            Spaceless = source.Spaceless,
         };
 
         protected override IEnumerable<TypeBeatHitObject> ConvertHitObject(HitObject original, IBeatmap beatmap, CancellationToken cancellationToken)

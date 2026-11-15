@@ -319,6 +319,57 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         /// <summary>
+        /// SPACELESS (backlog 470): the spacebar is not input, so it must not consume a selection
+        /// either. A letter or a backspace collapses a selection (the two tests above), and without
+        /// the mod a space does too; under it the space is dropped BEFORE the collapse, so the
+        /// selection, the caret and the recording are all untouched, and the next letter still
+        /// consumes the selection as usual. Driven through the real key handler, since the engine's
+        /// own refusal comes after the collapse and so cannot pin this.
+        /// </summary>
+        [TestCase(true)]
+        [TestCase(false)]
+        public void TestUnderSpacelessASpaceLeavesASelectionAlone(bool spaceless)
+        {
+            AddStep("load player with Fletcher" + (spaceless ? " and Spaceless" : string.Empty), () => LoadPlayer(spaceless
+                ? new Mod[] { new TypeBeatModFletcher(), new TypeBeatModSpaceless() }
+                : new Mod[] { new TypeBeatModFletcher() }));
+            AddUntilStep("player loaded", () => Player.IsLoaded && Player.Alpha == 1);
+            AddAssert("the engine runs the mod as asked", () => engine.Spaceless == spaceless);
+
+            waitForLine();
+
+            type("a");
+            AddStep("press X (wrong for 'b')", () => InputManager.Key(Key.X));
+            type(spaceless ? "c" : " c");
+            AddAssert("the typo landed", () => cell(1).State == CellState.Wrong && engine.CaretIndex == 4);
+
+            recoveryChord(Key.A);
+            AddAssert("the run back to the typo's word is selected", () =>
+                playfield.CurrentRetypeSelection is TypeBeatPlayfield.RetypeSelection { LineIndex: 0, StartCell: 0, EndCell: 4 });
+
+            int recorded = 0;
+            AddStep("capture frame count", () => recorded = frames.Count);
+            AddStep("press Space", () => InputManager.Key(Key.Space));
+
+            if (spaceless)
+            {
+                AddAssert("the selection is still held", () =>
+                    playfield.CurrentRetypeSelection is TypeBeatPlayfield.RetypeSelection { LineIndex: 0, StartCell: 0, EndCell: 4 });
+                AddAssert("nothing was erased or recorded", () => engine.CaretIndex == 4 && cell(1).State == CellState.Wrong && frames.Count == recorded);
+
+                AddStep("press A (the first char of the selected run)", () => InputManager.Key(Key.A));
+                AddAssert("the letter still consumes it", () =>
+                    playfield.CurrentRetypeSelection == null && engine.CaretIndex == 1 && cell(0).State == CellState.Correct && cell(1).State == CellState.Untyped);
+            }
+            else
+            {
+                AddAssert("the space consumed the selection", () => playfield.CurrentRetypeSelection == null && frames.Count > recorded);
+            }
+
+            AddAssert("the recording re-derives the live run", reDerivedMatchesLive);
+        }
+
+        /// <summary>
         /// A typo on the word gap selects the preceding word as well as the gap.
         /// </summary>
         [Test]

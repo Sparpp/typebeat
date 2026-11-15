@@ -267,7 +267,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <see cref="skipCurrentWord"/> scans a word with, so "word" means one thing in this file.
         /// A non-typeable cell (punctuation the default stream kept, and every mark under the
         /// Literate mod) is NOT a boundary: it rides inside the word it is attached to.
+        ///
+        /// <para>The one non-typeable boundary is a space under <see cref="Spaceless"/>, which completes
+        /// every space for the player: it still separates two words, so the word gestures
+        /// (<see cref="WordBackspaceTarget"/>, <see cref="RetypeSelectionAnchor"/>) and the Dyslexia scan
+        /// stay inside one word rather than reaching back to the head of the line. The skip paths that
+        /// also read this are unreachable under the mod (only a space press skips a word, and the mod
+        /// refuses it), so they need no second look. Shorthand's completed spaces are deliberately
+        /// left as they were: that mod is incompatible with Dyslexia, and its gesture behaviour is not
+        /// this mod's to change.</para>
         /// </summary>
-        private static bool isWordGap(TypingCell cell) => cell.IsTypeable && cell.Expected == ' ';
+        private bool isWordGap(TypingCell cell) => cell.Expected == ' ' && (cell.IsTypeable || (Spaceless && cell.IsAutoCompleted));
     }
 }
