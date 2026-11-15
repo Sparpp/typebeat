@@ -776,6 +776,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             private Grab grab;
             private double grabStart, grabEnd, grabTime;
 
+            // The map at the drag's start, restored before every step so the release alone decides (backlog 466).
+            private DragBaseline? baseline;
+
             // Shared-boundary drag (Shift on an edge two touching words share): the LEFT unit index
             // of that boundary, or -1 for an ordinary drag. Decided once at drag start.
             private int sharedBoundaryLeftIndex = -1;
@@ -1065,11 +1068,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 state.BeginInteraction();
                 editorBeatmap.BeginChange();
+                baseline = DragBaseline.Capture(editorBeatmap);
                 return true;
             }
 
             protected override void OnDrag(DragEvent e)
             {
+                baseline?.Restore();
+
                 double cursorTime = strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMousePosition).X);
                 double delta = cursorTime - grabTime;
                 double anchor = groupDrag ? (grab == Grab.ResizeEnd ? groupOrigEnd[0] : groupOrigStart[0]) : grabStart;
@@ -1127,6 +1133,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             {
                 groupDrag = false;
                 sharedBoundaryLeftIndex = -1;
+                baseline = null;
                 editorBeatmap.EndChange();
                 state.EndInteraction();
             }
@@ -1141,6 +1148,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             private readonly LyricTimeline strip;
             private readonly TypeBeatHitObject hitObject;
             private readonly Box line;
+
+            // The map at the drag's start, restored before every step so the release alone decides (backlog 466).
+            private DragBaseline? baseline;
 
             [Resolved]
             private EditorBeatmap editorBeatmap { get; set; } = null!;
@@ -1207,16 +1217,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             {
                 state.BeginInteraction();
                 editorBeatmap.BeginChange();
+                baseline = DragBaseline.Capture(editorBeatmap);
                 return true;
             }
 
             protected override void OnDrag(DragEvent e)
             {
+                // From the map as the drag found it: a word the boundary squished on the way out is
+                // whole again once the cursor comes back (backlog 466).
+                baseline?.Restore();
                 TypeBeatEditorOperations.SetLineStart(editorBeatmap, hitObject, strip.SnapToGrid(strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMousePosition).X)));
             }
 
             protected override void OnDragEnd(DragEndEvent e)
             {
+                baseline = null;
                 editorBeatmap.EndChange();
                 state.EndInteraction();
             }
@@ -1254,6 +1269,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             private readonly TypeBeatHitObject hitObject;
             private readonly int unitIndex;
             private readonly int boundaryIndex;
+
+            // The map at the drag's start, restored before every step so the release alone decides (backlog 466).
+            private DragBaseline? baseline;
             private readonly Container visual;
             private readonly Box promotionBand;
 
@@ -1505,11 +1523,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 draggedTo = promotedFrom;
                 state.BeginInteraction();
                 editorBeatmap.BeginChange();
+                baseline = DragBaseline.Capture(editorBeatmap);
                 return true;
             }
 
             protected override void OnDrag(DragEvent e)
             {
+                baseline?.Restore();
                 draggedTo = strip.SnapToGrid(strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMousePosition).X));
 
                 TypeBeatEditorOperations.SetSyllableBoundary(editorBeatmap, hitObject, unitIndex, boundaryIndex, draggedTo);
@@ -1523,6 +1543,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     TypeBeatEditorOperations.ExtendSubdivisionIntoPause(editorBeatmap, hitObject, unitIndex, boundaryIndex, promotedFrom, draggedTo);
 
                 promote = false;
+                baseline = null;
                 editorBeatmap.EndChange();
                 state.EndInteraction();
             }
@@ -1637,6 +1658,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             private readonly int pauseIndex;
             private readonly bool start;
 
+            // The map at the drag's start, restored before every step so the release alone decides (backlog 466).
+            private DragBaseline? baseline;
+
             /// <summary>The dotted line this edge draws: the end edge's, none on the start edge.</summary>
             public Drawable? Line { get; }
 
@@ -1722,11 +1746,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 strip.SetEdgeDragging(true);
                 state.BeginInteraction();
                 editorBeatmap.BeginChange();
+                baseline = DragBaseline.Capture(editorBeatmap);
                 return true;
             }
 
             protected override void OnDrag(DragEvent e)
             {
+                baseline?.Restore();
                 double time = strip.SnapToGrid(strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMousePosition).X));
 
                 if (start)
@@ -1738,6 +1764,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             protected override void OnDragEnd(DragEndEvent e)
             {
                 strip.SetEdgeDragging(false);
+                baseline = null;
                 editorBeatmap.EndChange();
                 state.EndInteraction();
             }

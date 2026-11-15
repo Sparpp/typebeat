@@ -152,11 +152,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <see cref="EditorLineSnapshot"/> listens for. Inside a transaction the update is queued
         /// like any other and committed with it.
         /// </summary>
-        private static void setLine(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, LyricLine line)
+        private static void setLine(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, LyricLine line, bool exact = false)
         {
-            line = withoutUnplayableHolds(line);
+            if (!exact)
+                line = withoutUnplayableHolds(line);
+
             hitObject.Line = line;
             editorBeatmap.Update(hitObject);
+        }
+
+        /// <summary>
+        /// Puts a line back EXACTLY as <see cref="DragBaseline"/> captured it (backlog 466), with its start
+        /// and index. Exact so a restore is the very line the map held, not a filtered copy of it.
+        /// </summary>
+        internal static void RestoreLine(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, LyricLine line, double startTime, int lineIndex)
+        {
+            hitObject.StartTime = startTime;
+            hitObject.LineIndex = lineIndex;
+            setLine(editorBeatmap, hitObject, line, exact: true);
         }
 
         /// <summary>

@@ -216,12 +216,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 Strip.SetEdgeDragging(true);
                 state.BeginInteraction();
                 EditorBeatmap.BeginChange();
+                baseline = DragBaseline.Capture(EditorBeatmap);
                 return true;
             }
+
+            /// <summary>
+            /// Puts the map back as the drag found it, before a step applies the edit for where the cursor
+            /// is now: a tick a shortened hold dropped comes back if the end is dragged out again before the
+            /// release (backlog 466).
+            /// </summary>
+            protected void RestoreDragStart() => baseline?.Restore();
+
+            private DragBaseline? baseline;
 
             protected override void OnDragEnd(DragEndEvent e)
             {
                 Strip.SetEdgeDragging(false);
+                baseline = null;
                 EditorBeatmap.EndChange();
                 state.EndInteraction();
             }
@@ -262,6 +273,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             protected override void OnDrag(DragEvent e)
             {
+                RestoreDragStart();
                 double cursorTime = CursorTime(e);
                 double time = Strip.timingSettings.SnapToGrid.Value ? Strip.SnapToGrid(cursorTime) : Strip.MagnetToCaret(cursorTime);
 
@@ -300,6 +312,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             protected override void OnDrag(DragEvent e)
             {
+                RestoreDragStart();
                 double time = Strip.SnapToGrid(CursorTime(e));
 
                 if (start)

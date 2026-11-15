@@ -458,6 +458,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             // and the word is followed by where it went rather than by this slot's own index.
             private int dragIndex;
 
+            // The map and the word's index at the drag's start, restored before every step so the release alone decides (backlog 466).
+            private DragBaseline? baseline;
+            private int dragStartIndex;
+
             // This slot started the drag in progress. It stays present for the whole gesture, even when
             // the word it now holds sits on a track out of sight (the masked lane clips it anyway), so
             // nothing can cut the drag's events off.
@@ -643,11 +647,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 dragSource = true;
                 state.BeginInteraction();
                 editorBeatmap.BeginChange();
+                baseline = DragBaseline.Capture(editorBeatmap);
+                dragStartIndex = dragIndex;
                 return true;
             }
 
             protected override void OnDrag(DragEvent e)
             {
+                // From the map as the drag found it (backlog 466), with the word back at its own index.
+                baseline?.Restore();
+                dragIndex = dragStartIndex;
+
                 double cursorTime = strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMousePosition).X);
 
                 // An edge is a boundary, snapped or magneted like a word edge; a move snaps its
@@ -703,6 +713,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             {
                 dragSource = false;
                 strip.draggedBacking = (null, -1);
+                baseline = null;
                 editorBeatmap.EndChange();
                 state.EndInteraction();
             }
