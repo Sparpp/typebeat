@@ -5,6 +5,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
@@ -17,6 +18,8 @@ using osu.Framework.Localisation;
 using osu.Framework.Threading;
 using typebeat.Game.Beatmaps.Drawables.Cards;
 using typebeat.Game.Configuration;
+using typebeat.Game.Graphics;
+using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Online.API;
 using typebeat.Game.Online.API.Requests;
 using typebeat.Game.Online.API.Requests.Responses;
@@ -63,6 +66,10 @@ namespace typebeat.Game.Overlays.BeatmapListing
         private readonly BeatmapListingSearchControl searchControl;
         private readonly BeatmapListingSortTabControl sortControl;
         private readonly Box sortControlBackground;
+        private readonly OsuSpriteText resultCount;
+
+        /// <summary>The result count sprite's name, for tests to find it by.</summary>
+        public const string RESULT_COUNT_NAME = @"result count";
 
         private ScheduledDelegate queryChangedDebounce;
 
@@ -120,12 +127,34 @@ namespace typebeat.Game.Overlays.BeatmapListing
                                 Origin = Anchor.CentreLeft,
                                 Margin = new MarginPadding { Left = 20 }
                             },
-                            new BeatmapListingCardSizeTabControl
+                            new FillFlowContainer
                             {
                                 Anchor = Anchor.CentreRight,
                                 Origin = Anchor.CentreRight,
+                                AutoSizeAxes = Axes.Both,
+                                Direction = FillDirection.Horizontal,
+                                Spacing = new Vector2(15, 0),
                                 Margin = new MarginPadding { Right = 20 },
-                                Current = { BindTarget = CardSize }
+                                Children = new Drawable[]
+                                {
+                                    // How many sets the whole search matches (every page), beside the card size
+                                    // toggle and in the "Sort by" label's type. Hidden until the first answer,
+                                    // and for a server that does not send a total.
+                                    resultCount = new OsuSpriteText
+                                    {
+                                        Name = RESULT_COUNT_NAME,
+                                        Anchor = Anchor.CentreLeft,
+                                        Origin = Anchor.CentreLeft,
+                                        Font = OsuFont.GetFont(size: 12, weight: FontWeight.SemiBold),
+                                        Alpha = 0,
+                                    },
+                                    new BeatmapListingCardSizeTabControl
+                                    {
+                                        Anchor = Anchor.CentreLeft,
+                                        Origin = Anchor.CentreLeft,
+                                        Current = { BindTarget = CardSize }
+                                    }
+                                }
                             }
                         }
                     }
@@ -140,6 +169,7 @@ namespace typebeat.Game.Overlays.BeatmapListing
         private void load(OverlayColourProvider colourProvider)
         {
             sortControlBackground.Colour = colourProvider.Background4;
+            resultCount.Colour = colourProvider.Content2;
         }
 
         public void Search(string query)
@@ -214,6 +244,11 @@ namespace typebeat.Game.Overlays.BeatmapListing
 
             resetSearch();
 
+            // The shown count belongs to the previous criteria now: dim it until the new search answers
+            // rather than blanking it, so typing a query does not make the row flicker.
+            if (resultCount.Alpha > 0)
+                resultCount.FadeTo(0.5f, 200, Easing.OutQuint);
+
             // no sign-in gate: the search is a public read (SearchBeatmapSetsRequest.AllowsAnonymous).
             queryChangedDebounce = Scheduler.AddDelayed(() =>
             {
@@ -248,7 +283,12 @@ namespace typebeat.Game.Overlays.BeatmapListing
                     noMoreResults = true;
 
                 if (CurrentPage == 0)
+                {
                     searchControl.BeatmapSet = sets.FirstOrDefault();
+
+                    // The total is the whole search's, so later pages repeat it; the first page sets it.
+                    updateResultCount(response.Total);
+                }
 
                 lastResponse = response;
                 getSetsRequest = null;
@@ -259,8 +299,39 @@ namespace typebeat.Game.Overlays.BeatmapListing
                 SearchFinished?.Invoke(resultsReturned);
             };
 
+            var request = getSetsRequest;
+
+            getSetsRequest.Failure += e =>
+            {
+                // A cancellation is a newer search replacing this one (resetSearch), and that search sets the count.
+                if (e is OperationCanceledException || request != getSetsRequest)
+                    return;
+
+                // The first page failed, so the dimmed count still describes the previous criteria: hide it rather than
+                // let it pass for this search's. A later page failing leaves the (still right) count alone.
+                if (CurrentPage == 0)
+                    resultCount.FadeOut(200, Easing.OutQuint);
+            };
+
             api.Queue(getSetsRequest);
         }
+
+        private void updateResultCount(int? total)
+        {
+            if (total is not int count)
+            {
+                // An older server without the field: no count rather than a wrong one.
+                resultCount.FadeOut(200, Easing.OutQuint);
+                return;
+            }
+
+            resultCount.Text = FormatResultCount(count);
+            resultCount.FadeIn(200, Easing.OutQuint);
+        }
+
+        /// <summary>"1 result", "0 results", "1,234 results": the same wording and grouping as the website listing.</summary>
+        public static string FormatResultCount(int count)
+            => $@"{count.ToString(@"N0", CultureInfo.InvariantCulture)} {(count == 1 ? @"result" : @"results")}";
 
         private void resetSearch()
         {
