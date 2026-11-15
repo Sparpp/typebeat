@@ -20,7 +20,8 @@ namespace typebeat.Game.Overlays.Settings.Sections
     /// settings (<see cref="Ruleset.CreateSettings"/>), which used to get a section and a sidebar
     /// entry of their own under this one (backlog 479). They come FIRST: for type!beat they are the
     /// game's main settings (typing, lyric text, carets, visual feedback), and the generic subsections
-    /// after them are mostly what the osu! base left behind.
+    /// after them are mostly what the osu! base left behind. Above all of them sit the Gameplay presets
+    /// (<see cref="PresetSettings"/>), which cover every setting in this section bar two.
     /// </summary>
     public partial class GameplaySection : SettingsSection
     {
@@ -34,6 +35,9 @@ namespace typebeat.Game.Overlays.Settings.Sections
         [BackgroundDependencyLoader]
         private void load(RulesetStore rulesets)
         {
+            // Presets come before everything they cover (backlog 484).
+            Add(new PresetSettings());
+
             foreach (Ruleset ruleset in rulesets.AvailableRulesets.Select(info => info.CreateInstance()))
             {
                 try

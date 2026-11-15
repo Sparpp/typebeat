@@ -3,10 +3,11 @@
 
 using System;
 using osu.Framework.Configuration.Tracking;
+using typebeat.Game.Configuration;
 
 namespace typebeat.Game.Rulesets.Configuration
 {
-    public interface IRulesetConfigManager : ITrackableConfigManager, IDisposable
+    public interface IRulesetConfigManager : ITrackableConfigManager, IDisposable, INamedSettingSource
     {
         /// <summary>
         /// Puts every setting of this ruleset back on its default and saves (Maintenance, "Reset all

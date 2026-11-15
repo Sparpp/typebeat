@@ -11,6 +11,7 @@ using typebeat.Game.Localisation;
 using typebeat.Game.Overlays;
 using typebeat.Game.Overlays.Settings;
 using typebeat.Game.Overlays.Settings.Sections;
+using typebeat.Game.Overlays.Settings.Sections.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Tests.Visual;
 
@@ -89,8 +90,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         public void TestGameplayHostsTheRulesetSettingsFirst()
         {
             AddAssert("the ruleset's settings are inside Gameplay", () => settings.ChildrenOfType<TypeBeatSettingsSubsection>().Single().FindClosestParent<SettingsSection>() == gameplay);
-            AddAssert("ahead of Gameplay's own subsections",
-                () => gameplay.ChildrenOfType<SettingsSubsection>().First() is TypeBeatSettingsSubsection);
+            AddAssert("ahead of Gameplay's own subsections, below only the presets",
+                () => gameplay.ChildrenOfType<SettingsSubsection>().First(s => s is not PresetSettings) is TypeBeatSettingsSubsection);
             AddAssert("settled controls are under Gameplay", () => captionsIn(gameplay).Contains("Space to skip current word"));
         }
 

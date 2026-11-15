@@ -9,6 +9,7 @@ using osu.Framework.Localisation;
 using osu.Framework.Platform;
 using osu.Framework.Screens;
 using typebeat.Game.Configuration;
+using typebeat.Game.Configuration.Presets;
 using typebeat.Game.Localisation;
 using typebeat.Game.Overlays.Notifications;
 using typebeat.Game.Rulesets;
@@ -39,18 +40,35 @@ namespace typebeat.Game.Overlays.Settings.Sections.Maintenance
         [Resolved]
         private INotificationOverlay? notifications { get; set; }
 
+        [Resolved]
+        private GameplayPresetManager? gameplayPresets { get; set; }
+
         /// <summary>
         /// Puts the game's settings and every installed ruleset's settings back on their defaults.
         /// What a reset deliberately keeps is listed on <see cref="OsuConfigManager.KeepOnReset"/>.
+        /// Gameplay presets are kept: the reset selects Minimal, and the preset that was selected still holds
+        /// the Gameplay settings it replaced (Custom remembers them as it does whenever another preset is
+        /// selected; see <see cref="GameplayPresetManager.ResetAllSettings"/>).
         /// </summary>
         public void ResetAllSettings()
         {
-            config.ResetToDefaults();
+            void reset()
+            {
+                config.ResetToDefaults();
 
-            foreach (var info in rulesets.AvailableRulesets)
-                rulesetConfigs.GetConfigFor(info.CreateInstance())?.ResetToDefaults();
+                foreach (var info in rulesets.AvailableRulesets)
+                    rulesetConfigs.GetConfigFor(info.CreateInstance())?.ResetToDefaults();
+            }
 
-            notifications?.Post(new SimpleNotification { Text = "Settings were reset to their defaults." });
+            if (gameplayPresets != null)
+                gameplayPresets.ResetAllSettings(reset);
+            else
+                reset();
+
+            notifications?.Post(new SimpleNotification
+            {
+                Text = "Settings were reset to their defaults. Gameplay presets are kept: select the one you were using to get your Gameplay settings back."
+            });
         }
 
         [BackgroundDependencyLoader]

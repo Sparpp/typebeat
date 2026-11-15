@@ -87,6 +87,10 @@ namespace typebeat.Game.Rulesets.Configuration
         /// <summary>A setting <see cref="ResetToDefaults"/> leaves alone. None by default.</summary>
         protected virtual bool KeepOnReset(TLookup lookup) => false;
 
+        public IEnumerable<string> SettingNames => NamedSettings.NamesIn(ConfigStore);
+
+        public IBindable FindSetting(string name) => NamedSettings.Find(ConfigStore, name);
+
         protected override void AddBindable<TBindable>(TLookup lookup, Bindable<TBindable> bindable)
         {
             base.AddBindable(lookup, bindable);
