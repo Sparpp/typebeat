@@ -298,15 +298,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public static float HeldSungOffset(double fraction, float advance, float trackWidth)
             => (float)((advance + trackWidth) * Math.Clamp(fraction, 0, 1));
 
-        /// <summary>Test accessor.</summary>
-        internal OsuSpriteText? HoldTravellerAt(int cellIndex)
-            => holdTravellers != null && holdTravellers.TryGetValue(cellIndex, out var t) ? t.Sprite : null;
-
         /// <summary>Where cell <paramref name="cellIndex"/>'s letter sits at rest (content-local centre).</summary>
         internal Vector2 HoldTravellerBaseAt(int cellIndex) => new Vector2(cellX[cellIndex] + advances[cellIndex] * 0.5f, glyphHeight * 0.5f);
-
-        /// <summary>Test accessor.</summary>
-        internal float HoldGhostAt(int cellIndex) => holdGhost?[cellIndex] ?? 1f;
 
         /// <summary>Cell <paramref name="i"/>'s displayed alpha ignoring the hold ghost (a traveller carries it).</summary>
         private float cellVisibleAlpha(int i)
@@ -343,9 +336,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         /// <summary>Effective on-screen height of a glyph row (after auto-shrink scaling).</summary>
         public float LineHeight => glyphHeight * contentScale;
-
-        /// <summary>Test accessor: the glyph row's height in content-local units.</summary>
-        internal float GlyphRowHeight => glyphHeight;
 
         /// <summary>
         /// Limit this line to the available playfield width. Each display keeps its own scale, so

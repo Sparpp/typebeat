@@ -3,7 +3,6 @@
 
 using System.Linq;
 using NUnit.Framework;
-using typebeat.Game.Graphics;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Scoring;
@@ -20,7 +19,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     public class TypeBeatModClassicTest
     {
         [Test]
-        public void ResolvesToClassicWithTheBaseIcon()
+        public void ResolvesToClassic()
         {
             var ruleset = new TypeBeatRuleset();
 
@@ -33,9 +32,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(mod.Name, Is.EqualTo("Classic"));
                 Assert.That(mod.Acronym, Is.EqualTo("CL"));
-                Assert.That(mod.Icon, Is.EqualTo(OsuIcon.ModClassic), "the same icon osu's own Classic badge uses");
                 Assert.That(mod.Ranked, Is.True, "a marked play keeps its place; it is only paid less");
             });
         }

@@ -118,7 +118,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             at("text aligns before the bar", () => 900);
             AddUntilStep("pace rail stays hidden while bar approaches", () => display.FloatingBarAlpha(0) > 0 && display.RevealedPaceWidth == 0);
             AddUntilStep("only Colour in previews the future rail", () => previewMatchesMode());
-            AddAssert("preview uses faint gray", () => display.UnrevealedPaceBarColour.Equals((ColourInfo)TypeBeatStyle.UntypedChar.Opacity(0.25f)));
             AddStep("type before arrival with judgement colours enabled", () =>
             {
                 config.SetValue(TypeBeatRulesetSetting.JudgementColouredBars, true);

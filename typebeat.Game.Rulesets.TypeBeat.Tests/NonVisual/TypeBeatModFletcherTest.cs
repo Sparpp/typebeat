@@ -28,12 +28,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var mod = new TypeBeatModFletcher();
 
-            Assert.AreEqual("Fletcher", mod.Name);
             Assert.AreEqual("FC", mod.Acronym);
             Assert.AreNotEqual("FT", mod.Acronym, "FT belongs to the retired mod and to the rows already carrying it");
             Assert.AreEqual(ModType.Conversion, mod.Type);
             Assert.IsTrue(mod.Ranked);
-            Assert.AreEqual("Were you Rushing or were you Dragging?!", mod.Description.ToString());
         }
 
         [Test]

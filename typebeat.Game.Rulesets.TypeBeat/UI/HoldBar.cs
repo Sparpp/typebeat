@@ -76,12 +76,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <summary>The sigma a finished track blurs to; scaled by the display's size ratio.</summary>
         public float BlurSigma { get; set; } = HOLD_BLUR_SIGMA;
 
-        /// <summary>Test accessor.</summary>
-        internal float InnerAlpha => inner.Alpha;
-
-        /// <summary>Test accessor.</summary>
-        internal float InnerBlur => inner.BlurSigma.X;
-
         protected override void Update()
         {
             base.Update();
@@ -115,12 +109,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             get => fill.Width;
             set => fill.Width = System.Math.Clamp(value, 0f, 1f);
         }
-
-        /// <summary>Test accessor.</summary>
-        internal ColourInfo FillColour => fill.Colour;
-
-        /// <summary>Test accessor.</summary>
-        internal ColourInfo TrackColour => track.Colour;
 
         public Vector2 TickSize
         {
@@ -177,21 +165,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             tick.Scale = Vector2.One;
             tick.Colour = MISSED_TRACK;
         }
-
-        /// <summary>Test accessor.</summary>
-        internal int TickCount => ticks.Children.Count;
-
-        /// <summary>Test accessor.</summary>
-        internal Drawable TickAt(int index) => ticks.Children[index];
-
-        /// <summary>Test accessor.</summary>
-        internal ColourInfo TickColourAt(int index) => ticks.Children[index].Colour;
-
-        /// <summary>Test accessor.</summary>
-        internal float TickFractionAt(int index) => ticks.Children[index].X;
-
-        /// <summary>Test accessor.</summary>
-        internal bool TicksBlurWithTheBar => ticks.Parent == inner;
 
         /// <summary>Flashes <paramref name="colour"/> and settles on it; the fill keeps the width it froze at.</summary>
         public void ShowResult(Color4 colour)

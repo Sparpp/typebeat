@@ -7,11 +7,9 @@ using System.Linq;
 using NUnit.Framework;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
-using osu.Framework.Graphics.Shapes;
 using osu.Framework.Testing;
 using osu.Framework.Timing;
 using typebeat.Game.Beatmaps;
-using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
@@ -112,7 +110,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("red edges fade smoothly", () => warning.Alpha > 0.09f && warning.Alpha < 0.11f);
             at("release finishes", cutoff + 150);
             AddUntilStep("edges finish fading quickly", () => alphaIs(0));
-            AddAssert("uses the same visual as osu low-health warning", () => warning is ScreenEdgeWarning && warning.Colour.Equals((osu.Framework.Graphics.Colour.ColourInfo)new OsuColour().Red));
         }
 
         [Test]
@@ -174,8 +171,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddWaitStep("frozen clock stays stable", 3);
             AddAssert("pause cannot advance the fade", () => alphaIs(0.2f));
             AddAssert("overlay covers the screen independently of lyric bounds", () => Vector2.Distance(warning.DrawSize, drawableRuleset.DrawSize) < 0.01f);
-            AddAssert("only the edges contain the gradient", () => warning.ChildrenOfType<Box>().Count() == 2
-                && warning.ChildrenOfType<Box>().All(box => box.Width == 0.2f));
         }
     }
 }

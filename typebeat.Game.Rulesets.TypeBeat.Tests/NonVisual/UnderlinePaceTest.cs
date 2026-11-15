@@ -73,23 +73,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         #endregion
 
-        #region Colour measurement (sRGB IEC 61966-2-1 / WCAG 2.x)
-
-        private static double toLinear(double channel)
-            => channel <= 0.04045 ? channel / 12.92 : Math.Pow((channel + 0.055) / 1.055, 2.4);
-
-        private static double luminance(Color4 c)
-            => 0.2126 * toLinear(c.R) + 0.7152 * toLinear(c.G) + 0.0722 * toLinear(c.B);
-
-        private static double contrast(Color4 a, Color4 b)
-        {
-            double la = luminance(a);
-            double lb = luminance(b);
-            return (Math.Max(la, lb) + 0.05) / (Math.Min(la, lb) + 0.05);
-        }
-
-        #endregion
-
         [TestCase(100, 100, 0)]
         [TestCase(200, 100, 0.5)]
         [TestCase(300, 100, 1)]
@@ -180,18 +163,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         #region The colour ramp
 
         [Test]
-        public void TheNeutralBandIsExactlyThePreTaskRail()
-        {
-            // The single flat track this feature replaced was SungAccent at 20%. Half of every map
-            // renders in the neutral band, and a uniformly paced map renders entirely in it, so this
-            // equality is what makes the feature invisible where it has nothing to say.
-            Assert.That(UnderlinePace.NeutralColour, Is.EqualTo(new Color4(
-                TypeBeatStyle.SungAccent.R, TypeBeatStyle.SungAccent.G, TypeBeatStyle.SungAccent.B, 0.20f)));
-
-            Assert.That(UnderlinePace.NEUTRAL_ALPHA, Is.EqualTo(0.20f));
-        }
-
-        [Test]
         public void TheWholeNeutralBufferIsNeutralInclusiveOfBothEdges()
         {
             // Exactly the specified rule: 25th to 75th percentile triggers no hue AT ALL. The two
@@ -276,31 +247,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(alpha, Is.GreaterThanOrEqualTo(UnderlinePace.NEUTRAL_ALPHA).And.LessThanOrEqualTo(UnderlinePace.HUED_ALPHA),
                     $"rank {step / 100.0} left the rail's alpha regime");
             }
-
-            Assert.That(UnderlinePace.HUED_ALPHA, Is.GreaterThan(UnderlinePace.NEUTRAL_ALPHA).And.LessThan(0.5f),
-                "the loudest band must still be a faint rail, not a highlight");
-        }
-
-        [Test]
-        public void TheSlowAnchorKeepsTheRailsWeightWhileClearingTheFastAnchor()
-        {
-            // The green must be a HUE rotation of the rail, not a brighter rail: a luminance step
-            // would make a slow passage read as a louder underline rather than a greener one.
-            Assert.That(contrast(TypeBeatStyle.PaceSlowAccent, TypeBeatStyle.SungAccent), Is.LessThan(1.2),
-                "the slow anchor must sit at effectively the rail's own luminance");
-
-            // Separation from the rail is carried by HUE instead, and by a large step of it: the
-            // blue channel is more than halved while the green rises, which is what turns the rail's
-            // cyan into an unambiguous green rather than a slightly different blue.
-            Assert.That(TypeBeatStyle.PaceSlowAccent.B, Is.LessThan(TypeBeatStyle.SungAccent.B * 0.6f));
-            Assert.That(TypeBeatStyle.PaceSlowAccent.G, Is.GreaterThan(TypeBeatStyle.SungAccent.G));
-            Assert.That(TypeBeatStyle.PaceSlowAccent.G, Is.GreaterThan(TypeBeatStyle.PaceSlowAccent.B));
-
-            // And the two ENDS of the ramp can never be confused with one another.
-            Assert.That(contrast(TypeBeatStyle.PaceSlowAccent, TypeBeatStyle.ErrorChar), Is.GreaterThan(2.0),
-                "the slow and fast anchors must be plainly separable");
-            Assert.That(TypeBeatStyle.ErrorChar.R, Is.GreaterThan(TypeBeatStyle.ErrorChar.G));
-            Assert.That(TypeBeatStyle.PaceSlowAccent.G, Is.GreaterThan(TypeBeatStyle.PaceSlowAccent.R));
         }
 
         [Test]

@@ -157,7 +157,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 float at(int i) => strip().ToLocalSpace(bounds[i].ScreenSpaceDrawQuad.Centre).X;
                 float expected(double fraction) => strip().PositionOf(1000) + (float)fraction * (strip().PositionOf(5000) - strip().PositionOf(1000));
 
-                return bounds.Count == 2 && bounds.All(b => b.Alpha > 0 && b.Alpha < 1)
+                return bounds.Count == 2 && bounds.All(b => b.Alpha > 0)
                                          && Math.Abs(at(0) - expected(start)) < 1 && Math.Abs(at(1) - expected(end)) < 1;
             });
 

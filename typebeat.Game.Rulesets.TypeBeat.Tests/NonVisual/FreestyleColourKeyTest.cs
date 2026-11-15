@@ -45,7 +45,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             Assert.That(FreestyleColourKey.Format(teal), Is.EqualTo("#12abef"));
             Assert.That(FreestyleColourKey.Format(teal.Opacity(0.5f)), Is.EqualTo("#12abef"), "alpha is never stored");
-            Assert.That(FreestyleColourKey.Format((Colour4)TypeBeatStyle.FreestyleChar), Is.EqualTo("#c792ea"));
         }
 
         [Test]

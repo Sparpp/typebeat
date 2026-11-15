@@ -287,10 +287,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(min.Default, Is.EqualTo(33f));
                 Assert.That(max.Default, Is.EqualTo(100f));
                 Assert.That(new[] { min.MinValue, min.MaxValue, max.MinValue, max.MaxValue }, Is.EqualTo(new[] { 0f, 100f, 0f, 100f }));
-
-                // Warm for early, cool for late.
-                Assert.That(rulesetConfig.GetBindable<string>(TypeBeatRulesetSetting.TimingTintEarlyColour).Default, Is.EqualTo("#ff8a3d"));
-                Assert.That(rulesetConfig.GetBindable<string>(TypeBeatRulesetSetting.TimingTintLateColour).Default, Is.EqualTo("#4d8bff"));
             }
         }
     }

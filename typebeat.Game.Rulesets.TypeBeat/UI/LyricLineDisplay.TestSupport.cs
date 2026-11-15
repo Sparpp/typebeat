@@ -58,7 +58,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         internal float UnrevealedPaceBarWidth => unrevealedPaceBar.IsNotNull() ? unrevealedPaceBar.Width : 0f;
         internal float UnrevealedPaceBarAlpha => unrevealedPaceBar.IsNotNull() ? unrevealedPaceBar.Alpha : 0f;
-        internal ColourInfo UnrevealedPaceBarColour => unrevealedPaceBar.Colour;
         internal osu.Framework.Graphics.Primitives.Quad UnrevealedPaceBarScreenQuad => unrevealedPaceBar.ScreenSpaceDrawQuad;
 
         /// <summary>The colour a cell is currently drawn in; test support for the freestyle tint.</summary>

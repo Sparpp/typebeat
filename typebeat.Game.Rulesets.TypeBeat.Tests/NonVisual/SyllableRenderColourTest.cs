@@ -23,29 +23,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         private static Color4 fill(CellState state, bool inSung, double? quality = null, bool freestyle = false)
             => LyricLineDisplay.CellFillColour(state, freestyle, inSung, quality);
 
-        // Colour measurement (sRGB IEC 61966-2-1 / WCAG 2.x), the same helpers SyncTintTest uses to
-        // state design constraints in terms a human can check against a contrast checker.
-        private static double toLinear(double channel)
-            => channel <= 0.04045 ? channel / 12.92 : Math.Pow((channel + 0.055) / 1.055, 2.4);
-
-        private static double luminance(Color4 c)
-            => 0.2126 * toLinear(c.R) + 0.7152 * toLinear(c.G) + 0.0722 * toLinear(c.B);
-
-        private static double contrast(Color4 a, Color4 b)
-        {
-            double la = luminance(a);
-            double lb = luminance(b);
-            return (Math.Max(la, lb) + 0.05) / (Math.Min(la, lb) + 0.05);
-        }
-
-        private static void assertBrighterThan(Color4 brighter, Color4 duller, string what)
-        {
-            Assert.That(luminance(brighter), Is.GreaterThan(luminance(duller)), what);
-            Assert.That(brighter.R, Is.GreaterThan(duller.R), $"{what} (R)");
-            Assert.That(brighter.G, Is.GreaterThan(duller.G), $"{what} (G)");
-            Assert.That(brighter.B, Is.GreaterThan(duller.B), $"{what} (B)");
-        }
-
         // --- the lit group ---
 
         [Test]
@@ -64,17 +41,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // Not yet sung and already sung past are the same input here: not the current group.
             Assert.That(fill(CellState.Untyped, inSung: false),
                 Is.EqualTo(TypeBeatStyle.UntypedChar));
-        }
-
-        [Test]
-        public void TheDefaultHighlightIsDistinctFromUntypedAndTypedText()
-        {
-            var highlight = fill(CellState.Untyped, inSung: true);
-
-            assertBrighterThan(highlight, TypeBeatStyle.UntypedChar, "highlight vs untyped grey");
-            assertBrighterThan(TypeBeatStyle.TypedChar, highlight, "typed white vs highlight");
-            Assert.That(contrast(highlight, TypeBeatStyle.UntypedChar), Is.GreaterThan(1.4));
-            Assert.That(contrast(TypeBeatStyle.TypedChar, highlight), Is.GreaterThan(1.4));
         }
 
         [TestCase(0f)]

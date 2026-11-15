@@ -244,7 +244,7 @@ namespace typebeat.Game.Screens.Edit.Components
             private readonly BindableNumber<double> tempo;
             private readonly Box defaultTick;
 
-            /// <summary>The drag button, exposed for scene tests asserting its size.</summary>
+            /// <summary>The drag button, exposed for the fill-reaches-nub scene test.</summary>
             public Drawable DragNub => Nub;
 
             /// <summary>The filled (left) portion of the bar, exposed for scene tests asserting it reaches the nub.</summary>

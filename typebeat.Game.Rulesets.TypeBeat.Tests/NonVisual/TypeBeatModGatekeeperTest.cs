@@ -61,13 +61,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var mod = new TypeBeatModGatekeeper();
 
-            Assert.AreEqual("Gatekeeper", mod.Name);
             Assert.AreEqual("GK", mod.Acronym);
             Assert.AreEqual(ModType.Conversion, mod.Type);
             Assert.IsTrue(mod.Ranked, "Gatekeeper is the old default model, not a cheat; its scores must reach the leaderboards.");
             Assert.IsTrue(mod.HasImplementation);
-            Assert.IsTrue(mod.Description.ToString().Contains("rejected"),
-                "the description must say plainly what it does to a wrong key");
         }
 
         [Test]

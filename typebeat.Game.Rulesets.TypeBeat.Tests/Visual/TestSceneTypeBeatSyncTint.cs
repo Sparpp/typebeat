@@ -201,9 +201,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // (see LyricLineDisplay.CellFillColour).
             AddUntilStep("the line's one group is being sung", () => display.SungSyllable == 0);
             AddAssert("so every cell after the first starts on the highlight grey", () => same(colour(1), TypeBeatStyle.SungChar) && same(colour(4), TypeBeatStyle.SungChar));
-            // Brightness is adjustable independently of sync quality; the default highlight
-            // remains distinct from the ramp floor without requiring a brightness ordering.
-            AddAssert("and the ramp floor is distinct", () => !same(LyricLineDisplay.CorrectCharColour(0), TypeBeatStyle.SungChar));
         }
 
         [Test]

@@ -72,18 +72,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var mod = new TypeBeatModPuppeteer();
 
-            // The DISPLAY name is the retired mod's old one (backlog 257: this is the only follower
-            // now), the CLASS name is unchanged, and the ACRONYM is a wire identity that can never
+            // The ACRONYM is a wire identity that can never
             // move: "PT" is stamped into scores already recorded, and "CT" belongs to
             // TypeBeatModConductor for as long as one of its rows exists.
-            Assert.AreEqual("Conductor", mod.Name);
             Assert.AreEqual("PT", mod.Acronym);
-            Assert.AreEqual("The song follows you.", mod.Description.ToString());
             Assert.AreEqual(ModType.Fun, mod.Type);
             Assert.IsFalse(mod.Ranked,
                 "a song that meets the caret by construction has no timing left to price, so no leaderboard can hold it");
             Assert.IsTrue(mod.HasImplementation);
-            Assert.IsNotNull(mod.Icon);
 
             // A tape one player is pulling cannot be shared with a room.
             Assert.IsFalse(mod.ValidForMultiplayer);

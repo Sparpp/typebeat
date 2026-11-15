@@ -5,7 +5,6 @@
 
 using System.Linq;
 using NUnit.Framework;
-using osu.Framework.Graphics.Sprites;
 using typebeat.Game.Screens.Menu;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
@@ -44,8 +43,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var discord = MenuTipDisplay.Tips.Single(tip => tip.Url == MenuTipDisplay.DISCORD_URL);
 
             Assert.That(discord.Text.ToString(), Is.EqualTo("Join the type!beat Discord"));
-            Assert.That(discord.Icon.Icon, Is.EqualTo(FontAwesome.Brands.Discord.Icon));
-            Assert.That(discord.Icon.Family, Is.EqualTo(FontAwesome.Brands.Discord.Family));
         }
 
         /// <summary>

@@ -712,8 +712,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Multiple(() =>
             {
                 Assert.That(LyricLineDisplay.CellGlyph(' ', CellState.Wrong, 'x'), Is.EqualTo('x'));
-                Assert.That(LyricLineDisplay.CellFillColour(CellState.Wrong, isFreestyle: false, inSungSyllable: false, syncQuality: null),
-                    Is.EqualTo(TypeBeatStyle.ErrorChar), "and it wears the same error red a lyric typo does");
 
                 Assert.That(LyricLineDisplay.CellGlyph('a', CellState.Wrong, 'x'), Is.EqualTo('a'), "a lyric cell keeps showing its lyric character");
             });

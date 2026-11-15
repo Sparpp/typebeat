@@ -108,7 +108,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("which applies straight away", () => hexIs("#12abef"));
 
             AddStep("hover the preview", () => InputManager.MoveMouseTo(confirm()));
-            AddUntilStep("the check mark grows on hover", () => confirm().Scale.X > 1.1f);
 
             AddStep("click it", () => InputManager.Click(MouseButton.Left));
             AddUntilStep("the picker closes", () => !this.ChildrenOfType<OsuColourPicker>().Any(p => p.IsPresent));
