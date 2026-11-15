@@ -196,6 +196,66 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("header reads unspecified", () => headerShows("Unspecified"));
         }
 
+        /// <summary>
+        /// Backlog 472 review: Enter toggles too. Search plus Enter picks the first match in place, keeps the menu open and
+        /// clears the search for the next one; the arrow keys' preselection toggles the same way; and Enter with nothing
+        /// preselected closes the menu without touching the selection (the framework's own commit would have set the unused
+        /// <c>Current</c> and closed the menu without toggling anything).
+        /// </summary>
+        [Test]
+        public void TestEnterTogglesThePreselectedLanguage()
+        {
+            BeatmapLanguage arrowed = default;
+
+            AddStep("switch to setup", () => Editor.Mode.Value = EditorScreenMode.SongSetup);
+            AddUntilStep("setup screen shown", () => Editor.ChildrenOfType<SetupScreen>().Any());
+
+            AddStep("scroll dropdown to the top", () =>
+            {
+                var scroll = languageDropdown().FindClosestParent<OsuScrollContainer>()!;
+                scroll.ScrollTo(scroll.GetChildPosInContent(languageDropdown()), animated: false);
+            });
+            AddStep("open the dropdown", () =>
+            {
+                InputManager.MoveMouseTo(languageDropdown().ChildrenOfType<DropdownHeader>().Single());
+                InputManager.Click(MouseButton.Left);
+            });
+            AddUntilStep("menu open", () => menuState(), () => Is.EqualTo(MenuState.Open));
+
+            AddStep("search for korean", () => searchTerm().Value = "kor");
+            AddUntilStep("korean preselected", () => menuItem(BeatmapLanguage.Korean).IsPreSelected);
+            AddStep("press enter", () => InputManager.Key(Key.Enter));
+
+            AddAssert("korean picked", () => languageDropdown().SelectedValues.Value, () => Is.EqualTo(new[] { BeatmapLanguage.Korean }));
+            AddAssert("metadata follows", () => EditorBeatmap.Metadata.Languages, () => Is.EqualTo(new[] { BeatmapLanguage.Korean }));
+            AddAssert("menu still open", () => menuState(), () => Is.EqualTo(MenuState.Open));
+            AddAssert("search cleared for the next pick", () => searchTerm().Value, () => Is.Empty);
+            AddAssert("korean ticked", tickedItems, () => Is.EquivalentTo(new[] { BeatmapLanguage.Korean }));
+
+            AddStep("press down", () => InputManager.Key(Key.Down));
+            AddUntilStep("an item is preselected", () => preselectedItem() != null);
+            AddStep("remember it", () => arrowed = ((DropdownMenuItem<BeatmapLanguage>)preselectedItem()!.Item).Value);
+            AddStep("press enter", () => InputManager.Key(Key.Enter));
+            AddAssert("the arrowed language toggled", () => languageDropdown().SelectedValues.Value.Contains(arrowed),
+                () => Is.EqualTo(arrowed != BeatmapLanguage.Korean));
+            AddAssert("menu still open", () => menuState(), () => Is.EqualTo(MenuState.Open));
+
+            AddStep("search for nothing that exists", () => searchTerm().Value = "zzzz");
+            AddUntilStep("nothing preselected", () => preselectedItem() == null);
+            AddStep("remember the selection", () => remembered = languageDropdown().SelectedValues.Value);
+            AddStep("press enter", () => InputManager.Key(Key.Enter));
+            AddUntilStep("menu closed", () => menuState(), () => Is.EqualTo(MenuState.Closed));
+            AddAssert("selection untouched", () => languageDropdown().SelectedValues.Value, () => Is.EqualTo(remembered));
+        }
+
+        private IReadOnlyList<BeatmapLanguage> remembered = new List<BeatmapLanguage>();
+
+        private Bindable<string> searchTerm() => languageDropdown().ChildrenOfType<DropdownHeader>().Single().SearchTerm;
+
+        private FormMultiDropdown<BeatmapLanguage>.DrawableMultiSelectMenuItem? preselectedItem()
+            => languageDropdown().ChildrenOfType<FormMultiDropdown<BeatmapLanguage>.DrawableMultiSelectMenuItem>()
+                                 .SingleOrDefault(i => i.IsPreSelected && i.IsPresent);
+
         private MenuState menuState() => languageDropdown().ChildrenOfType<Dropdown<BeatmapLanguage>.DropdownMenu>().Single().State;
 
         private bool headerShows(string text)

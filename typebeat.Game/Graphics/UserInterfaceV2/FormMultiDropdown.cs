@@ -33,8 +33,9 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
     /// the menu open. The inherited <c>Current</c> is unused here: read and write <see cref="SelectedValues"/> instead.
     /// </para>
     /// <para>
-    /// The mouse is the toggle. The framework commits a keyboard preselection (Enter) through <c>Current</c>, which this
-    /// control does not read, so Enter only closes the menu; Escape closes it as on every dropdown.
+    /// The keyboard toggles too: Enter on the preselected item (arrow keys, or the first match of a typed search) toggles
+    /// it in place through <see cref="FormDropdown{T}.CommitPreselectionInPlace"/>, and Enter with nothing preselected
+    /// closes the menu. Escape closes it as on every dropdown.
     /// </para>
     /// </remarks>
     public partial class FormMultiDropdown<T> : FormDropdown<T>
@@ -115,6 +116,29 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
         /// <summary>Whether <paramref name="item"/> is currently selected.</summary>
         public bool IsChecked(T item) => SelectedValues.Value.Contains(item);
 
+        /// <summary>
+        /// Enter toggles the preselected item (the one under the arrow keys, the hovered one, or the first search match)
+        /// and keeps the menu open, as a click does. The search term is then cleared so the next language can be typed
+        /// straight away; that also drops the preselection, so a further Enter with nothing preselected just closes the
+        /// menu ("type, Enter, type, Enter, Enter to finish").
+        /// </summary>
+        /// <remarks>
+        /// Always handled here, never left to the framework's commit: that sets the unused <c>Current</c> from its
+        /// fallback item (the one matching <c>Current</c>), and with no such item visible it indexes the list at -1.
+        /// </remarks>
+        protected override bool CommitPreselectionInPlace()
+        {
+            if (!Current.Disabled && menu.TryGetPreselected(out T value))
+            {
+                Toggle(value);
+                Header.SearchTerm.Value = string.Empty;
+            }
+            else
+                Menu.Close();
+
+            return true;
+        }
+
         private static IReadOnlyList<T> defaultToggle(IReadOnlyList<T> current, T item)
             => current.Contains(item) ? current.Where(v => !EqualityComparer<T>.Default.Equals(v, item)).ToArray() : current.Append(item).ToArray();
 
@@ -138,6 +162,25 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
             {
                 foreach (var item in Children.OfType<DrawableMultiSelectMenuItem>())
                     item.UpdateCheck();
+            }
+
+            /// <summary>
+            /// The visible item that is preselected, strictly: unlike the framework's <c>PreselectedItem</c>, this never
+            /// falls back to the item for the unused <c>Current</c>.
+            /// </summary>
+            public bool TryGetPreselected(out T value)
+            {
+                foreach (var item in VisibleMenuItems)
+                {
+                    if (item.IsPreSelected)
+                    {
+                        value = ((DropdownMenuItem<T>)item.Item).Value;
+                        return true;
+                    }
+                }
+
+                value = default!;
+                return false;
             }
 
             protected override DrawableDropdownMenuItem CreateDrawableDropdownMenuItem(MenuItem item) => new DrawableMultiSelectMenuItem(dropdown, item)
