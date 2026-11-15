@@ -189,6 +189,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             }
         }
 
+        /// <summary>
+        /// The backing lane's part of <see cref="resizeHandleAt"/>: a backing block's edge zone. Only the
+        /// blocks: the dividers and anchors already sit ABOVE the line boundaries (backingAnchorLayer).
+        /// </summary>
+        private bool backingResizeHandleAt(Vector2 screenSpacePos)
+        {
+            foreach (var block in backingBlocks)
+            {
+                if (block.ResizesAt(screenSpacePos))
+                    return true;
+            }
+
+            return false;
+        }
+
         private void clearBackingVocals()
         {
             backingConnectorLayer.Clear();
@@ -582,6 +597,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 return Grab.Move;
             }
+
+            /// <summary>Whether a press at this point grabs one of this block's edges (see <see cref="resizeHandleAt"/>).</summary>
+            public bool ResizesAt(Vector2 screenSpacePos)
+                => strip.takesInputAt(this, screenSpacePos) && grabAt(ToLocalSpace(screenSpacePos).X) != Grab.Move;
 
             protected override bool OnMouseMove(MouseMoveEvent e)
             {
