@@ -392,6 +392,9 @@ namespace typebeat.Game.Screens.Edit.Submission
             foreach (string file in filesToUpdate)
                 changedFiles.Add(file, await archiveReader.GetStream(file).ReadAllBytesToArrayAsync().ConfigureAwait(true));
 
+            if (refuseOversizedUpload(changedFiles.Values.Sum(f => (long)f.Length)))
+                return;
+
             uint setId = beatmapSetId.Value;
             string[] filesDeleted = onlineFilesByFilename.Keys.ToArray();
 
@@ -423,8 +426,26 @@ namespace typebeat.Game.Screens.Edit.Submission
             // snapshotted once so a retry does not depend on the package stream still being around.
             byte[] package = beatmapPackageStream.ToArray();
 
+            if (refuseOversizedUpload(package.Length))
+                return Task.CompletedTask;
+
             beginPackageUpload(() => new ReplaceBeatmapPackageRequest(setId, package), new ChunkedPackageUpload.DeferredPayload(() => ChunkedPackageUpload.BuildFullPayloadAsync(package)));
             return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Ends the upload stage before it starts when <paramref name="bytes"/> is over the server's limit,
+        /// which it would refuse anyway, and only after the direct retry had died sending it all.
+        /// </summary>
+        private bool refuseOversizedUpload(long bytes)
+        {
+            if (UploadSizeLimit.TooLargeMessage(bytes) is not string message)
+                return false;
+
+            log($"Upload refused before sending: {bytes} bytes is over the {UploadSizeLimit.MAX_BYTES} byte limit.");
+            uploadStep.SetFailed(message);
+            allowExit();
+            return true;
         }
 
         /// <summary>
