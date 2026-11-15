@@ -5,9 +5,6 @@
 
 using System;
 using JetBrains.Annotations;
-using osu.Framework.Allocation;
-using osu.Framework.Audio;
-using osu.Framework.Audio.Sample;
 using osu.Framework.Screens;
 using osu.Framework.Graphics;
 
@@ -19,18 +16,9 @@ namespace typebeat.Game.Screens.Menu
 
         private const double delay_for_menu = 2900;
 
-        private Sample welcome;
-
         public IntroCircles([CanBeNull] Func<MainMenu> createNextScreen = null)
             : base(createNextScreen)
         {
-        }
-
-        [BackgroundDependencyLoader]
-        private void load(AudioManager audio)
-        {
-            if (MenuVoice.Value)
-                welcome = audio.Samples.Get(@"Intro/welcome");
         }
 
         protected override void LogoArriving(OsuLogo logo, bool resuming)
@@ -39,8 +27,7 @@ namespace typebeat.Game.Screens.Menu
 
             if (!resuming)
             {
-                welcome?.Play();
-
+                // No "welcome" voice (backlog 483): the intro never plays a voice clip.
                 Scheduler.AddDelayed(delegate
                 {
                     StartTrack();

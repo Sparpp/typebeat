@@ -56,11 +56,6 @@ namespace typebeat.Game.Screens.Edit.Submission
                     },
                     new FormCheckBox
                     {
-                        Caption = BeatmapSubmissionStrings.NotifyOnDiscussionReplies,
-                        Current = settings.NotifyOnDiscussionReplies,
-                    },
-                    new FormCheckBox
-                    {
                         Caption = BeatmapSubmissionStrings.LoadInBrowserAfterSubmission,
                         Current = loadInBrowserAfterSubmission,
                     },

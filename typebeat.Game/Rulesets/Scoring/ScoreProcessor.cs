@@ -7,10 +7,8 @@ using System.Diagnostics;
 using System.Linq;
 using MessagePack;
 using osu.Framework.Bindables;
-using osu.Framework.Localisation;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Extensions;
-using typebeat.Game.Localisation;
 using typebeat.Game.Rulesets.Judgements;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.Objects;
@@ -685,15 +683,6 @@ namespace typebeat.Game.Rulesets.Scoring
             base.Dispose(isDisposing);
             hitEvents.Clear();
         }
-    }
-
-    public enum ScoringMode
-    {
-        [LocalisableDescription(typeof(GameplaySettingsStrings), nameof(GameplaySettingsStrings.StandardisedScoreDisplay))]
-        Standardised,
-
-        [LocalisableDescription(typeof(GameplaySettingsStrings), nameof(GameplaySettingsStrings.ClassicScoreDisplay))]
-        Classic
     }
 
     [Serializable]

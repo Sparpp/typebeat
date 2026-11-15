@@ -33,12 +33,10 @@ namespace typebeat.Game.Overlays.Settings.Sections
             };
 
             // The former Debug section lives here now, so its subsections are appended rather
-            // than carrying a section of their own.
+            // than carrying a section of their own. (Its "Batch Import" group is gone, backlog 483:
+            // it only ever offered osu!stable imports, which type!beat has no way to reach.)
             if (DebugUtils.IsDebugBuild)
-            {
                 Add(new DebugSettings.GeneralSettings());
-                Add(new DebugSettings.BatchImportSettings());
-            }
 
             Add(new DebugSettings.MemorySettings());
         }

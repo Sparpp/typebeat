@@ -86,7 +86,6 @@ namespace typebeat.Desktop
         private LocalUserStatisticsProvider statisticsProvider { get; set; } = null!;
 
         private IBindable<DiscordRichPresenceMode> privacyMode = null!;
-        private IBindable<UserStatus> userStatus = null!;
         private IBindable<UserActivity?> userActivity = null!;
 
         private readonly RichPresence presence = new RichPresence
@@ -106,7 +105,6 @@ namespace typebeat.Desktop
         private void load(OsuConfigManager config, SessionStatics session)
         {
             privacyMode = config.GetBindable<DiscordRichPresenceMode>(OsuSetting.DiscordRichPresence);
-            userStatus = config.GetBindable<UserStatus>(OsuSetting.UserOnlineStatus);
             userActivity = session.GetBindable<UserActivity?>(Static.UserOnlineActivity);
 
             client = new DiscordRpcClient(client_id)
@@ -160,7 +158,6 @@ namespace typebeat.Desktop
             user = api.LocalUser.GetBoundCopy();
 
             ruleset.BindValueChanged(_ => schedulePresenceUpdate());
-            userStatus.BindValueChanged(_ => schedulePresenceUpdate());
             userActivity.BindValueChanged(_ => schedulePresenceUpdate());
             privacyMode.BindValueChanged(_ => schedulePresenceUpdate());
 
@@ -197,24 +194,22 @@ namespace typebeat.Desktop
                 // when signed out of osu! and when the online-status dropdown says "appear offline",
                 // but both of those are osu!-SERVER broadcast settings: they say who may see you on
                 // the website, and have nothing to say about what your own Discord client shows.
-                // Tying them together is what made presence disappear here. `UserOnlineStatus` is
-                // forced to Offline by LocalUserState whenever /api/v2/me omits `last_visit`, which
-                // this fork's server always does (see the note there), so every logged-in player
-                // landed in this branch and got no presence at all, ever. Presence now renders
-                // whenever the RPC client is up and the player has not turned it off.
+                // Tying them together is what made presence disappear here (upstream forced the status
+                // to Offline whenever /api/v2/me omitted `last_visit`, which this fork's server always
+                // does). The status dropdown itself is gone now (backlog 483; the status is always
+                // Online), so presence renders whenever the RPC client is up and the player has not
+                // turned it off.
                 if (privacyMode.Value == DiscordRichPresenceMode.Off)
                 {
                     client.ClearPresence();
                     return;
                 }
 
-                // Signed out, "appear offline" and "do not disturb" all still show WHAT is being
-                // played (the activity line plus the map title); they withhold only WHO is playing
-                // it: no username, no rank, no multiplayer join secret.
+                // Signed out and the Limited privacy mode still show WHAT is being played (the
+                // activity line plus the map title); they withhold only WHO is playing it: no
+                // username, no rank, no multiplayer join secret.
                 bool hideIdentifiableInformation = !api.IsLoggedIn
-                                                   || privacyMode.Value == DiscordRichPresenceMode.Limited
-                                                   || userStatus.Value == UserStatus.Offline
-                                                   || userStatus.Value == UserStatus.DoNotDisturb;
+                                                   || privacyMode.Value == DiscordRichPresenceMode.Limited;
 
                 updatePresence(hideIdentifiableInformation);
                 client.SetPresence(presence);

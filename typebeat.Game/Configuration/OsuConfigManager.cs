@@ -15,15 +15,10 @@ using typebeat.Game.Input;
 using typebeat.Game.Input.Bindings;
 using typebeat.Game.Localisation;
 using typebeat.Game.Online.Leaderboards;
-using typebeat.Game.Overlays;
-using typebeat.Game.Overlays.Dashboard.Friends;
 using typebeat.Game.Overlays.Mods.Input;
-using typebeat.Game.Rulesets.Scoring;
-using typebeat.Game.Online.Rooms;
 using typebeat.Game.Screens.Select;
 using typebeat.Game.Screens.Select.Filter;
 using typebeat.Game.Skinning;
-using typebeat.Game.Users;
 
 namespace typebeat.Game.Configuration
 {
@@ -32,9 +27,6 @@ namespace typebeat.Game.Configuration
         public OsuConfigManager(Storage storage)
             : base(storage)
         {
-            // The seasonal backgrounds row has no settings UI (removed pending a possible
-            // return), so pin the value regardless of what an older install had stored.
-            SetValue(OsuSetting.SeasonalBackgroundMode, SeasonalBackgroundMode.Never);
         }
 
         protected override void InitialiseDefaults()
@@ -48,7 +40,6 @@ namespace typebeat.Game.Configuration
             SetDefault(OsuSetting.BeatmapDetailModsFilter, false);
 
             SetDefault(OsuSetting.SeparateAllDifficulties, false);
-            SetDefault(OsuSetting.ShowConvertedBeatmaps, true);
             SetDefault(OsuSetting.DisplayStarsMinimum, 0.0, 0, 10, 0.1);
             SetDefault(OsuSetting.DisplayStarsMaximum, 10.1, 0, 10.1, 0.1);
 
@@ -61,10 +52,7 @@ namespace typebeat.Game.Configuration
 
             SetDefault(OsuSetting.ModSelectTextSearchStartsActive, true);
 
-            SetDefault(OsuSetting.ChatDisplayHeight, ChatOverlay.DEFAULT_HEIGHT, 0.2f, 1f, 0.01f);
-
             SetDefault(OsuSetting.BeatmapListingCardSize, BeatmapCardSize.Normal);
-            SetDefault(OsuSetting.BeatmapListingFeaturedArtistFilter, true);
 
             SetDefault(OsuSetting.ProfileCoverExpanded, true);
 
@@ -100,14 +88,9 @@ namespace typebeat.Game.Configuration
 
             SetDefault(OsuSetting.ShowOnlineExplicitContent, false);
 
-            SetDefault(OsuSetting.NotifyOnUsernameMentioned, true);
-            SetDefault(OsuSetting.NotifyOnPrivateMessage, true);
-            SetDefault(OsuSetting.NotifyOnFriendPresenceChange, true);
-
             // Audio
             SetDefault(OsuSetting.VolumeInactive, 0.25, 0, 1, 0.01);
 
-            SetDefault(OsuSetting.MenuVoice, true);
             SetDefault(OsuSetting.MenuMusic, true);
             SetDefault(OsuSetting.MenuTips, true);
 
@@ -122,8 +105,6 @@ namespace typebeat.Game.Configuration
             SetDefault(OsuSetting.MouseDisableWheel, false);
             SetDefault(OsuSetting.ConfineMouseMode, OsuConfineMouseMode.DuringGameplay);
 
-            SetDefault(OsuSetting.TouchDisableGameplayTaps, false);
-
             // Graphics
             SetDefault(OsuSetting.ShowFpsDisplay, false);
 
@@ -134,13 +115,9 @@ namespace typebeat.Game.Configuration
 
             SetDefault(OsuSetting.CursorRotation, true);
 
-#pragma warning disable CS0612 // Type or member is obsolete (setting default value to avoid risk of any future crashes)
-            SetDefault(OsuSetting.MenuParallax, true);
-#pragma warning restore CS0612 // Type or member is obsolete
             SetDefault(OsuSetting.MenuParallaxScale, 1.0f, 0.0f, 2.0f, 0.1f);
 
             // Gameplay
-            SetDefault(OsuSetting.PositionalHitsoundsLevel, 0.2f, 0, 1, 0.01f);
             // type!beat ships with a 40% gameplay background dim by default so the beatmap
             // background image/video stays partly veiled. (Only affects fresh installs: an existing
             // install persists DimLevel to game.ini and reloads its stored value over this default,
@@ -149,29 +126,18 @@ namespace typebeat.Game.Configuration
             SetDefault(OsuSetting.BlurLevel, 0, 0, 1, 0.01);
             SetDefault(OsuSetting.LightenDuringBreaks, true);
 
-            SetDefault(OsuSetting.HitLighting, true);
             SetDefault(OsuSetting.StarFountains, true);
 
             SetDefault(OsuSetting.HUDVisibilityMode, HUDVisibilityMode.Always);
             SetDefault(OsuSetting.ShowHealthDisplayWhenCantFail, true);
-            SetDefault(OsuSetting.FadePlayfieldWhenHealthLow, true);
-            SetDefault(OsuSetting.KeyOverlay, false);
             SetDefault(OsuSetting.ReplaySettingsOverlay, true);
             SetDefault(OsuSetting.ReplayPlaybackControlsExpanded, true);
             SetDefault(OsuSetting.GameplayLeaderboard, true);
-            SetDefault(OsuSetting.AlwaysPlayFirstComboBreak, true);
-
-            SetDefault(OsuSetting.FloatingComments, false);
-
-            SetDefault(OsuSetting.ScoreDisplayMode, ScoringMode.Standardised);
 
             SetDefault(OsuSetting.GameplayDisableWinKey, true);
 
             // Applied before the window exists by Input.RawKeyboardFallback, which reads game.ini itself.
             SetDefault(OsuSetting.DisableRawKeyboard, false);
-
-            // Update
-            SetDefault(OsuSetting.ReleaseStream, ReleaseStream.Lazer);
 
             SetDefault(OsuSetting.Version, string.Empty);
 
@@ -198,59 +164,22 @@ namespace typebeat.Game.Configuration
 
             SetDefault(OsuSetting.UIHoldActivationDelay, 200.0, 0.0, 500.0, 50.0);
 
-
-            // Default the global (menu) background to the beatmap's own background image and
-            // storyboard/video rather than the skin background. (Only affects fresh installs.)
-            SetDefault(OsuSetting.MenuBackgroundSource, BackgroundSource.BeatmapWithStoryboard);
-            // No settings UI for this (row removed): silently pinned to Never until seasonal
-            // backgrounds make a return.
-            SetDefault(OsuSetting.SeasonalBackgroundMode, SeasonalBackgroundMode.Never);
-
             SetDefault(OsuSetting.DiscordRichPresence, DiscordRichPresenceMode.Full);
 
             SetDefault(OsuSetting.EditorDim, 0.25f, 0f, 1f, 0.25f);
             SetDefault(OsuSetting.EditorWaveformOpacity, 0.25f, 0f, 1f, 0.25f);
-            SetDefault(OsuSetting.EditorShowHitMarkers, true);
-            SetDefault(OsuSetting.EditorAutoSeekOnPlacement, true);
-            SetDefault(OsuSetting.EditorLimitedDistanceSnap, false);
-            SetDefault(OsuSetting.EditorShowSpeedChanges, false);
-            SetDefault(OsuSetting.EditorScaleOrigin, EditorOrigin.GridCentre);
-            SetDefault(OsuSetting.EditorRotationOrigin, EditorOrigin.GridCentre);
-            SetDefault(OsuSetting.EditorAdjustExistingObjectsOnTimingChanges, true);
 
             SetDefault(OsuSetting.HideCountryFlags, false);
 
-            SetDefault(OsuSetting.MultiplayerRoomFilter, RoomPermissionsFilter.All);
-            SetDefault(OsuSetting.MultiplayerShowInProgressFilter, true);
-            SetDefault(OsuSetting.MultiplayerShowFullFilter, false);
-
-            SetDefault(OsuSetting.LastProcessedMetadataId, -1);
-
             SetDefault(OsuSetting.ComboColourNormalisationAmount, 0.2f, 0f, 1f, 0.01f);
-            SetDefault(OsuSetting.UserOnlineStatus, UserStatus.Online);
 
             SetDefault(OsuSetting.EditorTimelineShowTimingChanges, true);
-            SetDefault(OsuSetting.EditorTimelineShowBreaks, true);
-            SetDefault(OsuSetting.EditorTimelineShowTicks, true);
-
-            SetDefault(OsuSetting.EditorContractSidebars, false);
 
             SetDefault(OsuSetting.AlwaysShowHoldForMenuButton, false);
             SetDefault(OsuSetting.AlwaysRequireHoldingForPause, false);
             SetDefault(OsuSetting.EditorShowStoryboard, true);
 
-            SetDefault(OsuSetting.EditorSubmissionNotifyOnDiscussionReplies, true);
             SetDefault(OsuSetting.EditorSubmissionLoadInBrowserAfterSubmission, true);
-
-            SetDefault(OsuSetting.WasSupporter, false);
-
-            // intentionally uses `DateTime?` and not `DateTimeOffset?` because the latter fails due to `DateTimeOffset` not implementing `IConvertible`
-            SetDefault(OsuSetting.LastOnlineTagsPopulation, (DateTime?)null);
-
-            SetDefault(OsuSetting.DashboardSortMode, UserSortCriteria.LastVisit);
-            SetDefault(OsuSetting.DashboardDisplayStyle, OverlayPanelDisplayStyle.Card);
-
-            SetDefault(OsuSetting.PMFriendsOnly, false);
         }
 
         /// <summary>
@@ -268,8 +197,8 @@ namespace typebeat.Game.Configuration
 
         /// <summary>
         /// Settings a reset leaves alone: they are not preferences the player tunes but identity or
-        /// bookkeeping, and resetting them would sign the player out, re-run first-run setup, replay the
-        /// changelog, move them to another update channel or re-do work the game has already done.
+        /// bookkeeping, and resetting them would sign the player out, re-run first-run setup or replay the
+        /// changelog.
         /// </summary>
         public static bool KeepOnReset(OsuSetting lookup)
         {
@@ -280,18 +209,11 @@ namespace typebeat.Game.Configuration
                 case OsuSetting.Username:
                 case OsuSetting.SaveUsername:
                 case OsuSetting.SavePassword:
-                case OsuSetting.UserOnlineStatus:
-                case OsuSetting.WasSupporter:
                 // Bookkeeping and one-time flows.
                 case OsuSetting.Version:
                 case OsuSetting.ShowFirstRunSetup:
                 case OsuSetting.ShowMobileDisclaimer:
-                case OsuSetting.LastProcessedMetadataId:
-                case OsuSetting.LastOnlineTagsPopulation:
-                case OsuSetting.ReleaseStream:
                 case OsuSetting.Ruleset:
-                // Pinned by the constructor; its default is not the value the game runs with.
-                case OsuSetting.SeasonalBackgroundMode:
                     return true;
             }
 
@@ -377,7 +299,6 @@ namespace typebeat.Game.Configuration
         public Func<GlobalAction, LocalisableString> LookupKeyBindings { private get; set; } = _ => @"unknown";
 
         IBindable<float> IGameplaySettings.ComboColourNormalisationAmount => GetOriginalBindable<float>(OsuSetting.ComboColourNormalisationAmount);
-        IBindable<float> IGameplaySettings.PositionalHitsoundsLevel => GetOriginalBindable<float>(OsuSetting.PositionalHitsoundsLevel);
     }
 
     // IMPORTANT: These are used in user configuration files.
@@ -392,15 +313,10 @@ namespace typebeat.Game.Configuration
         EditorDim,
         LightenDuringBreaks,
         ShowStoryboard,
-        KeyOverlay,
         GameplayLeaderboard,
-        PositionalHitsoundsLevel,
-        AlwaysPlayFirstComboBreak,
-        FloatingComments,
         HUDVisibilityMode,
 
         ShowHealthDisplayWhenCantFail,
-        FadePlayfieldWhenHealthLow,
 
         /// <summary>
         /// Disables mouse buttons clicks during gameplay.
@@ -417,12 +333,8 @@ namespace typebeat.Game.Configuration
 
         VolumeInactive,
         MenuMusic,
-        MenuVoice,
         MenuTips,
         CursorRotation,
-
-        [Obsolete]
-        MenuParallax, // todo: can be removed 20270101
 
         MenuParallaxScale,
 
@@ -436,7 +348,6 @@ namespace typebeat.Game.Configuration
         BeatmapLeaderboardSortMode,
         BeatmapDetailModsFilter,
         Username,
-        ReleaseStream,
         SavePassword,
         SaveUsername,
         DisplayStarsMinimum,
@@ -447,20 +358,17 @@ namespace typebeat.Game.Configuration
         RandomSelectAlgorithm,
         ModSelectHotkeyStyle,
         ShowFpsDisplay,
-        ChatDisplayHeight,
         BeatmapListingCardSize,
         ToolbarClockDisplayMode,
         SongSelectBackgroundBlur,
         Version,
         ShowFirstRunSetup,
-        ShowConvertedBeatmaps,
         Skin,
         ScreenshotFormat,
         ScreenshotCaptureMenuCursor,
         BeatmapSkins,
         BeatmapColours,
         BeatmapHitsounds,
-        ScoreDisplayMode,
         ExternalLinkWarning,
         PreferNoVideo,
         Scaling,
@@ -473,69 +381,31 @@ namespace typebeat.Game.Configuration
         // NOTE (2026-10-25): IntroSequence was retired; the intro is always Triangles (Screens.Loader). A
         // stored "IntroSequence = ..." line in game.ini needs no migration (the ini loader skips a key it
         // cannot parse into this enum). Do not reuse the name.
-        NotifyOnUsernameMentioned,
-        NotifyOnPrivateMessage,
-        NotifyOnFriendPresenceChange,
         UIHoldActivationDelay,
-        HitLighting,
         StarFountains,
-        MenuBackgroundSource,
         GameplayDisableWinKey,
-        SeasonalBackgroundMode,
         EditorWaveformOpacity,
-        EditorShowHitMarkers,
-        EditorAutoSeekOnPlacement,
         DiscordRichPresence,
 
         ShowOnlineExplicitContent,
-        LastProcessedMetadataId,
         SafeAreaConsiderations,
         ComboColourNormalisationAmount,
         ProfileCoverExpanded,
-        EditorLimitedDistanceSnap,
         ReplaySettingsOverlay,
         ReplayPlaybackControlsExpanded,
         AutomaticallyDownloadMissingBeatmaps,
-        EditorShowSpeedChanges,
-        TouchDisableGameplayTaps,
         ModSelectTextSearchStartsActive,
 
-        /// <summary>
-        /// The status for the current user to broadcast to other players.
-        /// </summary>
-        UserOnlineStatus,
-
-        MultiplayerRoomFilter,
         HideCountryFlags,
         EditorTimelineShowTimingChanges,
-        EditorTimelineShowTicks,
         AlwaysShowHoldForMenuButton,
-        EditorContractSidebars,
-        EditorScaleOrigin,
-        EditorRotationOrigin,
-        EditorTimelineShowBreaks,
-        EditorAdjustExistingObjectsOnTimingChanges,
         AlwaysRequireHoldingForPause,
-        MultiplayerShowInProgressFilter,
-        MultiplayerShowFullFilter,
-        BeatmapListingFeaturedArtistFilter,
         ShowMobileDisclaimer,
         EditorShowStoryboard,
-        EditorSubmissionNotifyOnDiscussionReplies,
         EditorSubmissionLoadInBrowserAfterSubmission,
-
-        /// <summary>
-        /// Cached state of whether local user is a supporter.
-        /// Used to allow early checks (ie for startup samples) to be in the correct state, even if the API authentication process has not completed.
-        /// </summary>
-        WasSupporter,
-
-        LastOnlineTagsPopulation,
 
         AutomaticallyAdjustBeatmapOffset,
 
-        DashboardSortMode,
-        DashboardDisplayStyle,
         SeparateAllDifficulties,
 
         // NOTE (backlog 383): there used to be a KeyboardLayout member here, the layout the player's
@@ -546,16 +416,36 @@ namespace typebeat.Game.Configuration
         // writes the file without it. Do not reuse the name for something else.
 
         /// <summary>
-        /// Blocks private messages, multiplayer room invites, and duel requests from people not on the user's friends list.
-        /// </summary>
-        PMFriendsOnly,
-
-        /// <summary>
         /// Windows only: turns SDL's raw keyboard input off, a fallback should it drop or double keys in
         /// gameplay typing. It has to be applied before the window is created, so it is read straight from
         /// game.ini at startup by <see cref="Input.RawKeyboardFallback"/> (by this member's name, like
         /// every ini key), and a change takes effect on the next start.
         /// </summary>
         DisableRawKeyboard,
+
+        // NOTE (backlog 483): the legacy osu! settings below were retired after an audit found they did
+        // nothing in type!beat or misled the player. Their readers now use what the setting defaulted
+        // to (or what a non-supporter always got), so nobody on the defaults sees a change; anyone who
+        // had moved one sees the default again. A stored line for any of them in game.ini needs no
+        // migration: the ini loader skips a key it cannot parse into this enum, and the next save writes
+        // the file without it (ConfigDefaultsTest pins that). Do not reuse any of these names:
+        //
+        //  Had a settings control: ScoreDisplayMode (scores always show Standardised),
+        //  FadePlayfieldWhenHealthLow (the fail flash always plays), MenuVoice (no intro or exit voice,
+        //  ever), MenuBackgroundSource (the default menu background rotation), ShowConvertedBeatmaps,
+        //  TouchDisableGameplayTaps, EditorSubmissionNotifyOnDiscussionReplies, UserOnlineStatus
+        //  (always Online).
+        //
+        //  Read by nothing reachable, or only by code that was never instantiated: HitLighting,
+        //  AlwaysPlayFirstComboBreak, FloatingComments, PositionalHitsoundsLevel (balance stays
+        //  centred), MenuParallax, SeasonalBackgroundMode, KeyOverlay (the key counter shows in
+        //  replays only), ChatDisplayHeight, NotifyOnUsernameMentioned, NotifyOnPrivateMessage,
+        //  NotifyOnFriendPresenceChange, DashboardSortMode, DashboardDisplayStyle,
+        //  MultiplayerRoomFilter, MultiplayerShowInProgressFilter, MultiplayerShowFullFilter,
+        //  BeatmapListingFeaturedArtistFilter, EditorShowHitMarkers, EditorAutoSeekOnPlacement,
+        //  EditorLimitedDistanceSnap, EditorShowSpeedChanges, EditorScaleOrigin, EditorRotationOrigin,
+        //  EditorAdjustExistingObjectsOnTimingChanges, EditorTimelineShowTicks,
+        //  EditorTimelineShowBreaks, EditorContractSidebars, LastProcessedMetadataId,
+        //  LastOnlineTagsPopulation, ReleaseStream (always Lazer), PMFriendsOnly, WasSupporter.
     }
 }

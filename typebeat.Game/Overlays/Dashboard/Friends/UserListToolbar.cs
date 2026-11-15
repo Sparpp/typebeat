@@ -5,7 +5,6 @@ using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
-using typebeat.Game.Configuration;
 using osuTK;
 
 namespace typebeat.Game.Overlays.Dashboard.Friends
@@ -16,17 +15,11 @@ namespace typebeat.Game.Overlays.Dashboard.Friends
 
         public Bindable<OverlayPanelDisplayStyle> DisplayStyle => styleControl.Current;
 
-        private readonly Bindable<OverlayPanelDisplayStyle> configDisplayStyle = new Bindable<OverlayPanelDisplayStyle>();
-
-        private readonly bool supportsBrickMode;
-
         private readonly UserSortTabControl sortControl;
         private readonly OverlayPanelDisplayStyleControl styleControl;
 
         public UserListToolbar(bool supportsBrickMode = true, bool supportsSort = true)
         {
-            this.supportsBrickMode = supportsBrickMode;
-
             AutoSizeAxes = Axes.Both;
 
             AddInternal(new FillFlowContainer
@@ -52,28 +45,12 @@ namespace typebeat.Game.Overlays.Dashboard.Friends
         }
 
         [BackgroundDependencyLoader]
-        private void load(OsuConfigManager config)
+        private void load()
         {
-            config.BindWith(OsuSetting.DashboardSortMode, SortCriteria);
-            config.BindWith(OsuSetting.DashboardDisplayStyle, configDisplayStyle);
-        }
-
-        protected override void LoadComplete()
-        {
-            base.LoadComplete();
-
-            configDisplayStyle.BindValueChanged(style =>
-            {
-                if (style.NewValue == OverlayPanelDisplayStyle.Brick && !supportsBrickMode)
-                    DisplayStyle.Value = OverlayPanelDisplayStyle.Card;
-                else
-                    DisplayStyle.Value = style.NewValue;
-            }, true);
-
-            DisplayStyle.BindValueChanged(style =>
-            {
-                configDisplayStyle.Value = style.NewValue;
-            }, true);
+            // The sort and the display style used to persist (DashboardSortMode, DashboardDisplayStyle,
+            // removed in backlog 483); every toolbar now starts on what they defaulted to.
+            SortCriteria.Value = UserSortCriteria.LastVisit;
+            DisplayStyle.Value = OverlayPanelDisplayStyle.Card;
         }
     }
 }

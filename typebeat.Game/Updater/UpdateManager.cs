@@ -7,7 +7,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using osu.Framework;
 using osu.Framework.Allocation;
-using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Sprites;
@@ -38,17 +37,17 @@ namespace typebeat.Game.Updater
         public virtual ReleaseStream? FixedReleaseStream => null;
 
         [Resolved]
-        private OsuConfigManager config { get; set; } = null!;
-
-        [Resolved]
         private OsuGameBase game { get; set; } = null!;
 
         [Resolved]
         protected INotificationOverlay Notifications { get; private set; } = null!;
 
-        protected IBindable<ReleaseStream> ReleaseStream => releaseStream;
-
-        private readonly Bindable<ReleaseStream> releaseStream = new Bindable<ReleaseStream>();
+        /// <summary>
+        /// The stream updates are checked against: the build's own <see cref="FixedReleaseStream"/>, else Lazer.
+        /// It used to be a stored setting that the build pinned on startup (ReleaseStream, removed in backlog
+        /// 483; it never had a settings control).
+        /// </summary>
+        protected ReleaseStream ReleaseStream => FixedReleaseStream ?? Configuration.ReleaseStream.Lazer;
 
         private CancellationTokenSource updateCancellationSource = new CancellationTokenSource();
 
@@ -56,19 +55,9 @@ namespace typebeat.Game.Updater
         {
             base.LoadComplete();
 
-            if (game.IsDeployedBuild)
-            {
-                // make sure the release stream setting matches the build which was just run.
-                if (FixedReleaseStream != null)
-                    config.SetValue(OsuSetting.ReleaseStream, FixedReleaseStream.Value);
-
-                // NOTE: upstream posts a "not an official build" notification here when the entry
-                // assembly lacks OfficialBuildAttribute. type!beat's own signed releases ARE the
-                // official build and DO submit scores, so that warning is false for us, removed.
-            }
-
-            config.BindWith(OsuSetting.ReleaseStream, releaseStream);
-            releaseStream.BindValueChanged(_ => CheckForUpdate());
+            // NOTE: upstream posts a "not an official build" notification here when the entry
+            // assembly lacks OfficialBuildAttribute. type!beat's own signed releases ARE the
+            // official build and DO submit scores, so that warning is false for us, removed.
 
             CheckForUpdate();
         }

@@ -258,13 +258,6 @@ namespace typebeat.Game.Screens.Edit.Submission
             }
         }
 
-        protected override void LoadComplete()
-        {
-            base.LoadComplete();
-
-            configManager.BindWith(OsuSetting.EditorSubmissionNotifyOnDiscussionReplies, settings.NotifyOnDiscussionReplies);
-        }
-
         private void createBeatmapSet()
         {
             bool beatmapHasOnlineId = Beatmap.Value.BeatmapSetInfo.OnlineID > 0;

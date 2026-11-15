@@ -491,7 +491,7 @@ namespace typebeat.Game.Screens.Play
                     {
                         ScoreProcessor,
                         HealthProcessor,
-                        // type!beat: ComboEffects (combo break sample) intentionally omitted.
+                        // type!beat: osu!'s combo break sample (ComboEffects, since deleted) is intentionally omitted.
                         breakTracker,
                     }),
             }

@@ -11,7 +11,6 @@ using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
 using osu.Framework.Localisation;
 using typebeat.Game.Beatmaps;
-using typebeat.Game.Configuration;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Rulesets;
@@ -50,8 +49,6 @@ namespace typebeat.Game.Screens.Select
             /// </summary>
             public const int MAX_DIFFICULTIES_BEFORE_COLLAPSING = 12;
 
-            private readonly Bindable<bool> showConvertedBeatmaps = new Bindable<bool>();
-
             private const double transition_duration = 200;
 
             [Resolved]
@@ -69,7 +66,7 @@ namespace typebeat.Game.Screens.Select
             }
 
             [BackgroundDependencyLoader]
-            private void load(OsuConfigManager configManager)
+            private void load()
             {
                 InternalChild = flow = new FillFlowContainer
                 {
@@ -82,8 +79,6 @@ namespace typebeat.Game.Screens.Select
                     // Upstream's button padding, kept so the dots sit where upstream draws them relative to the pill.
                     Padding = new MarginPadding { Horizontal = 5 },
                 };
-
-                configManager.BindWith(OsuSetting.ShowConvertedBeatmaps, showConvertedBeatmaps);
             }
 
             protected override void LoadComplete()
@@ -91,8 +86,7 @@ namespace typebeat.Game.Screens.Select
                 base.LoadComplete();
 
                 BeatmapSet.BindValueChanged(_ => updateBeatmapSet());
-                VisibleBeatmaps.BindValueChanged(_ => updateBeatmapSet());
-                showConvertedBeatmaps.BindValueChanged(_ => updateBeatmapSet(), true);
+                VisibleBeatmaps.BindValueChanged(_ => updateBeatmapSet(), true);
                 FinishTransforms(true);
             }
 
@@ -107,7 +101,7 @@ namespace typebeat.Game.Screens.Select
                 flow.Clear();
 
                 var beatmaps = BeatmapSet.Value.Beatmaps
-                                         .Where(b => b.AllowGameplayWithRuleset(ruleset.Value, showConvertedBeatmaps.Value))
+                                         .Where(b => b.AllowGameplayWithRuleset(ruleset.Value))
                                          .OrderBy(b => b.StarRating)
                                          .ToList();
                 this.FadeTo(beatmaps.Count > 0 ? 1 : 0, transition_duration, Easing.OutQuint);

@@ -122,20 +122,10 @@ namespace typebeat.Game.Rulesets.Objects.Drawables
         /// </summary>
         public bool AllJudged => Entry?.AllJudged ?? false;
 
-        /// <summary>
-        /// The relative X position of this hit object for sample playback balance adjustment.
-        /// </summary>
-        /// <remarks>
-        /// This is a range of 0..1 (0 for far-left, 0.5 for centre, 1 for far-right).
-        /// Dampening is post-applied to ensure the effect is not too intense.
-        /// </remarks>
-        protected virtual float SamplePlaybackPosition => 0.5f;
-
         public readonly Bindable<double> StartTimeBindable = new Bindable<double>();
         private readonly BindableList<HitSampleInfo> samplesBindable = new BindableList<HitSampleInfo>();
         private readonly Bindable<int> comboIndexBindable = new Bindable<int>();
 
-        private readonly IBindable<float> positionalHitsoundsLevel = new Bindable<float>();
         private readonly IBindable<float> comboColourBrightness = new Bindable<float>();
         private readonly Bindable<int> comboIndexWithOffsetsBindable = new Bindable<int>();
 
@@ -203,7 +193,6 @@ namespace typebeat.Game.Rulesets.Objects.Drawables
         [BackgroundDependencyLoader]
         private void load(IGameplaySettings gameplaySettings, ISkinSource skinSource)
         {
-            positionalHitsoundsLevel.BindTo(gameplaySettings.PositionalHitsoundsLevel);
             comboColourBrightness.BindTo(gameplaySettings.ComboColourNormalisationAmount);
 
             // Explicit non-virtual function call in case a DrawableHitObject overrides AddInternal.
@@ -596,28 +585,18 @@ namespace typebeat.Game.Rulesets.Objects.Drawables
         }
 
         /// <summary>
-        /// Calculate the position to be used for sample playback at a specified X position (0..1).
-        /// </summary>
-        /// <param name="position">The lookup X position. Generally should be <see cref="SamplePlaybackPosition"/>.</param>
-        protected double CalculateSamplePlaybackBalance(double position)
-        {
-            float balanceAdjustAmount = positionalHitsoundsLevel.Value * 2;
-            double returnedValue = balanceAdjustAmount * (position - 0.5f);
-
-            // Rounded to reduce the overhead of audio adjustments (which are currently bindable heavy).
-            // Balance is very hard to perceive in small increments anyways.
-            return Math.Round(returnedValue, 2);
-        }
-
-        /// <summary>
         /// Plays all the hit sounds for this <see cref="DrawableHitObject"/>.
         /// This is invoked automatically when this <see cref="DrawableHitObject"/> is hit.
         /// </summary>
+        /// <remarks>
+        /// Samples always play centred: osu!'s positional hitsound panning (by a hit object's X position,
+        /// scaled by the "PositionalHitsoundsLevel" setting) was removed in backlog 483, since no type!beat
+        /// hit object ever reported a position off centre.
+        /// </remarks>
         public virtual void PlaySamples()
         {
             if (Samples != null)
             {
-                Samples.Balance.Value = CalculateSamplePlaybackBalance(SamplePlaybackPosition);
                 Samples.Play();
                 gameplayState?.ApplySamples(Samples.Samples);
             }

@@ -12,8 +12,6 @@ namespace typebeat.Game.Screens.Edit.Submission
 
         public Bindable<BeatmapSubmissionTarget> Target { get; } = new Bindable<BeatmapSubmissionTarget>();
 
-        public Bindable<bool> NotifyOnDiscussionReplies { get; } = new Bindable<bool>();
-
         /// <summary>
         /// Whether the mapset is flagged as containing explicit content (adult language, themes, ...).
         /// </summary>

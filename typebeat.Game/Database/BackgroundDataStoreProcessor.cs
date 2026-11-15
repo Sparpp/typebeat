@@ -4,7 +4,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,7 +16,6 @@ using osu.Framework.Graphics;
 using osu.Framework.Logging;
 using osu.Framework.Platform;
 using typebeat.Game.Beatmaps;
-using typebeat.Game.Configuration;
 using typebeat.Game.Extensions;
 using typebeat.Game.Overlays;
 using typebeat.Game.Overlays.Notifications;
@@ -66,9 +64,6 @@ namespace typebeat.Game.Database
 
         [Resolved]
         private Storage storage { get; set; } = null!;
-
-        [Resolved]
-        private OsuConfigManager config { get; set; } = null!;
 
         private LocalCachedBeatmapMetadataSource localMetadataSource = null!;
 
@@ -822,19 +817,11 @@ namespace typebeat.Game.Database
                 }
             }
 
-            var lastPopulation = config.Get<DateTime?>(OsuSetting.LastOnlineTagsPopulation);
-            // dropping time data here completely is intentional, because storing the date to config is a lossy operation
-            // (truncates some ticks off of the date when it's being converted to string and back).
-            // therefore, if precision isn't explicitly constrained, the condition below would always fail just because the date stored to config
-            // is less accurate than the cache file's fetch date which is stored with higher precision in the filesystem metadata.
-            var metadataSourceFetchDate = localMetadataSource.GetCacheFetchDate()?.Date;
-
-            if (metadataSourceFetchDate <= lastPopulation)
-            {
-                Logger.Log(
-                    $@"Skipping user tag population because the local metadata source hasn't been updated since the last time user tags were checked ({lastPopulation.Value.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)})");
-                return;
-            }
+            // Upstream skipped this when the cache had not been refetched since the last run, by a date it
+            // stored in the config (LastOnlineTagsPopulation). The local cache is never available in type!beat
+            // (see LocalCachedBeatmapMetadataSource.Available), so nothing gets this far, and the key was
+            // removed in backlog 483. Should a type!beat cache ever arrive, store that date again (under a
+            // new name) or this runs on every launch.
 
             Logger.Log(@"Updating user tags");
 
@@ -916,8 +903,6 @@ namespace typebeat.Game.Database
 
             // Report the updated item count rather than the total processed. Users don't really care about noops here.
             completeNotification(notification, updatedCount, updatedCount, failedCount);
-
-            config.SetValue(OsuSetting.LastOnlineTagsPopulation, metadataSourceFetchDate);
         }
 
         private void updateNotificationProgress(ProgressNotification? notification, int processedCount, int totalCount)

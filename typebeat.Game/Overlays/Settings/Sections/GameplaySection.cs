@@ -49,11 +49,12 @@ namespace typebeat.Game.Overlays.Settings.Sections
                 }
             }
 
+            // The "General" group (score display mode) and the "Beatmap" group (beatmap skins, colours
+            // and hitsounds) are gone (backlog 483); the latter's storyboard / video toggle lives in
+            // Background now.
             AddRange(new Drawable[]
             {
-                new GeneralSettings(),
                 new BackgroundSettings(),
-                new BeatmapSettings(),
                 new HUDSettings(),
             });
 

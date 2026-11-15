@@ -7,6 +7,7 @@ using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Testing;
 using typebeat.Game.Graphics.UserInterfaceV2;
+using typebeat.Game.Localisation;
 using typebeat.Game.Overlays;
 using typebeat.Game.Overlays.Settings;
 using typebeat.Game.Overlays.Settings.Sections;
@@ -35,6 +36,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             TypeBeatSettingsSubsection.TIMING_TINT_MAX_CAPTION,
             TypeBeatSettingsSubsection.TIMING_TINT_EARLY_COLOUR_CAPTION,
             TypeBeatSettingsSubsection.TIMING_TINT_LATE_COLOUR_CAPTION,
+        };
+
+        /// <summary>
+        /// Backlog 483's legacy osu! settings that did nothing in type!beat or misled, by the caption a
+        /// player saw. The Gameplay "Beatmap" and "General" groups went with them.
+        /// </summary>
+        private static readonly string[] retired_captions =
+        {
+            "Beatmap skins",
+            "Beatmap colours",
+            "Beatmap hitsounds",
+            "Fade playfield to red when health is low",
+            "Score display mode",
+            "Interface voices",
+            "Background source",
+            "Show converted beatmaps",
+            "Disable taps during gameplay",
         };
 
         private SettingsOverlay settings = null!;
@@ -84,6 +102,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("each appears once in the whole overlay", () => moved_captions.All(c => captionsIn(settings).Count(x => x == c) == 1));
             AddAssert("the aligner stays in Experimental", () => captionsIn(experimental).Contains("High-accuracy alignment (about 4x slower per import)")
                                                                  && !captionsIn(gameplay).Contains("High-accuracy alignment (about 4x slower per import)"));
+        }
+
+        [Test]
+        public void TestTheRetiredLegacySettingsAreGone()
+        {
+            AddAssert("none is offered anywhere", () => !retired_captions.Any(captionsIn(settings).Contains));
+            AddAssert("the storyboard / video switch that shared their group stays under Gameplay",
+                () => captionsIn(gameplay).Count(c => c == GraphicsSettingsStrings.StoryboardVideo.ToString()) == 1);
         }
 
         [Test]

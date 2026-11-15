@@ -40,7 +40,6 @@ namespace typebeat.Game.Screens.Select
         private const float corner_radius = 10;
 
         private SongSelectSearchTextBox searchTextBox = null!;
-        private ShearedToggleButton showConvertedBeatmapsButton = null!;
         private DifficultyRangeSlider difficultyRangeSlider = null!;
         private ShearedDropdown<SortMode> sortDropdown = null!;
         private ShearedDropdown<GroupModeDropdownItem> groupDropdown = null!;
@@ -130,38 +129,18 @@ namespace typebeat.Game.Screens.Select
                                         HoldFocus = true,
                                     },
                                 },
-                                new GridContainer
+                                // The star range used to share this row with a "Show converts" toggle, which
+                                // could never change anything in type!beat and was removed (backlog 483).
+                                new Container
                                 {
                                     RelativeSizeAxes = Axes.X,
                                     AutoSizeAxes = Axes.Y,
                                     Shear = -OsuGame.SHEAR,
-                                    RowDimensions = new[] { new Dimension(GridSizeMode.AutoSize) },
-                                    ColumnDimensions = new[]
+                                    Child = difficultyRangeSlider = new DifficultyRangeSlider
                                     {
-                                        new Dimension(),
-                                        new Dimension(GridSizeMode.Absolute), // can probably be removed?
-                                        new Dimension(GridSizeMode.AutoSize),
+                                        RelativeSizeAxes = Axes.X,
+                                        MinRange = 0.1f,
                                     },
-                                    Content = new[]
-                                    {
-                                        new[]
-                                        {
-                                            difficultyRangeSlider = new DifficultyRangeSlider
-                                            {
-                                                RelativeSizeAxes = Axes.X,
-                                                MinRange = 0.1f,
-                                            },
-                                            Empty(),
-                                            showConvertedBeatmapsButton = new ShearedToggleButton
-                                            {
-                                                Anchor = Anchor.Centre,
-                                                Origin = Anchor.Centre,
-                                                AutoSizeAxes = Axes.X,
-                                                Text = UserInterfaceStrings.ShowConverts,
-                                                Height = 30f,
-                                            },
-                                        },
-                                    }
                                 },
                                 new GridContainer
                                 {
@@ -216,7 +195,6 @@ namespace typebeat.Game.Screens.Select
 
             difficultyRangeSlider.LowerBound = config.GetBindable<double>(OsuSetting.DisplayStarsMinimum);
             difficultyRangeSlider.UpperBound = config.GetBindable<double>(OsuSetting.DisplayStarsMaximum);
-            config.BindWith(OsuSetting.ShowConvertedBeatmaps, showConvertedBeatmapsButton.Active);
             config.BindWith(OsuSetting.SeparateAllDifficulties, separateAllDifficulties);
             // The retired BPM sort is not in the dropdown, so it is remapped on the stored setting before
             // binding. Bound straight to the config's own bindable: a GetBindable copy held only in a local
@@ -258,7 +236,6 @@ namespace typebeat.Game.Screens.Select
             difficultyRangeSlider.LowerBound.BindValueChanged(_ => debouncedUpdateCriteria());
             difficultyRangeSlider.UpperBound.BindValueChanged(_ => debouncedUpdateCriteria());
 
-            showConvertedBeatmapsButton.Active.BindValueChanged(_ => updateCriteria());
             sortDropdown.Current.BindValueChanged(_ => updateCriteria());
             separateAllDifficulties.BindValueChanged(_ => updateCriteria());
             groupDropdown.Current.BindValueChanged(_ => updateCriteria());
@@ -298,7 +275,6 @@ namespace typebeat.Game.Screens.Select
             {
                 Sort = sortDropdown.Current.Value,
                 Group = groupDropdown.Current.Value?.Value ?? GroupMode.None,
-                AllowConvertedBeatmaps = showConvertedBeatmapsButton.Active.Value,
                 SeparateAllDifficulties = separateAllDifficulties.Value,
                 Ruleset = ruleset.Value,
                 Mods = mods.Value,

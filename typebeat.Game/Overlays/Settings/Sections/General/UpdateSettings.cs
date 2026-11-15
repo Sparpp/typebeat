@@ -30,8 +30,8 @@ namespace typebeat.Game.Overlays.Settings.Sections.General
         [BackgroundDependencyLoader]
         private void load()
         {
-            // Release stream selection is deliberately not surfaced: the stream stays at whatever
-            // OsuSetting.ReleaseStream defaults to (or whatever the update manager pins it to).
+            // There is no release stream selection: updates follow the build's own stream
+            // (UpdateManager.ReleaseStream).
             Add(checkForUpdatesButton = new SettingsButtonV2
             {
                 Text = GeneralSettingsStrings.CheckUpdate,

@@ -31,7 +31,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             "beatmaps_to_create",
             "beatmaps_to_keep",
             "target",
-            "notify_on_discussion_replies",
             "explicit",
             "Response",
         };
@@ -81,7 +80,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var settings = new BeatmapSubmissionSettings();
             settings.Target.Value = BeatmapSubmissionTarget.Pending;
-            settings.NotifyOnDiscussionReplies.Value = true;
             settings.ExplicitContent.Value = true;
 
             var json = serialise(PutBeatmapSetRequest.CreateNew(3, settings));
@@ -89,7 +87,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Multiple(() =>
             {
                 Assert.That(json["target"]!.Value<string>(), Is.EqualTo("Pending"));
-                Assert.That(json["notify_on_discussion_replies"]!.Value<bool>(), Is.True);
                 Assert.That(json["beatmaps_to_create"]!.Value<uint>(), Is.EqualTo(3u));
                 Assert.That(json["explicit"]!.Value<bool>(), Is.True);
             });

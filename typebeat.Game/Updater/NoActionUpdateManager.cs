@@ -35,7 +35,7 @@ namespace typebeat.Game.Updater
         {
             try
             {
-                ReleaseStream stream = externalReleaseStream ?? ReleaseStream.Value;
+                ReleaseStream stream = ReleaseStream;
                 bool includePrerelease = stream == Configuration.ReleaseStream.Tachyon;
 
                 OsuJsonWebRequest<GitHubRelease[]> releasesRequest = new OsuJsonWebRequest<GitHubRelease[]>("https://api.github.com/repos/ppy/osu/releases?per_page=10&page=1");

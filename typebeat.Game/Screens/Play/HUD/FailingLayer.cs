@@ -8,7 +8,6 @@ using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Utils;
-using typebeat.Game.Configuration;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Rulesets.Scoring;
 
@@ -35,8 +34,6 @@ namespace typebeat.Game.Screens.Play.HUD
 
         private readonly ScreenEdgeWarning boxes;
 
-        private Bindable<bool> fadePlayfieldWhenHealthLow;
-
         public FailingLayer()
         {
             RelativeSizeAxes = Axes.Both;
@@ -47,10 +44,8 @@ namespace typebeat.Game.Screens.Play.HUD
         }
 
         [BackgroundDependencyLoader]
-        private void load(OsuConfigManager config)
+        private void load()
         {
-            fadePlayfieldWhenHealthLow = config.GetBindable<bool>(OsuSetting.FadePlayfieldWhenHealthLow);
-            fadePlayfieldWhenHealthLow.BindValueChanged(_ => updateState());
             ShowHealth.BindValueChanged(_ => updateState());
         }
 
@@ -62,8 +57,10 @@ namespace typebeat.Game.Screens.Play.HUD
 
         private void updateState()
         {
-            // Don't display ever if the ruleset is not using a draining health display.
-            bool showLayer = HealthProcessor is DrainingHealthProcessor && fadePlayfieldWhenHealthLow.Value && ShowHealth.Value;
+            // Don't display ever if the ruleset is not using a draining health display. (There used to
+            // be a "Fade playfield to red when health is low" setting here too, on by default; it is
+            // gone, backlog 483, so only the two conditions that never applied to it remain.)
+            bool showLayer = HealthProcessor is DrainingHealthProcessor && ShowHealth.Value;
             this.FadeTo(showLayer ? 1 : 0, fade_time, Easing.OutQuint);
         }
 

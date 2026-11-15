@@ -8,12 +8,9 @@ using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Logging;
-using osu.Framework.Platform;
-using osu.Framework.Screens;
 using osu.Framework.Threading;
 using osu.Framework.Utils;
 using typebeat.Game.Beatmaps;
-using typebeat.Game.Configuration;
 using typebeat.Game.Graphics.Backgrounds;
 using typebeat.Game.Online.API;
 using typebeat.Game.Online.API.Requests.Responses;
@@ -21,6 +18,15 @@ using typebeat.Game.Skinning;
 
 namespace typebeat.Game.Screens.Backgrounds
 {
+    /// <summary>
+    /// The menu's background: always the default rotation of menu background images.
+    /// </summary>
+    /// <remarks>
+    /// osu! also let supporters show the beatmap's background (with or without its storyboard) or the
+    /// skin's ("Background source"), and showed seasonal backgrounds when the server offered them.
+    /// type!beat has no supporters and no seasonal backgrounds, so neither ever applied; both were removed
+    /// in backlog 483, leaving exactly what every player already saw.
+    /// </remarks>
     public partial class BackgroundScreenDefault : BackgroundScreen
     {
         private Background background;
@@ -29,67 +35,32 @@ namespace typebeat.Game.Screens.Backgrounds
         private const int background_count = 8;
         private IBindable<APIUser> user;
         private Bindable<Skin> skin;
-        private Bindable<BackgroundSource> source;
-        private readonly SeasonalBackgroundLoader seasonalBackgroundLoader = new SeasonalBackgroundLoader();
 
         [Resolved]
         private IBindable<WorkingBeatmap> beatmap { get; set; }
 
-        [Resolved]
-        private GameHost gameHost { get; set; }
-
-        protected virtual bool AllowStoryboardBackground => true;
-
         [BackgroundDependencyLoader]
-        private void load(IAPIProvider api, SkinManager skinManager, OsuConfigManager config)
+        private void load(IAPIProvider api, SkinManager skinManager)
         {
             user = api.LocalUser.GetBoundCopy();
             skin = skinManager.CurrentSkin.GetBoundCopy();
-            source = config.GetBindable<BackgroundSource>(OsuSetting.MenuBackgroundSource);
-
-            AddInternal(seasonalBackgroundLoader);
         }
 
         protected override void LoadComplete()
         {
             base.LoadComplete();
 
+            // A change of user, skin or beatmap moves the rotation on to the next image, as it always has
+            // (they once picked which kind of background to show; the rotation is all that is left).
             user.ValueChanged += _ => Scheduler.AddOnce(next);
             skin.ValueChanged += _ => Scheduler.AddOnce(next);
-            source.ValueChanged += _ => Scheduler.AddOnce(next);
             beatmap.ValueChanged += _ => Scheduler.AddOnce(next);
-            seasonalBackgroundLoader.SeasonalBackgroundChanged += () => Scheduler.AddOnce(next);
 
             currentDisplay = RNG.Next(0, background_count);
             Next();
 
             // helper function required for AddOnce usage.
             void next() => Next();
-        }
-
-        private ScheduledDelegate storyboardUnloadDelegate;
-
-        public override void OnSuspending(ScreenTransitionEvent e)
-        {
-            if (background is BeatmapBackgroundWithStoryboard storyboardBackground)
-                storyboardUnloadDelegate = gameHost.UpdateThread.Scheduler.AddDelayed(storyboardBackground.UnloadStoryboard, TRANSITION_LENGTH);
-
-            base.OnSuspending(e);
-        }
-
-        public override void OnResuming(ScreenTransitionEvent e)
-        {
-            if (background is BeatmapBackgroundWithStoryboard storyboardBackground)
-            {
-                if (storyboardUnloadDelegate?.Completed == false)
-                    storyboardUnloadDelegate.Cancel();
-                else
-                    storyboardBackground.LoadStoryboard();
-
-                storyboardUnloadDelegate = null;
-            }
-
-            base.OnResuming(e);
         }
 
         private ScheduledDelegate nextTask;
@@ -131,54 +102,10 @@ namespace typebeat.Game.Screens.Backgrounds
             currentDisplay++;
         }
 
-        private Background createBackground()
+        private Background createBackground() => new Background(getBackgroundTextureName())
         {
-            // seasonal background loading gets highest priority.
-            Background newBackground = seasonalBackgroundLoader.LoadNextBackground();
-
-            if (newBackground == null && user.Value?.IsSupporter == true)
-            {
-                switch (source.Value)
-                {
-                    case BackgroundSource.Beatmap:
-                    case BackgroundSource.BeatmapWithStoryboard:
-                    {
-                        if (source.Value == BackgroundSource.BeatmapWithStoryboard && AllowStoryboardBackground)
-                            newBackground = new BeatmapBackgroundWithStoryboard(beatmap.Value, getBackgroundTextureName());
-                        newBackground ??= new BeatmapBackground(beatmap.Value, getBackgroundTextureName());
-
-                        break;
-                    }
-
-                    case BackgroundSource.Skin:
-                        switch (skin.Value)
-                        {
-                            case TrianglesSkin:
-                            case ArgonSkin:
-                            case DefaultLegacySkin:
-                            case RetroSkin:
-                                // default skins should use the default background rotation, which won't be the case if a SkinBackground is created for them.
-                                break;
-
-                            default:
-                                newBackground = new SkinBackground(skin.Value, getBackgroundTextureName());
-                                break;
-                        }
-
-                        break;
-                }
-            }
-
-            // this method is called in many cases where the background might not necessarily need to change.
-            // if an equivalent background is currently being shown, we don't want to load it again.
-            if (newBackground?.Equals(background) == true)
-                return background;
-
-            newBackground ??= new Background(getBackgroundTextureName());
-            newBackground.Depth = currentDisplay;
-
-            return newBackground;
-        }
+            Depth = currentDisplay
+        };
 
         // The intro is always Triangles now, so the Welcome intro's single background never applies.
         private string getBackgroundTextureName() => $@"Menu/menu-background-{currentDisplay % background_count + 1}";

@@ -13,7 +13,6 @@ using osu.Framework.Extensions;
 using osu.Framework.Extensions.Color4Extensions;
 using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Graphics.Containers;
-using typebeat.Game.Configuration;
 using typebeat.Game.Database;
 using typebeat.Game.Graphics;
 using typebeat.Game.Online.API;
@@ -21,7 +20,6 @@ using typebeat.Game.Online.API.Requests.Responses;
 using typebeat.Game.Online.Multiplayer;
 using typebeat.Game.Online.Multiplayer.MatchTypes.TeamVersus;
 using typebeat.Game.Online.Spectator;
-using typebeat.Game.Rulesets.Scoring;
 using osuTK.Graphics;
 
 namespace typebeat.Game.Screens.Play.Leaderboards
@@ -39,7 +37,6 @@ namespace typebeat.Game.Screens.Play.Leaderboards
 
         private readonly MultiplayerRoomUser[] users;
 
-        private readonly Bindable<ScoringMode> scoringMode = new Bindable<ScoringMode>();
         private readonly IBindableList<int> playingUserIds = new BindableList<int>();
 
         [Resolved]
@@ -62,14 +59,11 @@ namespace typebeat.Game.Screens.Play.Leaderboards
         }
 
         [BackgroundDependencyLoader]
-        private void load(OsuConfigManager config, IAPIProvider api, CancellationToken cancellationToken)
+        private void load(IAPIProvider api, CancellationToken cancellationToken)
         {
-            config.BindWith(OsuSetting.ScoreDisplayMode, scoringMode);
-
             foreach (var user in users)
             {
                 var scoreProcessor = new SpectatorScoreProcessor(user.UserID);
-                scoreProcessor.Mode.BindTo(scoringMode);
                 scoreProcessor.TotalScore.BindValueChanged(_ => Scheduler.AddOnce(updateTotals));
                 AddInternal(scoreProcessor);
 

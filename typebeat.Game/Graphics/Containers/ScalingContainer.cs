@@ -239,8 +239,6 @@ namespace typebeat.Game.Graphics.Containers
 
         private partial class ScalingBackgroundScreen : BackgroundScreenDefault
         {
-            protected override bool AllowStoryboardBackground => false;
-
             public override void OnEntering(ScreenTransitionEvent e)
             {
                 this.FadeInFromZero(4000, Easing.OutQuint);

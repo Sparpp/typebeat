@@ -163,7 +163,6 @@ namespace typebeat.Game.Screens.Select
         private IBindable<APIState> refreshApiState = null!;
 
         private Bindable<bool> configBackgroundBlur = null!;
-        private Bindable<bool> showConvertedBeatmaps = null!;
 
         private IDisposable? modSelectOverlayRegistration;
 
@@ -317,8 +316,6 @@ namespace typebeat.Game.Screens.Select
 
                 updateBackgroundDim();
             });
-
-            showConvertedBeatmaps = config.GetBindable<bool>(OsuSetting.ShowConvertedBeatmaps);
         }
 
         // Colour scheme for mod overlay is left as default (green) to match mods button.
@@ -656,7 +653,7 @@ namespace typebeat.Game.Screens.Select
 
         private bool checkBeatmapValidForSelection(BeatmapInfo beatmap)
         {
-            if (!beatmap.AllowGameplayWithRuleset(Ruleset.Value, showConvertedBeatmaps.Value))
+            if (!beatmap.AllowGameplayWithRuleset(Ruleset.Value))
                 return false;
 
             if (beatmap.Hidden)
@@ -1246,10 +1243,8 @@ namespace typebeat.Game.Screens.Select
 
             var beatmapInfo = workingBeatmap.BeatmapInfo;
 
-            // Don't change the local ruleset if the user is on another ruleset and is showing converted beatmaps.
-            // Eventually we probably want to check whether conversion is actually possible for the current ruleset.
-            bool requiresRulesetSwitch = !beatmapInfo.Ruleset.Equals(Ruleset.Value)
-                                         && (beatmapInfo.Ruleset.OnlineID > 0 || !showConvertedBeatmaps.Value);
+            // A beatmap only plays in its own ruleset (no conversion, see AllowGameplayWithRuleset).
+            bool requiresRulesetSwitch = !beatmapInfo.Ruleset.Equals(Ruleset.Value);
 
             if (requiresRulesetSwitch)
             {

@@ -16,7 +16,6 @@ using osu.Framework.Input;
 using osu.Framework.Input.Bindings;
 using osu.Framework.Input.Events;
 using osu.Framework.Localisation;
-using typebeat.Game.Configuration;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.Cursor;
@@ -47,7 +46,17 @@ namespace typebeat.Game.Overlays
 
         protected IEnumerable<DrawableChannel> DrawableChannels => loadedChannels.Values;
 
-        private readonly BindableFloat chatHeight = new BindableFloat();
+        /// <summary>
+        /// The overlay's height as a proportion of the screen, which dragging the top bar changes. It used
+        /// to persist across launches (ChatDisplayHeight, removed in backlog 483); every launch now starts at
+        /// <see cref="DEFAULT_HEIGHT"/>, within the same range the setting had.
+        /// </summary>
+        private readonly BindableFloat chatHeight = new BindableFloat(DEFAULT_HEIGHT)
+        {
+            MinValue = 0.2f,
+            MaxValue = 1f,
+            Precision = 0.01f,
+        };
         private bool isDraggingTopBar;
         private float dragStartChatHeight;
 
@@ -59,9 +68,6 @@ namespace typebeat.Game.Overlays
 
         protected override string PopInSampleName => @"UI/overlay-big-pop-in";
         protected override string PopOutSampleName => @"UI/overlay-big-pop-out";
-
-        [Resolved]
-        private OsuConfigManager config { get; set; } = null!;
 
         [Resolved]
         private ChannelManager channelManager { get; set; } = null!;
@@ -176,8 +182,6 @@ namespace typebeat.Game.Overlays
         protected override void LoadComplete()
         {
             base.LoadComplete();
-
-            config.BindWith(OsuSetting.ChatDisplayHeight, chatHeight);
 
             chatHeight.BindValueChanged(height => { Height = height.NewValue; }, true);
 

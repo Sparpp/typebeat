@@ -24,25 +24,11 @@ namespace typebeat.Game.Overlays.Settings.Sections.UserInterface
                     Caption = UserInterfaceStrings.ShowMenuTips,
                     Current = config.GetBindable<bool>(OsuSetting.MenuTips)
                 }),
-                new SettingsItemV2(new FormCheckBox
-                {
-                    Caption = UserInterfaceStrings.InterfaceVoices,
-                    Current = config.GetBindable<bool>(OsuSetting.MenuVoice)
-                })
-                {
-                    Keywords = new[] { "intro", "welcome" },
-                },
                 // The MenuMusic ("music theme") row is deliberately not surfaced, the config
                 // key still gates the beatdrop intro soundtrack (default on).
                 // The Intro sequence row was removed (2026-10-25): the intro is always Triangles.
-                // The background source row carried a supporter-only note, which has been removed.
-                new SettingsItemV2(new FormEnumDropdown<BackgroundSource>
-                {
-                    Caption = UserInterfaceStrings.BackgroundSource,
-                    Current = config.GetBindable<BackgroundSource>(OsuSetting.MenuBackgroundSource),
-                })
-                // Seasonal backgrounds row removed; the setting is pinned to Never in
-                // OsuConfigManager (the loader and enum stay for a potential future return).
+                // Interface voices and Background source were removed in backlog 483: the game never
+                // plays a voice clip, and the menu always shows the default background rotation.
             };
         }
     }

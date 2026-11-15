@@ -1,18 +1,11 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
-using System.Diagnostics;
 using System.Linq;
 using osu.Framework.Bindables;
-using osu.Framework.Development;
 using osu.Framework.Graphics;
-using osu.Framework.Logging;
-using osu.Framework.Threading;
-using typebeat.Game.Configuration;
-using typebeat.Game.Extensions;
 using typebeat.Game.Online.API.Requests;
 using typebeat.Game.Online.API.Requests.Responses;
-using typebeat.Game.Users;
 
 namespace typebeat.Game.Online.API
 {
@@ -30,25 +23,14 @@ namespace typebeat.Game.Online.API
         private readonly BindableList<APIRelation> blocks = new BindableList<APIRelation>();
         private readonly BindableList<int> favouriteBeatmapSets = new BindableList<int>();
 
-        #region Config settings synced from online
+        // Upstream also kept three settings here in sync with the website: the online status, a cached
+        // "was a supporter" flag for the placeholder user and "PMs from friends only". All three were
+        // removed in backlog 483: the status is always Online, and this fork's server reports every
+        // player as a non-supporter with friends-only PMs off, with no way to change either.
 
-        private bool populatingSettings;
-
-        private readonly Bindable<UserStatus> configStatus = new Bindable<UserStatus>();
-        private readonly Bindable<bool> configSupporter = new Bindable<bool>();
-        private readonly Bindable<bool> configPMFriendsOnly = new Bindable<bool>();
-
-        #endregion
-
-        public LocalUserState(IAPIProvider api, OsuConfigManager config)
+        public LocalUserState(IAPIProvider api)
         {
             this.api = api;
-
-            config.BindWith(OsuSetting.UserOnlineStatus, configStatus);
-            config.BindWith(OsuSetting.WasSupporter, configSupporter);
-
-            config.BindWith(OsuSetting.PMFriendsOnly, configPMFriendsOnly);
-            configPMFriendsOnly.BindValueChanged(_ => scheduleSettingSyncToWeb());
         }
 
         #region Logging in / out
@@ -68,7 +50,6 @@ namespace typebeat.Game.Online.API
             localUser.Value = new APIUser
             {
                 Username = username,
-                IsSupporter = configSupporter.Value,
             };
         }
 
@@ -76,7 +57,6 @@ namespace typebeat.Game.Online.API
         {
             localUser.Value = me;
 
-            syncSettingsFromWeb(me);
             UpdateFriends();
             UpdateBlocks();
             UpdateFavouriteBeatmapSets();
@@ -84,84 +64,14 @@ namespace typebeat.Game.Online.API
 
         public void ClearLocalUser()
         {
-            // Reset the status to be broadcast on the next login, in case multiple players share the same system.
-            configStatus.Value = UserStatus.Online;
-
             // Scheduled prior to state change such that the state changed event is invoked with the correct user and their friends present
             Schedule(() =>
             {
                 localUser.Value = createGuestUser();
-                configSupporter.Value = false;
                 friends.Clear();
                 blocks.Clear();
                 favouriteBeatmapSets.Clear();
             });
-        }
-
-        #endregion
-
-        #region Setting sync between web and client
-
-        private void syncSettingsFromWeb(APIMe me)
-        {
-            Debug.Assert(ThreadSafety.IsUpdateThread);
-
-            populatingSettings = true;
-
-            configSupporter.Value = me.IsSupporter;
-
-            // Upstream reads a null `last_visit` as "the web-side hide online presence toggle is
-            // enabled" and forces the status to Offline. That inference does not hold here: this
-            // fork's server has no such toggle and its /api/v2/me payload (UserWire.Me) does not
-            // carry `last_visit` at all, so the check fired on EVERY login. It silently flipped the
-            // login panel's dropdown to "appear offline" and, because Discord rich presence used to
-            // treat Offline as "show nothing", left presence permanently blank. Restore the check
-            // only once the server actually sends the field and honours a hide-presence toggle.
-
-            configPMFriendsOnly.Value = me.PMFriendsOnly;
-
-            populatingSettings = false;
-        }
-
-        private void syncSettingsToWeb()
-        {
-            Debug.Assert(ThreadSafety.IsUpdateThread);
-
-            if (!api.IsLoggedIn || populatingSettings)
-                return;
-
-            var request = new UpdateUserOptionsRequest
-            {
-                UserSettings = new UpdateUserOptionsRequest.UserSettingUpdate
-                {
-                    PMFriendsOnly = configPMFriendsOnly.Value
-                }
-            };
-            request.Success += me =>
-            {
-                if (!api.IsLoggedIn || !me.MatchesOnlineID(localUser.Value))
-                    return;
-
-                syncSettingsFromWeb(me);
-            };
-            request.Failure += ex =>
-            {
-                if (!api.IsLoggedIn)
-                    return;
-
-                Logger.Error(ex, @"Failed to synchronise setting");
-                if (localUser.Value is APIMe oldMe)
-                    syncSettingsFromWeb(oldMe);
-            };
-            api.Queue(request);
-        }
-
-        private ScheduledDelegate? scheduledSync;
-
-        private void scheduleSettingSyncToWeb()
-        {
-            scheduledSync?.Cancel();
-            scheduledSync = Scheduler.AddDelayed(syncSettingsToWeb, 500);
         }
 
         #endregion

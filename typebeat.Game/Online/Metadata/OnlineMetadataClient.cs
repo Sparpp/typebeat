@@ -39,9 +39,15 @@ namespace typebeat.Game.Online.Metadata
         private IAPIProvider api { get; set; } = null!;
 
         private IHubClientConnector? connector;
-        private Bindable<int> lastQueueId = null!;
+
+        /// <summary>
+        /// The last beatmap update queue position processed, for catching up after a reconnect. It used to
+        /// persist across launches (LastProcessedMetadataId, removed in backlog 483); every launch now starts
+        /// with no position, which skips the catch-up exactly as a fresh install always did.
+        /// </summary>
+        private readonly Bindable<int> lastQueueId = new Bindable<int>(-1);
+
         private IBindable<APIUser> localUser = null!;
-        private IBindable<UserStatus> userStatus = null!;
         private IBindable<UserActivity?> userActivity = null!;
 
         private HubConnection? connection => connector?.CurrentConnection;
@@ -52,7 +58,7 @@ namespace typebeat.Game.Online.Metadata
         }
 
         [BackgroundDependencyLoader]
-        private void load(OsuConfigManager config, SessionStatics session)
+        private void load(SessionStatics session)
         {
             // Importantly, we are intentionally not using MessagePack here to correctly support derived class serialization.
             // More information on the limitations / reasoning can be found in osu-server-spectator's initialisation code.
@@ -78,8 +84,6 @@ namespace typebeat.Game.Online.Metadata
             }
 
             localUser = api.LocalUser.GetBoundCopy();
-            lastQueueId = config.GetBindable<int>(OsuSetting.LastProcessedMetadataId);
-            userStatus = config.GetBindable<UserStatus>(OsuSetting.UserOnlineStatus);
             userActivity = session.GetBindable<UserActivity?>(Static.UserOnlineActivity);
         }
 
@@ -87,11 +91,10 @@ namespace typebeat.Game.Online.Metadata
         {
             base.LoadComplete();
 
-            userStatus.BindValueChanged(status =>
-            {
-                if (localUser.Value is not GuestUser)
-                    UpdateStatus(status.NewValue).FireAndForget();
-            }, true);
+            // The status is always Online: the login panel's status dropdown (Do not disturb, Appear
+            // offline) was removed in backlog 483.
+            if (localUser.Value is not GuestUser)
+                UpdateStatus(UserStatus.Online).FireAndForget();
 
             userActivity.BindValueChanged(activity =>
             {
@@ -124,7 +127,7 @@ namespace typebeat.Game.Online.Metadata
             if (localUser.Value is not GuestUser)
             {
                 UpdateActivity(userActivity.Value).FireAndForget();
-                UpdateStatus(userStatus.Value).FireAndForget();
+                UpdateStatus(UserStatus.Online).FireAndForget();
             }
 
             if (lastQueueId.Value >= 0)

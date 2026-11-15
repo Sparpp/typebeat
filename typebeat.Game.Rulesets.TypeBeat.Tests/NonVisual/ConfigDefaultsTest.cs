@@ -109,10 +109,85 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(saved, Does.Contain("ShowFpsDisplay"));
         }
 
+        /// <summary>
+        /// Backlog 483 retired the legacy osu! settings named in the NOTE at the end of
+        /// <see cref="OsuSetting"/>, each line here holding a value an install could have stored for it
+        /// (every key is persisted from its default on first boot, so every install that booted before
+        /// then holds all of them). Together they must be harmless: the config still loads, the rest of
+        /// the file is still read, and the next save writes none of them back.
+        /// </summary>
+        private static readonly string[] retired_legacy_setting_lines =
+        {
+            "ScoreDisplayMode = Classic",
+            "FadePlayfieldWhenHealthLow = False",
+            "MenuVoice = True",
+            "MenuBackgroundSource = Skin",
+            "ShowConvertedBeatmaps = False",
+            "TouchDisableGameplayTaps = True",
+            "EditorSubmissionNotifyOnDiscussionReplies = True",
+            "UserOnlineStatus = DoNotDisturb",
+            "HitLighting = True",
+            "AlwaysPlayFirstComboBreak = True",
+            "FloatingComments = False",
+            "PositionalHitsoundsLevel = 0.2",
+            "MenuParallax = True",
+            "SeasonalBackgroundMode = Never",
+            "KeyOverlay = True",
+            "ChatDisplayHeight = 0.4",
+            "NotifyOnUsernameMentioned = True",
+            "NotifyOnPrivateMessage = True",
+            "NotifyOnFriendPresenceChange = True",
+            "DashboardSortMode = LastVisit",
+            "DashboardDisplayStyle = Card",
+            "MultiplayerRoomFilter = All",
+            "MultiplayerShowInProgressFilter = True",
+            "MultiplayerShowFullFilter = False",
+            "BeatmapListingFeaturedArtistFilter = True",
+            "EditorShowHitMarkers = True",
+            "EditorAutoSeekOnPlacement = True",
+            "EditorLimitedDistanceSnap = False",
+            "EditorShowSpeedChanges = False",
+            "EditorScaleOrigin = GridCentre",
+            "EditorRotationOrigin = GridCentre",
+            "EditorAdjustExistingObjectsOnTimingChanges = True",
+            "EditorTimelineShowTicks = True",
+            "EditorTimelineShowBreaks = True",
+            "EditorContractSidebars = False",
+            "LastProcessedMetadataId = -1",
+            "LastOnlineTagsPopulation = ",
+            "ReleaseStream = Lazer",
+            "PMFriendsOnly = False",
+            "WasSupporter = False",
+        };
+
         [Test]
-        public void MenuBackgroundSourceDefaultsToBeatmapWithStoryboard()
-            => Assert.That(config.GetBindable<BackgroundSource>(OsuSetting.MenuBackgroundSource).Default,
-                Is.EqualTo(BackgroundSource.BeatmapWithStoryboard));
+        public void StoredLinesForTheRetiredLegacySettingsAreDroppedWithoutMigration()
+        {
+            string[] retiredKeys = retired_legacy_setting_lines.Select(l => l.Split('=')[0].Trim()).ToArray();
+
+            config.Dispose();
+            File.WriteAllLines(Path.Combine(tempPath, "game.ini"),
+                retired_legacy_setting_lines.Concat(new[] { "ShowFpsDisplay = True", "DimLevel = 0.7", "MenuParallaxScale = 0.5" }));
+            config = new OsuConfigManager(new NativeStorage(tempPath));
+
+            Assert.That(Enum.GetNames<OsuSetting>().Intersect(retiredKeys), Is.Empty, "the settings are gone");
+            Assert.Multiple(() =>
+            {
+                Assert.That(config.Get<bool>(OsuSetting.ShowFpsDisplay), Is.True, "the rest of the file is still read");
+                Assert.That(config.Get<double>(OsuSetting.DimLevel), Is.EqualTo(0.7));
+                Assert.That(config.Get<float>(OsuSetting.MenuParallaxScale), Is.EqualTo(0.5f), "a kept key sharing a retired key's prefix");
+            });
+
+            config.Save();
+
+            string[] savedKeys = File.ReadAllLines(Path.Combine(tempPath, "game.ini"))
+                                     .Where(l => l.Contains('='))
+                                     .Select(l => l.Split('=')[0].Trim())
+                                     .ToArray();
+
+            Assert.That(savedKeys.Intersect(retiredKeys), Is.Empty, "the stale lines are dropped on save");
+            Assert.That(savedKeys, Does.Contain("ShowFpsDisplay").And.Contain("MenuParallaxScale"));
+        }
 
         [Test]
         public void StoryboardAndVideoDefaultsToEnabled()

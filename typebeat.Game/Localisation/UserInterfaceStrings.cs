@@ -45,11 +45,6 @@ namespace typebeat.Game.Localisation
         public static LocalisableString MainMenuHeader => new TranslatableString(getKey(@"main_menu_header"), @"Main Menu");
 
         /// <summary>
-        /// "Interface voices"
-        /// </summary>
-        public static LocalisableString InterfaceVoices => new TranslatableString(getKey(@"interface_voices"), @"Interface voices");
-
-        /// <summary>
         /// "type!beat music theme"
         /// </summary>
         public static LocalisableString OsuMusicTheme => new TranslatableString(getKey(@"osu_music_theme"), @"type!beat music theme");
@@ -65,16 +60,6 @@ namespace typebeat.Game.Localisation
         public static LocalisableString IntroRandom => new TranslatableString(getKey(@"intro_random"), @"Random");
 
         /// <summary>
-        /// "Background source"
-        /// </summary>
-        public static LocalisableString BackgroundSource => new TranslatableString(getKey(@"background_source"), @"Background source");
-
-        /// <summary>
-        /// "Seasonal backgrounds"
-        /// </summary>
-        public static LocalisableString SeasonalBackgrounds => new TranslatableString(getKey(@"seasonal_backgrounds"), @"Seasonal backgrounds");
-
-        /// <summary>
         /// "Song Select"
         /// </summary>
         public static LocalisableString SongSelectHeader => new TranslatableString(getKey(@"song_select_header"), @"Song Select");
@@ -83,16 +68,6 @@ namespace typebeat.Game.Localisation
         /// "Right mouse drag to absolute scroll"
         /// </summary>
         public static LocalisableString RightMouseScroll => new TranslatableString(getKey(@"right_mouse_scroll"), @"Right mouse drag to absolute scroll");
-
-        /// <summary>
-        /// "Show converts"
-        /// </summary>
-        public static LocalisableString ShowConverts => new TranslatableString(getKey(@"show_converts"), @"Show converts");
-
-        /// <summary>
-        /// "Show converted beatmaps"
-        /// </summary>
-        public static LocalisableString ShowConvertedBeatmaps => new TranslatableString(getKey(@"show_converted_beatmaps"), @"Show converted beatmaps");
 
         /// <summary>
         /// "Separate all difficulties"
@@ -128,26 +103,6 @@ namespace typebeat.Game.Localisation
         /// "no limit"
         /// </summary>
         public static LocalisableString NoLimit => new TranslatableString(getKey(@"no_limit"), @"no limit");
-
-        /// <summary>
-        /// "Beatmap (with storyboard / video)"
-        /// </summary>
-        public static LocalisableString BeatmapWithStoryboard => new TranslatableString(getKey(@"beatmap_with_storyboard"), @"Beatmap (with storyboard / video)");
-
-        /// <summary>
-        /// "Always"
-        /// </summary>
-        public static LocalisableString AlwaysSeasonalBackground => new TranslatableString(getKey(@"always_seasonal_backgrounds"), @"Always");
-
-        /// <summary>
-        /// "Never"
-        /// </summary>
-        public static LocalisableString NeverSeasonalBackground => new TranslatableString(getKey(@"never_seasonal_backgrounds"), @"Never");
-
-        /// <summary>
-        /// "Sometimes"
-        /// </summary>
-        public static LocalisableString SometimesSeasonalBackground => new TranslatableString(getKey(@"sometimes_seasonal_backgrounds"), @"Sometimes");
 
         /// <summary>
         /// "Sequential"

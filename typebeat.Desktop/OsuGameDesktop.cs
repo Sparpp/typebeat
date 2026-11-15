@@ -18,7 +18,6 @@ using typebeat.Game.Updater;
 using typebeat.Desktop.MacOS;
 using typebeat.Desktop.Windows;
 using osu.Framework.Allocation;
-using typebeat.Game.Configuration;
 using typebeat.Game.IO;
 using typebeat.Game.IPC;
 using typebeat.Game.Performance;
@@ -119,14 +118,8 @@ namespace typebeat.Desktop
 
         protected override UpdateManager CreateUpdateManager()
         {
-            // If this is the first time we've run the game, ie it is being installed,
-            // reset the user's release stream specified by the installation target.
-            //
-            // This ensures that if a user is trying to recover from a failed startup, it will keep them
-            // on the stream which is imminently being reinstalled.
-            if (IsFirstRun)
-                LocalConfig.SetValue(OsuSetting.ReleaseStream, Version.Contains("-tachyon") ? ReleaseStream.Tachyon : ReleaseStream.Lazer);
-
+            // Upstream reset the stored release stream here on a first run; there is no stored stream
+            // any more (backlog 483), see UpdateManager.ReleaseStream.
             if (IsPackageManaged)
                 return new NoActionUpdateManager();
 

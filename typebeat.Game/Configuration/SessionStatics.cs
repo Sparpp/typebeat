@@ -28,7 +28,6 @@ namespace typebeat.Game.Configuration
             SetDefault(Static.LastHoverSoundPlaybackTime, (double?)null);
             SetDefault(Static.LastModSelectPanelSamplePlaybackTime, (double?)null);
             SetDefault(Static.LastRankChangeSamplePlaybackTime, (double?)null);
-            SetDefault<APISeasonalBackgrounds?>(Static.SeasonalBackgrounds, null);
             SetDefault(Static.TouchInputActive, RuntimeInfo.IsMobile);
             SetDefault<ScoreInfo?>(Static.LastLocalUserScore, null);
             SetDefault<ScoreInfo?>(Static.LastAppliedOffsetScore, null);
@@ -56,12 +55,6 @@ namespace typebeat.Game.Configuration
         MutedAudioNotificationShownOnce,
         LowBatteryNotificationShownOnce,
         FeaturedArtistDisclaimerShownOnce,
-
-        /// <summary>
-        /// Info about seasonal backgrounds available fetched from API - see <see cref="APISeasonalBackgrounds"/>.
-        /// Value under this lookup can be <c>null</c> if there are no backgrounds available (or API is not reachable).
-        /// </summary>
-        SeasonalBackgrounds,
 
         /// <summary>
         /// The last playback time in milliseconds of a hover sample (from <see cref="HoverSounds"/>).

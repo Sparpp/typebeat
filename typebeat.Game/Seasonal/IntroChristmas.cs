@@ -29,8 +29,6 @@ namespace typebeat.Game.Seasonal
         private const double beat_length = 60000 / 172.0;
         private const double offset = 5924;
 
-        protected override string SeeyaSampleName => "Intro/Welcome/seeya";
-
         private TrianglesIntroSequence intro = null!;
 
         public IntroChristmas(Func<MainMenu>? createNextScreen = null)

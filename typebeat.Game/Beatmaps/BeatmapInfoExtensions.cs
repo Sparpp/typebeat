@@ -65,18 +65,12 @@ namespace typebeat.Game.Beatmaps
         private static string getVersionString(IBeatmapInfo beatmapInfo) => string.IsNullOrEmpty(beatmapInfo.DifficultyName) ? string.Empty : $"[{beatmapInfo.DifficultyName}]";
 
         /// <summary>
-        /// Whether gameplay is allowed for this beatmap with the provided ruleset (via conversion or direct compatibility).
+        /// Whether gameplay is allowed for this beatmap with the provided ruleset: only its own. type!beat has
+        /// a single ruleset and its maps never convert (the osu!-to-other-ruleset conversion this used to allow,
+        /// behind "Show converted beatmaps", could not apply and was removed in backlog 483).
         /// </summary>
-        public static bool AllowGameplayWithRuleset(this IBeatmapInfo beatmap, RulesetInfo ruleset, bool allowConversion)
-        {
-            if (beatmap.Ruleset.ShortName == ruleset.ShortName)
-                return true;
-
-            if (allowConversion && beatmap.Ruleset.OnlineID == 0 && ruleset.OnlineID != 0)
-                return true;
-
-            return false;
-        }
+        public static bool AllowGameplayWithRuleset(this IBeatmapInfo beatmap, RulesetInfo ruleset)
+            => beatmap.Ruleset.ShortName == ruleset.ShortName;
 
         /// <summary>
         /// Get the beatmap info page URL, or <c>null</c> if unavailable.

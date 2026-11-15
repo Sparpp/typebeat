@@ -177,16 +177,6 @@ namespace typebeat.Game.Screens.Select
 
                     textFlow.AddText($" the {lowerStar} - {upperStar} star difficulty filter.");
                 }
-
-                // TODO: Add realm queries to hint at which ruleset results are available in (and allow clicking to switch).
-                // TODO: Make this message more certain by ensuring the type!beat beatmaps exist before suggesting.
-                if (filter?.Ruleset?.OnlineID != 0 && filter?.AllowConvertedBeatmaps == false)
-                {
-                    addBulletPoint();
-                    textFlow.AddText("Try ");
-                    textFlow.AddLink("enabling", () => config.SetValue(OsuSetting.ShowConvertedBeatmaps, true));
-                    textFlow.AddText(" automatic conversion!");
-                }
             }
 
             if (!string.IsNullOrEmpty(filter?.SearchText))

@@ -642,10 +642,8 @@ namespace typebeat.Game
                 }
                 else
                 {
-                    // Don't change the local ruleset if the user is on another ruleset and is showing converted beatmaps at song select.
-                    // Eventually we probably want to check whether conversion is actually possible for the current ruleset.
-                    bool requiresRulesetSwitch = !selection.Ruleset.Equals(Ruleset.Value)
-                                                 && (selection.Ruleset.OnlineID > 0 || !LocalConfig.Get<bool>(OsuSetting.ShowConvertedBeatmaps));
+                    // A beatmap only plays in its own ruleset (no conversion, see AllowGameplayWithRuleset).
+                    bool requiresRulesetSwitch = !selection.Ruleset.Equals(Ruleset.Value);
 
                     if (requiresRulesetSwitch)
                     {
@@ -1250,12 +1248,8 @@ namespace typebeat.Game
                 dialogOverlay.Push(new MigrateNewAudioDialog(wasAlreadyUsing));
             }
 
-            if (combined < 20260728)
-            {
-#pragma warning disable CS0612 // Type or member is obsolete (MenuParallax exists solely to make this migration work, it should not be used anywhere else)
-                LocalConfig.SetValue<float>(OsuSetting.MenuParallaxScale, LocalConfig.Get<bool>(OsuSetting.MenuParallax) ? 1 : 0);
-#pragma warning restore CS0612 // Type or member is obsolete
-            }
+            // Upstream's MenuParallax (on/off) to MenuParallaxScale migration for versions before
+            // 20260728 was removed with the MenuParallax key in backlog 483.
         }
 
         private void handleBackButton()
