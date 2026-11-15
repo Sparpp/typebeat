@@ -39,6 +39,12 @@ namespace typebeat.Game.Screens.Select
     {
         public const float HEIGHT = CarouselItem.DEFAULT_HEIGHT * 1.6f;
 
+        /// <summary>
+        /// The set's difficulties that pass the carousel's current filter, fed by <see cref="BeatmapCarousel"/> so the
+        /// <see cref="SpreadDisplay"/> can draw filtered out difficulties smaller and faded.
+        /// </summary>
+        public Bindable<HashSet<BeatmapInfo>?> VisibleBeatmaps { get; } = new Bindable<HashSet<BeatmapInfo>?>();
+
         private Box chevronBackground = null!;
         private PanelSetBackground setBackground = null!;
         private ScheduledDelegate? scheduledBackgroundRetrieval;
@@ -48,6 +54,7 @@ namespace typebeat.Game.Screens.Select
         private Drawable chevronIcon = null!;
         private PanelUpdateBeatmapButton updateButton = null!;
         private BeatmapSetOnlineStatusPill statusPill = null!;
+        private SpreadDisplay spreadDisplay = null!;
 
         [Resolved]
         private OverlayColourProvider colourProvider { get; set; } = null!;
@@ -151,6 +158,12 @@ namespace typebeat.Game.Screens.Select
                                     Origin = Anchor.CentreLeft,
                                     Margin = new MarginPadding { Right = 5f, Top = -2f },
                                 },
+                                spreadDisplay = new SpreadDisplay
+                                {
+                                    Origin = Anchor.CentreLeft,
+                                    Anchor = Anchor.CentreLeft,
+                                    VisibleBeatmaps = { BindTarget = VisibleBeatmaps },
+                                },
                             },
                         }
                     }
@@ -195,6 +208,7 @@ namespace typebeat.Game.Screens.Select
             artistText.Text = new RomanisableString(beatmapSet.Metadata.ArtistUnicode, beatmapSet.Metadata.Artist);
             updateButton.BeatmapSet = beatmapSet;
             statusPill.Status = beatmapSet.Status;
+            spreadDisplay.BeatmapSet.Value = beatmapSet;
         }
 
         protected override void FreeAfterUse()
@@ -205,6 +219,7 @@ namespace typebeat.Game.Screens.Select
             scheduledBackgroundRetrieval = null;
             setBackground.Beatmap = null;
             updateButton.BeatmapSet = null;
+            spreadDisplay.BeatmapSet.Value = null;
         }
 
         [Resolved]
