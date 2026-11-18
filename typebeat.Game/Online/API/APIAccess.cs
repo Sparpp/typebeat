@@ -57,6 +57,12 @@ namespace typebeat.Game.Online.API
         /// </summary>
         public int APIVersion { get; }
 
+        /// <summary>
+        /// This install's id: random, created on first start and kept in the config across sign-outs and
+        /// settings resets.
+        /// </summary>
+        public string ClientInstance { get; }
+
         public Exception LastLoginError { get; private set; }
 
         public string ProvidedUsername { get; private set; }
@@ -115,6 +121,16 @@ namespace typebeat.Game.Online.API
             log.Add($@"API request version: {APIVersion}");
 
             ProvidedUsername = config.Get<string>(OsuSetting.Username);
+
+            string instance = config.Get<string>(OsuSetting.ClientInstance);
+
+            if (!Guid.TryParseExact(instance, @"N", out _))
+            {
+                instance = Guid.NewGuid().ToString(@"N");
+                config.SetValue(OsuSetting.ClientInstance, instance);
+            }
+
+            ClientInstance = instance;
 
             authentication.TokenString = config.Get<string>(OsuSetting.Token);
             authentication.Token.ValueChanged += onTokenChanged;

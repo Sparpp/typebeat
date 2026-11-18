@@ -186,6 +186,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
                         Assert.That(server.Paths, Is.EquivalentTo(new[] { "/api/v2/seasonal-backgrounds" }), "only the public read may reach the server");
                         Assert.That(server.SawAuthorization, Is.False, "a guest has no token to send");
+
+                        Assert.That(Guid.TryParseExact(api.ClientInstance, "N", out _), Is.True, "a fresh install creates its id");
+                        Assert.That(server.ClientInstance, Is.EqualTo(api.ClientInstance), "and sends it");
+                        Assert.That(config.Get<string>(OsuSetting.ClientInstance), Is.EqualTo(api.ClientInstance), "and keeps it");
                     });
                 }
                 finally
@@ -229,6 +233,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             private readonly Thread thread;
             private readonly ConcurrentQueue<string> paths = new ConcurrentQueue<string>();
             private volatile bool sawAuthorization;
+            private volatile string? clientInstance;
             private volatile bool disposed;
 
             public string Root { get; }
@@ -236,6 +241,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             public IEnumerable<string> Paths => paths.ToArray();
 
             public bool SawAuthorization => sawAuthorization;
+
+            public string? ClientInstance => clientInstance;
 
             public StubServer()
             {
@@ -281,6 +288,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                         {
                             if (header.StartsWith("Authorization:", StringComparison.OrdinalIgnoreCase))
                                 sawAuthorization = true;
+                            else if (header.StartsWith("x-client-instance:", StringComparison.OrdinalIgnoreCase))
+                                clientInstance = header["x-client-instance:".Length..].Trim();
                         }
 
                         byte[] body = Encoding.UTF8.GetBytes(@"{""ends_at"":""2030-01-01T00:00:00+00:00"",""backgrounds"":[]}");

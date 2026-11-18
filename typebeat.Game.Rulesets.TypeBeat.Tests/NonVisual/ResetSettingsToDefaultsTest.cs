@@ -37,6 +37,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     config.SetValue(OsuSetting.ShowFpsDisplay, true);
                     config.SetValue(OsuSetting.MenuMusic, false);
                     config.SetValue(OsuSetting.Token, "token-value");
+                    config.SetValue(OsuSetting.ClientInstance, "0123456789abcdef0123456789abcdef");
                     config.SetValue(OsuSetting.Username, "someone");
                     config.SetValue(OsuSetting.Version, "2026.1025.0");
                     config.SetValue(OsuSetting.ShowFirstRunSetup, false);
@@ -49,6 +50,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                         Assert.That(config.GetBindable<bool>(OsuSetting.ShowFpsDisplay).IsDefault, Is.True);
                         Assert.That(config.GetBindable<bool>(OsuSetting.MenuMusic).IsDefault, Is.True);
                         Assert.That(config.Get<string>(OsuSetting.Token), Is.EqualTo("token-value"));
+                        Assert.That(config.Get<string>(OsuSetting.ClientInstance), Is.EqualTo("0123456789abcdef0123456789abcdef"));
                         Assert.That(config.Get<string>(OsuSetting.Username), Is.EqualTo("someone"));
                         Assert.That(config.Get<string>(OsuSetting.Version), Is.EqualTo("2026.1025.0"));
                         Assert.That(config.Get<bool>(OsuSetting.ShowFirstRunSetup), Is.False);

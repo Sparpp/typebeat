@@ -168,6 +168,9 @@ namespace typebeat.Game.Online.API
             WebRequest.AddHeader(@"Accept-Language", API.Language.ToCultureCode());
             WebRequest.AddHeader(@"x-api-version", API.APIVersion.ToString(CultureInfo.InvariantCulture));
 
+            if (API is APIAccess { ClientInstance: { Length: > 0 } instance })
+                WebRequest.AddHeader(@"x-client-instance", instance);
+
             if (!string.IsNullOrEmpty(API.AccessToken))
                 WebRequest.AddHeader(@"Authorization", $@"Bearer {API.AccessToken}");
 

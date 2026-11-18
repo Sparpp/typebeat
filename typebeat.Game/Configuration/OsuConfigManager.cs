@@ -64,6 +64,7 @@ namespace typebeat.Game.Configuration
             // Online settings
             SetDefault(OsuSetting.Username, string.Empty);
             SetDefault(OsuSetting.Token, string.Empty);
+            SetDefault(OsuSetting.ClientInstance, string.Empty);
 
             SetDefault(OsuSetting.AutomaticallyDownloadMissingBeatmaps, true);
 
@@ -210,6 +211,7 @@ namespace typebeat.Game.Configuration
                 case OsuSetting.Username:
                 case OsuSetting.SaveUsername:
                 case OsuSetting.SavePassword:
+                case OsuSetting.ClientInstance:
                 // Bookkeeping and one-time flows.
                 case OsuSetting.Version:
                 case OsuSetting.ShowFirstRunSetup:
@@ -226,6 +228,7 @@ namespace typebeat.Game.Configuration
             switch (lookup)
             {
                 case OsuSetting.Token:
+                case OsuSetting.ClientInstance:
                     return true;
             }
 
@@ -427,6 +430,11 @@ namespace typebeat.Game.Configuration
         /// every ini key), and a change takes effect on the next start.
         /// </summary>
         DisableRawKeyboard,
+
+        /// <summary>
+        /// A random id this install creates once and sends with API requests (<see cref="Online.API.APIAccess.ClientInstance"/>).
+        /// </summary>
+        ClientInstance,
 
         // NOTE (backlog 483): the legacy osu! settings below were retired after an audit found they did
         // nothing in type!beat or misled the player. Their readers now use what the setting defaulted
