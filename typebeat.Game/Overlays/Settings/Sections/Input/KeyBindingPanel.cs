@@ -69,6 +69,8 @@ namespace typebeat.Game.Overlays.Settings.Sections.Input
                         GlobalAction.EditorSeekToPreviousHitObject,
                         GlobalAction.EditorSeekToNextHitObject,
                         GlobalAction.EditorDiscardUnsavedChanges,
+                        GlobalAction.EditorPaste,
+                        GlobalAction.EditorPasteTimings,
                         GlobalAction.EditorTogglePause,
                         GlobalAction.EditorPlayFromStart,
                         GlobalAction.EditorSeekBackwards,
