@@ -13,6 +13,7 @@ using typebeat.Game.Rulesets;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
@@ -261,6 +262,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         /// would count it twice were it not re-derived from the rebuilt engine
         /// (<c>TypeBeatScoreProcessor.ResyncAfterRewind</c>).</para>
         /// </summary>
+        /// <summary>
+        /// Jumping ahead in a replay walks the frame-stable clock forward over every key it skips, and
+        /// each is replayed live. With keyboard hitsounds on, none of them may sound: they would all
+        /// play at once.
+        /// </summary>
+        [Test]
+        public void TestForwardSeekPlaysNoHitsounds()
+        {
+            IBeatmap beatmap = createBeatmap();
+            AddStep("hitsounds on", () => rulesetConfig.SetValue(TypeBeatRulesetSetting.KeyboardHitsounds, true));
+            AddStep("set beatmap", () => Beatmap.Value = CreateWorkingBeatmap(beatmap));
+            AddStep("set ruleset", () => Ruleset.Value = beatmap.BeatmapInfo.Ruleset);
+            AddStep("push player", () => pushNewPlayer(new Score { Replay = createReplay(), ScoreInfo = new ScoreInfo() }));
+
+            AddUntilStep("wait until player is loaded", () => currentPlayer.IsCurrentScreen());
+            skipIntroIfPresent();
+            AddStep("pause playback", () => gameplayClockContainer.Stop());
+            AddUntilStep("held before the first key", () => frameStableClock.CurrentTime < 500);
+
+            KeyboardHitsounds hitsounds = null!;
+            AddStep("find the hitsounds", () => hitsounds = currentPlayer.ChildrenOfType<KeyboardHitsounds>().Single());
+
+            AddStep("jump past both lines' keys", () => currentPlayer.Seek(2700));
+            AddUntilStep("the walk reached the target", () => frameStableClock.CurrentTime == gameplayClockContainer.CurrentTime
+                                                             && playbackEngine.Lines[1].Cells[0].State == CellState.Correct);
+
+            AddAssert("the jump played nothing", () => hitsounds.PlayCount, () => Is.Zero);
+            AddStep("hitsounds off", () => rulesetConfig.SetValue(TypeBeatRulesetSetting.KeyboardHitsounds, false));
+        }
+
         [Test]
         public void TestBackwardsSeekRebuildsRatherThanFreezing()
         {
@@ -348,6 +379,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         private int mistypeStat() => currentPlayer.GameplayState.ScoreProcessor.Statistics.GetValueOrDefault(HitResult.ComboBreak);
 
         private GameplayClockContainer gameplayClockContainer => currentPlayer.ChildrenOfType<GameplayClockContainer>().Single();
+
+        private TypeBeatRulesetConfigManager rulesetConfig => (TypeBeatRulesetConfigManager)RulesetConfigs.GetConfigFor(new TypeBeatRuleset())!;
 
         private IFrameStableClock frameStableClock => currentPlayer.ChildrenOfType<DrawableRuleset>().Single().FrameStableClock;
 

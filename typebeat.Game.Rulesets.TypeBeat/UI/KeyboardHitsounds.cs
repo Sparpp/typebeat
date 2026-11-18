@@ -10,6 +10,7 @@ using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
+using typebeat.Game.Rulesets.UI;
 
 namespace typebeat.Game.Rulesets.TypeBeat.UI
 {
@@ -26,6 +27,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// <para>One gesture can be several keys at once (Ctrl+Backspace erases a word one Backspace at a
     /// time; an IME commit types several characters), so a sample already started within
     /// <see cref="REPEAT_GAP_MS"/> is not started again: it would only stack into one loud click.</para>
+    ///
+    /// <para>A replay seek is silent. Jumping ahead walks the frame-stable clock forward one sub-step at
+    /// a time, often many per frame, and every key it crosses is replayed live, so they would all
+    /// sound at once. While a REPLAY's walk is still short of the time asked for
+    /// (<see cref="IFrameStableClock.CatchUpPending"/>) nothing plays. Live play is never muted this
+    /// way: a hitch's catch-up there is the player's own keys landing late, not a jump.</para>
     /// </summary>
     public partial class KeyboardHitsounds : Component
     {
@@ -47,9 +54,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <summary>How many samples this has started (test support).</summary>
         internal int PlayCount { get; private set; }
 
-        public KeyboardHitsounds(TypingEngine engine)
+        /// <summary>Whether a replay is being played back, so a catch-up walk is a seek.</summary>
+        private readonly Func<bool> replaying;
+
+        [Resolved]
+        private IFrameStableClock? frameStableClock { get; set; }
+
+        public KeyboardHitsounds(TypingEngine engine, Func<bool>? replaying = null)
         {
             cues = new KeyboardHitsoundCues(engine);
+            this.replaying = replaying ?? (() => false);
         }
 
         /// <summary>The sample a gameplay key plays, by where the key sits on a keyboard. Pure.</summary>
@@ -110,7 +124,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         private void onCued(string name)
         {
-            if (!enabled.Value)
+            if (!enabled.Value || (frameStableClock?.CatchUpPending == true && replaying()))
                 return;
 
             double now = Time.Current;
