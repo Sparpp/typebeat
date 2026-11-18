@@ -265,61 +265,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <summary>The track length after cell <paramref name="cellIndex"/>, or 0.</summary>
         internal float HoldTrackWidthAt(int cellIndex) => cellIndex >= 0 && cellIndex < holdGaps.Length ? holdGaps[cellIndex] : 0f;
 
-        // --- The travelling letter ---
-        // While held, a copy of the glyph lifts and glides along the track (the real sprite's transforms are
-        // owned by other effects); the real cell fades to a ghost through holdGhost.
-
-        /// <summary>Per-cell ghost factor (1, <see cref="HOLD_GHOST_ALPHA"/> while picked up, 0 once set down); null without holds.</summary>
-        private float[]? holdGhost;
-
-        /// <summary>The picked-up letters by cell index; null until the first pick-up.</summary>
-        private Dictionary<int, HoldTraveller>? holdTravellers;
-
-        public const float HOLD_LIFT_FRACTION = 0.12f;
-
-        public const float HOLD_LIFT_SCALE = 1.1f;
-
-        public const float HOLD_GHOST_ALPHA = 0.18f;
-
-        public const double HOLD_PICK_UP_MS = 80, HOLD_SET_DOWN_MS = 100;
-
-        /// <summary>How much a lifted letter's (hard, unblurred) shadow offset grows; paired with a lighter shadow.</summary>
-        internal const float HOLD_LIFT_SHADOW_OFFSET_FACTOR = 1.75f;
-
-        private static readonly Color4 hold_lift_shadow = new Color4(0, 0, 0, 0.4f);
-
-        /// <summary>How far along its track a letter is at hold fill <paramref name="fill"/>. Pure.</summary>
-        public static float HoldTravelOffset(float fill, float trackWidth) => Math.Clamp(fill, 0, 1) * trackWidth;
+        // --- The held letter ---
+        // A held letter stays where it was typed; its track fills white beside it (HoldBar).
 
         /// <summary>
         /// The playhead's offset from the held cell's left edge at <paramref name="fraction"/> of the hold: it
-        /// sweeps evenly across the letter and its track, staying on the travelling letter. Pure.
+        /// sweeps evenly across the letter and its track, keeping pace with the track's fill. Pure.
         /// </summary>
         public static float HeldSungOffset(double fraction, float advance, float trackWidth)
             => (float)((advance + trackWidth) * Math.Clamp(fraction, 0, 1));
 
-        /// <summary>Where cell <paramref name="cellIndex"/>'s letter sits at rest (content-local centre).</summary>
-        internal Vector2 HoldTravellerBaseAt(int cellIndex) => new Vector2(cellX[cellIndex] + advances[cellIndex] * 0.5f, glyphHeight * 0.5f);
-
-        /// <summary>Cell <paramref name="i"/>'s displayed alpha ignoring the hold ghost (a traveller carries it).</summary>
-        private float cellVisibleAlpha(int i)
-            => holdTravellers != null && holdTravellers.TryGetValue(i, out var t) ? t.Sprite.Alpha : cells[i].Alpha;
-
-        private sealed class HoldTraveller
-        {
-            public readonly OsuSpriteText Sprite;
-
-            /// <summary>The last fill, so a re-layout keeps the letter's spot.</summary>
-            public float Fill;
-
-            /// <summary>Set down: no later fill moves it.</summary>
-            public bool Down;
-
-            public HoldTraveller(OsuSpriteText sprite)
-            {
-                Sprite = sprite;
-            }
-        }
+        /// <summary>Cell <paramref name="i"/>'s displayed alpha.</summary>
+        private float cellVisibleAlpha(int i) => cells[i].Alpha;
 
         private float contentScale = 1f;
         private float glyphHeight;
@@ -910,142 +867,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     bar.SetTicks(tickTimes.Select(t => (float)((t - start) / Math.Max(1, end - start))).ToArray());
 
                 content.Add(bar);
-
-                if (holdGhost == null)
-                {
-                    holdGhost = new float[n];
-                    Array.Fill(holdGhost, 1f);
-                }
             }
         }
 
-        /// <summary>
-        /// The held fraction of a hold, fed every frame it is down. The first fill above 0 picks the letter up
-        /// (a 0 fill, as for a never-opened hold, must not); then the letter moves with the fill until set down.
-        /// </summary>
+        /// <summary>The held fraction of a hold, fed every frame it is down: the track beside the letter fills white.</summary>
         public void SetHoldFill(int cellIndex, float fill)
         {
-            if (holdBars == null || !holdBars.TryGetValue(cellIndex, out var bar))
-                return;
-
-            bar.Fill = fill;
-
-            if (holdTravellers != null && holdTravellers.TryGetValue(cellIndex, out var traveller))
-            {
-                if (traveller.Down)
-                    return;
-            }
-            else if (fill > 0)
-                traveller = pickUpHeldLetter(cellIndex);
-            else
-                return;
-
-            traveller.Fill = fill;
-            traveller.Sprite.X = HoldTravellerBaseAt(cellIndex).X + HoldTravelOffset(fill, HoldTrackWidthAt(cellIndex));
+            if (holdBars != null && holdBars.TryGetValue(cellIndex, out var bar))
+                bar.Fill = fill;
         }
 
-        /// <summary>A copy of the glyph lifts, grows and deepens its shadow; the real cell fades to a ghost.</summary>
-        private HoldTraveller pickUpHeldLetter(int cellIndex)
-        {
-            var cell = cells[cellIndex];
-            var home = HoldTravellerBaseAt(cellIndex);
-
-            var sprite = new OsuSpriteText
-            {
-                Font = cell.Font,
-                Text = cell.Text,
-                Colour = Line.Cells[cellIndex].IsFreestyle ? cell.Colour : settledCellColour(cellIndex, Line.Cells[cellIndex]),
-                Anchor = Anchor.TopLeft,
-                Origin = Anchor.Centre,
-                Position = home,
-                ShadowColour = TypeBeatStyle.TextShadow,
-                ShadowOffset = TypeBeatStyle.TEXT_SHADOW_OFFSET,
-                BypassAutoSizeAxes = Axes.Both,
-                Alpha = cellStateAlpha[cellIndex] * cellHidingFactor(cellIndex),
-                // In front of the glyphs and the track.
-                Depth = -2,
-            };
-
-            content.Add(sprite);
-
-            sprite.MoveToY(home.Y - glyphHeight * HOLD_LIFT_FRACTION, HOLD_PICK_UP_MS, Easing.OutQuad)
-                  .ScaleTo(HOLD_LIFT_SCALE, HOLD_PICK_UP_MS, Easing.OutQuad);
-            sprite.TransformTo(nameof(sprite.ShadowColour), hold_lift_shadow, HOLD_PICK_UP_MS, Easing.OutQuad);
-            sprite.TransformTo(nameof(sprite.ShadowOffset), TypeBeatStyle.TEXT_SHADOW_OFFSET * HOLD_LIFT_SHADOW_OFFSET_FACTOR, HOLD_PICK_UP_MS, Easing.OutQuad);
-
-            var traveller = new HoldTraveller(sprite);
-            (holdTravellers ??= new Dictionary<int, HoldTraveller>())[cellIndex] = traveller;
-
-            setHoldGhost(cellIndex, HOLD_GHOST_ALPHA);
-            return traveller;
-        }
-
-        /// <summary>The letter settles back down where it stopped, and the ghost behind vanishes.</summary>
-        private void setDownHeldLetter(int cellIndex, HoldTraveller traveller)
-        {
-            var sprite = traveller.Sprite;
-            traveller.Down = true;
-
-            sprite.MoveToY(HoldTravellerBaseAt(cellIndex).Y, HOLD_SET_DOWN_MS, Easing.InOutQuad)
-                  .ScaleTo(1, HOLD_SET_DOWN_MS, Easing.InOutQuad);
-            sprite.TransformTo(nameof(sprite.ShadowColour), TypeBeatStyle.TextShadow, HOLD_SET_DOWN_MS, Easing.InOutQuad);
-            sprite.TransformTo(nameof(sprite.ShadowOffset), TypeBeatStyle.TEXT_SHADOW_OFFSET, HOLD_SET_DOWN_MS, Easing.InOutQuad);
-
-            setHoldGhost(cellIndex, 0);
-        }
-
-        private void setHoldGhost(int cellIndex, float factor)
-        {
-            if (holdGhost == null)
-                return;
-
-            holdGhost[cellIndex] = factor;
-            applyCellAlpha(cellIndex, animate: true);
-        }
-
-        /// <summary>Removes a travelling letter and un-ghosts its cell.</summary>
-        private void removeTraveller(int cellIndex, HoldTraveller traveller)
-        {
-            content.Remove(traveller.Sprite, true);
-            setHoldGhost(cellIndex, 1);
-        }
-
-        /// <summary>A hold's tail was judged: its bar and travelling letter flash the result, and the letter is set down.</summary>
+        /// <summary>A hold's tail was judged: its track flashes the result.</summary>
         public void ShowHoldResult(int cellIndex, JudgementType type)
-        {
-            if (holdBars == null || !holdBars.TryGetValue(cellIndex, out var bar))
-                return;
+            => HoldBarAt(cellIndex)?.ShowResult(HoldResultColour(type));
 
-            var colour = HoldResultColour(type);
-            bar.ShowResult(colour);
-
-            if (holdTravellers == null || !holdTravellers.TryGetValue(cellIndex, out var traveller))
-                return;
-
-            if (!traveller.Down)
-                setDownHeldLetter(cellIndex, traveller);
-
-            traveller.Sprite.FlashColour(Color4.White, 300, Easing.OutQuint);
-            traveller.Sprite.FadeColour(colour, 300, Easing.OutQuint);
-        }
-
-        /// <summary>A hold never opened: its bar ends empty on a dimmed miss track, and the letter stays home.</summary>
-        public void ShowHoldMissed(int cellIndex)
-        {
-            if (holdBars == null || !holdBars.TryGetValue(cellIndex, out var bar))
-                return;
-
-            bar.ShowMissed();
-
-            if (holdTravellers != null && holdTravellers.Remove(cellIndex, out var traveller))
-                removeTraveller(cellIndex, traveller);
-        }
+        /// <summary>A hold never opened: its track ends empty on a dimmed miss colour.</summary>
+        public void ShowHoldMissed(int cellIndex) => HoldBarAt(cellIndex)?.ShowMissed();
 
         public void ShowHoldTickHit(int cellIndex, int tickIndex) => HoldBarAt(cellIndex)?.LightTick(tickIndex);
 
         public void ShowHoldTickMissed(int cellIndex, int tickIndex) => HoldBarAt(cellIndex)?.MissTick(tickIndex);
 
-        /// <summary>Every bar back to unjudged and every travelling letter gone, after a rewind.</summary>
+        /// <summary>Every bar back to unjudged, after a rewind.</summary>
         public void ResetHoldBars()
         {
             if (holdBars == null)
@@ -1053,14 +896,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             foreach (var bar in holdBars.Values)
                 bar.Reset();
-
-            if (holdTravellers == null)
-                return;
-
-            foreach (var (i, traveller) in holdTravellers)
-                removeTraveller(i, traveller);
-
-            holdTravellers.Clear();
         }
 
         /// <summary>The bar beside cell <paramref name="cellIndex"/>, or null.</summary>
@@ -1301,19 +1136,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     bar.Size = new Vector2(holdGaps[i], thickness);
                     bar.BlurSigma = HoldBar.HOLD_BLUR_SIGMA * SizeRatio;
                     bar.TickSize = new Vector2(HOLD_TICK_WIDTH, HOLD_TICK_HEIGHT) * SizeRatio;
-                }
-
-                // A travelling letter keeps its spot along the resized track.
-                if (holdTravellers != null)
-                {
-                    foreach (var (i, traveller) in holdTravellers)
-                    {
-                        var home = HoldTravellerBaseAt(i);
-                        var sprite = traveller.Sprite;
-                        sprite.ClearTransforms(false, nameof(sprite.Y));
-                        sprite.X = home.X + HoldTravelOffset(traveller.Fill, holdGaps[i]);
-                        sprite.Y = traveller.Down ? home.Y : home.Y - glyphHeight * HOLD_LIFT_FRACTION;
-                    }
                 }
             }
 
@@ -2233,17 +2055,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 default: // Untyped, Correct, Wrong on a lyric cell, AutoSkipped
                     cellStateAlpha[cellIndex] = 1f;
                     break;
-            }
-
-            // A set-down letter that was backspaced is no longer held: drop its copy and un-ghost the cell.
-            if (holdTravellers != null && source.State != CellState.Correct
-                && holdTravellers.TryGetValue(cellIndex, out var setDown) && setDown.Down)
-            {
-                holdTravellers.Remove(cellIndex);
-                content.Remove(setDown.Sprite, true);
-
-                if (holdGhost != null)
-                    holdGhost[cellIndex] = 1f;
             }
 
             // Compose the state alpha with the flashlight window and the Recite factor (each a

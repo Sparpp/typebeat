@@ -105,17 +105,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // judgement state and the hiding mods each contribute an independent multiplier (1 when
             // they have nothing to say), so no two of them can clobber each other and no order of
             // application exists to get wrong.
-            // A travelling letter shows the cell's alpha without the hold ghost.
-            float shown = cellStateAlpha[i] * cellHidingFactor(i);
-            float target = shown * (holdGhost?[i] ?? 1f);
-
-            if (holdTravellers != null && holdTravellers.TryGetValue(i, out var traveller))
-            {
-                if (animate)
-                    traveller.Sprite.FadeTo(shown, flashlight_fade_ms, Easing.OutQuint);
-                else
-                    traveller.Sprite.Alpha = shown;
-            }
+            float target = cellStateAlpha[i] * cellHidingFactor(i);
 
             // A hold track hides with its letter under the hiding mods only, so a miss track stays readable.
             if (holdBars != null && holdBars.TryGetValue(i, out var holdBar))
@@ -137,7 +127,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     continue;
                 float alpha = 0.85f;
                 for (int at = group.StartCell; at < group.EndCellExclusive; at++)
-                    alpha = Math.Min(alpha, cellStateAlpha[at] * cellHidingFactor(at) * (holdGhost?[at] ?? 1f));
+                    alpha = Math.Min(alpha, cellStateAlpha[at] * cellHidingFactor(at));
                 refreshFurigana(run);
                 if (animate)
                 {

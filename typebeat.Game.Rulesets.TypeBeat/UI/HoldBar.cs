@@ -13,7 +13,7 @@ using osuTK.Graphics;
 namespace typebeat.Game.Rulesets.TypeBeat.UI
 {
     /// <summary>
-    /// The track a held letter travels along: it fills from the left while held, freezes on release,
+    /// The track beside a held letter: it fills white from the left while held, freezes on release,
     /// flashes the tail's judgement and then blurs away.
     /// </summary>
     public partial class HoldBar : CompositeDrawable
@@ -27,6 +27,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public const float TICK_POP_SCALE = 1.3f;
 
         public const double TICK_POP_MS = 150;
+
+        /// <summary>The held part of the track.</summary>
+        public static readonly Color4 HoldFill = Color4.White;
 
         /// <summary>The track's colour once a never-opened hold has settled.</summary>
         public static readonly Color4 MISSED_TRACK = TypeBeatStyle.ErrorChar.Opacity(0.45f);
@@ -64,7 +67,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                                 Anchor = Anchor.CentreLeft,
                                 Origin = Anchor.CentreLeft,
                                 Width = 0,
-                                Colour = TypeBeatStyle.HoldChar,
+                                Colour = HoldFill,
                             },
                         },
                     },
@@ -194,7 +197,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             track.ClearTransforms();
             fill.ClearTransforms();
             track.Colour = TypeBeatStyle.HoldTrack;
-            fill.Colour = TypeBeatStyle.HoldChar;
+            fill.Colour = HoldFill;
             fill.Width = 0;
             inner.ClearTransforms();
             inner.BlurSigma = Vector2.Zero;
