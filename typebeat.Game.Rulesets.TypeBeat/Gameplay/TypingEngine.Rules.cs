@@ -836,6 +836,51 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public event Action? AlignSubdivisionTargetsChanged;
 
+        private bool holdLeadIn;
+
+        /// <summary>
+        /// A HELD LETTER IS DUE AT ITS HOLD'S START (backlog 494). Without it a held letter keeps the target
+        /// the even spread gave it, wherever the hold starts: on Blockbuster's "ter," the hold on the 'r' starts
+        /// 51 ms after the 't' while the spread put the 'e' 294 ms and the 'r' 588 ms after it, so a player
+        /// pressing on the cues opened the hold 537 ms late, autoplay pressed the 'e' and the 'r' together and
+        /// opened it 243 ms late, and the hold track filled a third of its length in one frame. With it the held
+        /// letter is due at the hold's start and the letters leading into it from the start of its syllable
+        /// segment are re-spread evenly up to that instant (see <c>TypingLine.leadIntoHolds</c> for the rule and
+        /// its edges). The letters after a hold are the hand-off's, unchanged; no group, cut or seal grace moves,
+        /// and a line with no usable hold is untouched.
+        ///
+        /// <para>An ERA flag, because a target is what Hard Rock's point judgement, the first letter of a
+        /// syllable (<see cref="FirstCharTiming"/>) and a stretch cell (<see cref="CharTimedStretch"/>) are
+        /// measured against, and replays of hold maps have been recorded since holds shipped. Live play sets it
+        /// for EVERY mod stack (<c>DrawableTypeBeatRuleset.createEngine</c>). It travels per replay on bit 15
+        /// (value 32768) of the SECOND CONFIG flags word (<see cref="Replays.TypeBeatReplayFrame.HoldLeadIn"/>),
+        /// so every replay recorded before it carries the bit clear and re-derives on the even-spread targets it
+        /// was played against. Orthogonal to <see cref="AlignSubdivisionTargets"/>: the lines keep both eras'
+        /// targets for both subdivision eras.</para>
+        /// </summary>
+        public bool HoldLeadIn
+        {
+            get => holdLeadIn;
+            set
+            {
+                if (holdLeadIn == value)
+                    return;
+                holdLeadIn = value;
+                foreach (var line in lines)
+                    line.SetHoldLeadIn(value);
+
+                // As for AlignSubdivisionTargets: the rush cap's playhead reads a cached copy of the targets.
+                rebuildCountableTargets();
+                HoldLeadInChanged?.Invoke();
+            }
+        }
+
+        /// <summary>
+        /// Raised whenever <see cref="HoldLeadIn"/> actually changes value, which outside construction is only
+        /// a replay's header frames re-selecting the era, exactly as <see cref="AlignSubdivisionTargetsChanged"/>.
+        /// </summary>
+        public event Action? HoldLeadInChanged;
+
         /// <summary>
         /// THE RUSH CAP COSTS ACCURACY, NOT COMBO (backlog 347). With this set, a press that leaves
         /// the caret more than <see cref="RushCap"/> countable chars past the playhead credits combo

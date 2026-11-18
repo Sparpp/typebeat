@@ -255,6 +255,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             // folding it in, so each correction refunded only its own break's run (backlog 422).
             bit(EraWord.ConfigExtended, 1 << 14, nameof(TypeBeatReplayFrame.StacksDisplacedClaims), f => f.StacksDisplacedClaims, (f, v) => f.StacksDisplacedClaims = v,
                 e => e.StacksDisplacedClaims, (e, v) => e.StacksDisplacedClaims = v),
+
+            // Second word, bit 15: a held letter was due at its hold's start, the letters leading into it
+            // re-spread to meet it (backlog 494).
+            bit(EraWord.ConfigExtended, 1 << 15, nameof(TypeBeatReplayFrame.HoldLeadIn), f => f.HoldLeadIn, (f, v) => f.HoldLeadIn = v,
+                e => e.HoldLeadIn, (e, v) => e.HoldLeadIn = v),
         };
 
         private static readonly ReplayEraBit[] config_bits = ALL.Where(b => b.Word == EraWord.Config).ToArray();

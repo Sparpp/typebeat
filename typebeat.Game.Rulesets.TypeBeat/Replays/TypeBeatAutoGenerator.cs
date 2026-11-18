@@ -43,6 +43,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         private readonly bool authoredSyllablesOnly;
         private readonly bool alignSubdivisionTargets;
         private readonly bool earlyFinish;
+        private readonly bool holdLeadIn;
 
         /// <param name="beatmap">The map to perfect.</param>
         /// <param name="literate">
@@ -100,8 +101,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// It moves no press (a seal is judgement-neutral on a fully correct line); it only has to be
         /// carried because attaching the replay clears every second-word era on the live engine.
         /// </param>
+        /// <param name="holdLeadIn">
+        /// Press on the hold lead-in era's targets (backlog 494, see <see cref="Gameplay.TypingEngine.HoldLeadIn"/>:
+        /// a held letter due at its hold's start, the letters before it re-spread to meet it) and carry the era
+        /// in the extended header, for the same reason as <paramref name="alignSubdivisionTargets"/>. Defaults to
+        /// the even-spread targets for existing direct callers.
+        /// </param>
         public TypeBeatAutoGenerator(IBeatmap beatmap, bool literate = false, bool syllableTiming = false, bool charTimedStretch = false, bool firstCharTiming = false, bool wordShelter = false,
-                                     bool authoredSyllablesOnly = false, bool alignSubdivisionTargets = false, bool earlyFinish = false)
+                                     bool authoredSyllablesOnly = false, bool alignSubdivisionTargets = false, bool earlyFinish = false, bool holdLeadIn = false)
             : base(beatmap)
         {
             this.literate = literate;
@@ -112,6 +119,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             this.authoredSyllablesOnly = authoredSyllablesOnly;
             this.alignSubdivisionTargets = alignSubdivisionTargets;
             this.earlyFinish = earlyFinish;
+            this.holdLeadIn = holdLeadIn;
         }
 
         protected override void GenerateFrames()
@@ -136,6 +144,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 var line = TypingLine.ForMods(lineObject.Line, literate, lineObject.Polyglot, lineObject.PolyglotLanguage, japaneseCharacterTiming: japanese, shorthand: lineObject.Shorthand,
                     spaceless: lineObject.Spaceless);
                 line.SetAlignedSubdivisionTargets(alignSubdivisionTargets);
+                line.SetHoldLeadIn(holdLeadIn);
 
                 var pressTimes = japanese ? line.Cells.Select(c => c.TargetTime).ToArray()
                     : GetPressTimes(line, line.GroupingFor(authoredSyllablesOnly), syllableTiming, charTimedStretch, firstCharTiming, wordShelter, ref lastTime, ref holdUntil);
@@ -186,7 +195,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 }
             }
 
-            if ((authoredSyllablesOnly || alignSubdivisionTargets || earlyFinish || japanese) && Frames.Count > 0)
+            if ((authoredSyllablesOnly || alignSubdivisionTargets || earlyFinish || holdLeadIn || japanese) && Frames.Count > 0)
             {
                 // The era header (see the constructor), immediately ahead of the LAST press and at its
                 // time, and again ahead of the first. The first lands it before any keystroke a play
@@ -195,12 +204,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // that trim, so does this header, and the watch path primes from the first header it
                 // finds, so the surviving presses are judged on the grouping they were made for.
                 Frames.Insert(Frames.Count - 1, TypeBeatReplayFrame.CreateExtendedConfigFrame(Frames[^1].Time, authoredSyllablesOnly: authoredSyllablesOnly, alignSubdivisionTargets: alignSubdivisionTargets,
-                    earlyFinish: earlyFinish, japaneseCharacterTiming: japanese, japaneseInputScoring: japanese, japaneseKanaInput: japanese, bestRetypeJudgement: true, japaneseRomajiInput: japanese, japaneseInputEra2: japanese, japaneseInputEra3: japanese));
+                    earlyFinish: earlyFinish, japaneseCharacterTiming: japanese, japaneseInputScoring: japanese, japaneseKanaInput: japanese, bestRetypeJudgement: true, japaneseRomajiInput: japanese, japaneseInputEra2: japanese, japaneseInputEra3: japanese, holdLeadIn: holdLeadIn));
 
                 if (Frames.Count > 2)
                 {
                     Frames.Insert(0, TypeBeatReplayFrame.CreateExtendedConfigFrame(Frames[0].Time, authoredSyllablesOnly: authoredSyllablesOnly, alignSubdivisionTargets: alignSubdivisionTargets,
-                        earlyFinish: earlyFinish, japaneseCharacterTiming: japanese, japaneseInputScoring: japanese, japaneseKanaInput: japanese, bestRetypeJudgement: true, japaneseRomajiInput: japanese, japaneseInputEra2: japanese, japaneseInputEra3: japanese));
+                        earlyFinish: earlyFinish, japaneseCharacterTiming: japanese, japaneseInputScoring: japanese, japaneseKanaInput: japanese, bestRetypeJudgement: true, japaneseRomajiInput: japanese, japaneseInputEra2: japanese, japaneseInputEra3: japanese, holdLeadIn: holdLeadIn));
                 }
             }
         }
