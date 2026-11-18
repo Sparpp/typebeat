@@ -126,7 +126,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 new SettingsItemV2(new FormCheckBox
                 {
                     Caption = KEYBOARD_HITSOUNDS_CAPTION,
-                    HintText = "Play a keyboard click for every key you press while playing, and in replays. Each key has its own click: the letter rows, numbers, punctuation, space, Backspace and Enter all sound different.",
+                    HintText = "Play a keyboard click on the first character of each syllable, and on each tick of a held character, while playing and in replays. The click depends on the key: the letter rows, numbers and punctuation all sound different.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.KeyboardHitsounds),
                 }),
             };

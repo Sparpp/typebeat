@@ -42,6 +42,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>How many key inputs are running right now; the announcement belongs to the outermost.</summary>
         private int keyInputDepth;
 
+        /// <summary>Whether a key input is being processed right now: an event raised while this holds belongs to the last <see cref="KeyTyped"/>.</summary>
+        public bool InKeyInput => keyInputDepth > 0;
+
         /// <summary>Opens one key input, announcing it when it is the outermost; dispose to close it.</summary>
         private KeyInputScope beginKeyInput(TypedKey key)
         {

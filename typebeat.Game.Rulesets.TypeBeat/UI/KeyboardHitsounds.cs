@@ -14,9 +14,9 @@ using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 namespace typebeat.Game.Rulesets.TypeBeat.UI
 {
     /// <summary>
-    /// KEYBOARD HITSOUNDS: a keyboard click for every gameplay key (<see cref="TypingEngine.KeyTyped"/>),
-    /// live and in replays, while the "Keyboard hitsounds" setting is on (off by default). The sound
-    /// follows the KEY, not the judgement, so the play sounds like typing on a keyboard.
+    /// KEYBOARD HITSOUNDS: a keyboard click once per syllable (on the key that types its first
+    /// character) and on every hold tick held through (<see cref="KeyboardHitsoundCues"/>), live and in
+    /// replays, while the "Keyboard hitsounds" setting is on (off by default).
     ///
     /// <para>Each key has its one sample (<see cref="SampleFor"/>), chosen by where the key sits on a
     /// keyboard: the letter rows a different click each, the number row the thinnest, punctuation the
@@ -36,7 +36,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private const string home_row = "asdfghjkl";
         private const string bottom_row = "zxcvbnm";
 
-        private readonly TypingEngine engine;
+        private readonly KeyboardHitsoundCues cues;
         private readonly Bindable<bool> enabled = new Bindable<bool>();
         private readonly Dictionary<string, Sample?> samples = new Dictionary<string, Sample?>();
         private readonly Dictionary<string, double> lastStarted = new Dictionary<string, double>();
@@ -49,7 +49,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         public KeyboardHitsounds(TypingEngine engine)
         {
-            this.engine = engine;
+            cues = new KeyboardHitsoundCues(engine);
         }
 
         /// <summary>The sample a gameplay key plays, by where the key sits on a keyboard. Pure.</summary>
@@ -105,15 +105,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         protected override void LoadComplete()
         {
             base.LoadComplete();
-            engine.KeyTyped += onKeyTyped;
+            cues.Cued += onCued;
         }
 
-        private void onKeyTyped(TypedKey key)
+        private void onCued(string name)
         {
             if (!enabled.Value)
                 return;
 
-            string name = SampleFor(key);
             double now = Time.Current;
 
             if (lastStarted.TryGetValue(name, out double last) && Math.Abs(now - last) < REPEAT_GAP_MS)
@@ -129,7 +128,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         protected override void Dispose(bool isDisposing)
         {
-            engine.KeyTyped -= onKeyTyped;
+            cues.Dispose();
             base.Dispose(isDisposing);
         }
     }

@@ -383,8 +383,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         ApproachBarAlignment,
 
         /// <summary>
-        /// "Keyboard hitsounds": a keyboard click for every gameplay key, one sample per key by where it
-        /// sits on a keyboard (see <see cref="UI.KeyboardHitsounds"/>). Off by default; feedback only,
+        /// "Keyboard hitsounds": a keyboard click once per syllable and on each held hold tick, the sample
+        /// chosen by where the key sits on a keyboard (see <see cref="UI.KeyboardHitsounds"/>). Off by default; feedback only,
         /// live while playing.
         /// </summary>
         KeyboardHitsounds,

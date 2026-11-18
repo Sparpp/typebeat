@@ -118,5 +118,82 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             engine.ProcessKey('b', 1600);
             Assert.That(heard, Is.EqualTo(1), "announcing resumes once the rebuild is over");
         }
+
+        private static LyricBeatmap syllableMap(params TimedUnit[] units) => new LyricBeatmap
+        {
+            Metadata = new LyricBeatmapMetadata { Artist = "Test", Title = "Song", FolderPath = @"X:
+owhere", AudioFileName = "a.mp3" },
+            Lines = new List<LyricLine>
+            {
+                new LyricLine
+                {
+                    RawText = string.Join(' ', units.Select(u => u.Text)),
+                    StartTime = 1000,
+                    EndTime = 60000,
+                    SingEndTime = 9000,
+                    Units = units,
+                },
+            },
+            Granularity = TimingGranularity.Word,
+        };
+
+        [Test]
+        public void OnlyTheFirstCharacterOfEachSyllableSounds()
+        {
+            // "ap|ple" subdivided by the mapper, then the undivided "cd": three syllables.
+            var engine = new TypingEngine(syllableMap(
+                new TimedUnit
+                {
+                    Text = "apple", StartTime = 1000, EndTime = 3000, Source = TimingSource.Explicit,
+                    SyllableBoundaries = new[] { 2000.0 }, SyllableSplits = new[] { 2 },
+                },
+                new TimedUnit { Text = "cd", StartTime = 4000, EndTime = 5000, Source = TimingSource.Explicit }));
+
+            using var cues = new KeyboardHitsoundCues(engine);
+            var heard = new List<string>();
+            cues.Cued += heard.Add;
+
+            double t = 1000;
+
+            foreach (char c in "apple cd")
+            {
+                engine.Update(t);
+                engine.ProcessKey(c, t);
+                t += c == ' ' ? 1000 : 400;
+            }
+
+            engine.ProcessKey('q', t); // a key past the end of the line
+            engine.ProcessBackspace();
+            engine.ProcessEnter(t);
+
+            Assert.That(heard, Is.EqualTo(new[] { sound('a'), sound('p'), sound('c') }));
+        }
+
+        [Test]
+        public void EachHoldTickHeldThroughSounds()
+        {
+            // "so" with the 'o' held over [2000, 3500], ticks at 2300 and 2600.
+            var hold = new WordHold(1, 2000, 3500) { Ticks = new[] { 2300.0, 2600.0 } };
+            var engine = new TypingEngine(syllableMap(new TimedUnit
+            {
+                Text = "so", StartTime = 1000, EndTime = 3500, Source = TimingSource.Explicit,
+                Objects = new WordObjects { Holds = new[] { hold } },
+            }));
+
+            using var cues = new KeyboardHitsoundCues(engine);
+            var heard = new List<string>();
+            cues.Cued += heard.Add;
+
+            engine.Update(1000);
+            engine.ProcessKey('s', 1000);
+            engine.Update(2000);
+            engine.ProcessKey('o', 2000);
+            engine.Update(2400);
+            engine.ProcessRelease(2500); // let go before the second tick
+
+            engine.Update(4000);
+
+            Assert.That(heard, Is.EqualTo(new[] { sound('s'), sound('o') }), "the word's first key, then the one tick held through");
+        }
     }
 }
