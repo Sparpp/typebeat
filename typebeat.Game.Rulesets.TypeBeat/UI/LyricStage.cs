@@ -758,7 +758,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         /// <summary>
         /// A hold's tail was judged. The fill is first settled at the release time (the per-frame feed runs a
-        /// frame behind). A hold that never opened (a seal Miss, or a head pressed at or after the end, the
+        /// frame behind), unless the frame already drawn is further along. A hold that never opened (a seal Miss, or a head pressed at or after the end, the
         /// only Miss released at or past the end) shows the empty miss track instead.
         /// </summary>
         private void onHoldTailJudged(HoldTailJudgement judgement)
@@ -778,8 +778,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 return;
             }
 
+            // Never backwards: the key's release time is usually a little before the frame already drawn.
             if (cell is { HoldStart: double start, HoldEnd: double end })
-                d.SetHoldFill(judgement.CellIndex, holdFillAt(judgement.ReleaseTime, start, end));
+                d.SetHoldFill(judgement.CellIndex, Math.Max(d.HoldBarAt(judgement.CellIndex)?.Fill ?? 0, holdFillAt(judgement.ReleaseTime, start, end)));
 
             d.ShowHoldResult(judgement.CellIndex, judgement.Type);
         }

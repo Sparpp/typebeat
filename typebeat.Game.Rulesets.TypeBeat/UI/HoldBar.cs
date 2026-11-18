@@ -18,15 +18,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// </summary>
     public partial class HoldBar : CompositeDrawable
     {
+        // The ticks the fill has passed while held; they wear the fill's colour from then on.
+        private readonly HashSet<int> litTicks = new HashSet<int>();
+
         /// <summary>How long a finished track takes to blur and fade out.</summary>
         public const double HOLD_BLUR_DURATION_MS = 200;
 
         /// <summary>The blur's sigma at the default font size.</summary>
         public const float HOLD_BLUR_SIGMA = 4;
-
-        public const float TICK_POP_SCALE = 1.3f;
-
-        public const double TICK_POP_MS = 150;
 
         /// <summary>The held part of the track.</summary>
         public static readonly Color4 HoldFill = Color4.White;
@@ -83,10 +82,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         {
             base.Update();
 
-            // Pad the buffer past the thin bar so neither the blur nor a popped tick is clipped.
-            Vector2 popped = tickSize * TICK_POP_SCALE;
-            float padY = System.Math.Max(0, (popped.Y - DrawHeight) / 2) + BlurSigma * 3;
-            float padX = popped.X / 2 + BlurSigma * 3;
+            // Pad the buffer past the thin bar so neither the blur nor a tick is clipped.
+            float padY = System.Math.Max(0, (tickSize.Y - DrawHeight) / 2) + BlurSigma * 3;
+            float padX = tickSize.X / 2 + BlurSigma * 3;
             inner.Padding = new MarginPadding { Top = padY, Bottom = padY, Left = padX, Right = padX };
             inner.Size = DrawSize + new Vector2(padX * 2, padY * 2);
         }
@@ -129,6 +127,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public void SetTicks(IReadOnlyList<float> fractions)
         {
             ticks.Clear();
+            litTicks.Clear();
 
             foreach (float fraction in fractions)
             {
@@ -144,7 +143,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             }
         }
 
-        /// <summary>Tick <paramref name="index"/> was hit: a white flash into the held purple, with a small pop.</summary>
+        /// <summary>Tick <paramref name="index"/> was hit: it takes the fill's colour, with no flash or pop.</summary>
         public void LightTick(int index)
         {
             if (index < 0 || index >= ticks.Children.Count)
@@ -152,9 +151,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             var tick = ticks.Children[index];
             tick.ClearTransforms();
-            tick.Colour = TypeBeatStyle.HoldChar;
-            tick.FlashColour(Color4.White, TICK_POP_MS, Easing.OutQuint);
-            tick.ScaleTo(TICK_POP_SCALE).ScaleTo(1, TICK_POP_MS, Easing.OutQuint);
+            tick.Colour = fill.Colour;
+            litTicks.Add(index);
         }
 
         /// <summary>Tick <paramref name="index"/> was missed.</summary>
@@ -165,16 +163,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             var tick = ticks.Children[index];
             tick.ClearTransforms();
-            tick.Scale = Vector2.One;
             tick.Colour = MISSED_TRACK;
+            litTicks.Remove(index);
         }
 
-        /// <summary>Flashes <paramref name="colour"/> and settles on it; the fill keeps the width it froze at.</summary>
+        /// <summary>
+        /// The held part (the fill and the ticks it passed) settles on <paramref name="colour"/>; the fill keeps
+        /// the width it froze at. The unheld rest of the track does not flash: in the fill's own colour that
+        /// read as the fill snapping to full and pulling back.
+        /// </summary>
         public void ShowResult(Color4 colour)
         {
-            track.FlashColour(colour, 300, Easing.OutQuint);
-            fill.FlashColour(Color4.White, 300, Easing.OutQuint);
             fill.FadeColour(colour, 300, Easing.OutQuint);
+
+            foreach (int index in litTicks)
+                ticks.Children[index].FadeColour(colour, 300, Easing.OutQuint);
+
             blurAway();
         }
 
@@ -203,11 +207,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             inner.BlurSigma = Vector2.Zero;
             inner.Alpha = 1;
 
+            litTicks.Clear();
+
             foreach (var tick in ticks)
             {
                 tick.ClearTransforms();
                 tick.Colour = TypeBeatStyle.UntypedChar;
-                tick.Scale = Vector2.One;
             }
         }
     }

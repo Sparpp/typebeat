@@ -270,10 +270,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         /// <summary>
         /// The playhead's offset from the held cell's left edge at <paramref name="fraction"/> of the hold: it
-        /// sweeps evenly across the letter and its track, keeping pace with the track's fill. Pure.
+        /// rides the track's fill edge, past the letter (which it crossed on the way to the hold's start). Pure.
         /// </summary>
         public static float HeldSungOffset(double fraction, float advance, float trackWidth)
-            => (float)((advance + trackWidth) * Math.Clamp(fraction, 0, 1));
+            => advance + (float)(trackWidth * Math.Clamp(fraction, 0, 1));
 
         /// <summary>Cell <paramref name="i"/>'s displayed alpha.</summary>
         private float cellVisibleAlpha(int i) => cells[i].Alpha;
@@ -1318,18 +1318,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             selectionBox.Alpha = width > 0f ? 1f : 0f;
         }
 
-        private float localXFor(double fractionalCellIndex)
+        private float localXFor(double fractionalCellIndex) => SungLocalX(fractionalCellIndex, cellX, advances, holdGaps);
+
+        /// <summary>
+        /// The playhead's content-local x at a fractional (sung) cell index, given each cell's left edge
+        /// (<paramref name="cellLefts"/>, one more entry than cells), its advance and the hold track after it
+        /// (0 for an unheld cell). Pure.
+        ///
+        /// <para>A held cell's span is its track, ridden at the fill's edge (see <see cref="HeldSungOffset"/>).
+        /// So that the playhead arrives there without a jump, a held letter is crossed on the way IN: its
+        /// index stands for its right edge rather than its left.</para>
+        /// </summary>
+        public static float SungLocalX(double fractionalCellIndex, IReadOnlyList<float> cellLefts, IReadOnlyList<float> cellAdvances, IReadOnlyList<float> holdTracks)
         {
-            double f = Math.Clamp(fractionalCellIndex, 0, cellX.Length - 1);
+            double f = Math.Clamp(fractionalCellIndex, 0, cellLefts.Count - 1);
             int lo = (int)Math.Floor(f);
-            int hi = Math.Min(lo + 1, cellX.Length - 1);
+            int hi = Math.Min(lo + 1, cellLefts.Count - 1);
             float frac = (float)(f - lo);
 
-            // A held cell's span covers its letter and its track (see HeldSungOffset).
-            if (hi == lo + 1 && lo < holdGaps.Length && holdGaps[lo] > 0 && lo < advances.Length)
-                return cellX[lo] + HeldSungOffset(f - lo, advances[lo], holdGaps[lo]);
+            bool held(int i) => i < holdTracks.Count && holdTracks[i] > 0 && i < cellAdvances.Count;
 
-            return cellX[lo] + (cellX[hi] - cellX[lo]) * frac;
+            if (hi == lo + 1 && held(lo))
+                return cellLefts[lo] + HeldSungOffset(frac, cellAdvances[lo], holdTracks[lo]);
+
+            float from = cellLefts[lo] + (held(lo) ? cellAdvances[lo] : 0f);
+            float to = cellLefts[hi] + (held(hi) ? cellAdvances[hi] : 0f);
+            return from + (to - from) * frac;
         }
 
         /// <summary>

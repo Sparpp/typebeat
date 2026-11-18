@@ -32,7 +32,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <summary>A character completed for the player (Shorthand): just above the background.</summary>
         public static Color4 AutoCompletedChar { get; } = new Color4((byte)60, (byte)62, (byte)65, (byte)255); // #3c3e41
 
-        /// <summary>A held letter in the editor, and the fill of its hold bar.</summary>
+        /// <summary>A held letter in the editor.</summary>
         public static Color4 HoldChar { get; } = new Color4((byte)110, (byte)80, (byte)190, (byte)255); // #6e50be
 
         /// <summary>The hold bar's empty track.</summary>
