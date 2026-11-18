@@ -1017,13 +1017,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                 // Per-typeable-cell targets for this token, which is where syllable subdivisions AND
                 // an authored pause warp the char-to-time mapping (see tokenCellTargets).
-                int[]? segments = leadInTargets != null ? new int[k] : null;
-                double[] ramp = tokenCellTargets(token, unitStart, unitEnd, unit, k, rules.IsCell, alignSubdivisions, segments);
+                double[] ramp = tokenCellTargets(token, unitStart, unitEnd, unit, k, rules.IsCell, alignSubdivisions);
 
                 // The lead-in era's ramp: the same one with each usable hold's letter due at the hold's start.
                 // Read off the unit the hold half (heldCellsOf) reads, which a malformed count does not reach.
-                double[] leadInRamp = segments != null && m < units.Count && units[m].Objects.Holds.Count > 0
-                    ? leadIntoHolds(ramp, segments, token, HeldWord.UsableHolds(units[m], rules.IsCell), rules.IsCell)
+                double[] leadInRamp = leadInTargets != null && m < units.Count && units[m].Objects.Holds.Count > 0
+                    ? leadIntoHolds(ramp, tokenCellSegments(token, unitStart, unitEnd, unit, k, rules.IsCell, alignSubdivisions), token,
+                        HeldWord.UsableHolds(units[m], rules.IsCell), rules.IsCell)
                     : ramp;
 
                 int j = 0;
@@ -2100,14 +2100,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// it is sung in, timed independently (see <see cref="fillPausedStretches"/>); a rest the engine
         /// cannot honour - one whose edges have left the unit's span, whose split leaves every cell on one
         /// side of it, or that overlaps another - is ignored here, exactly as the loader drops it.</para>
-        ///
-        /// <para><paramref name="segments"/>, when given (length k), receives the segment each ramp cell was
-        /// spread over, as an id unique within the token (a paused word's stretches number theirs on from the
-        /// stretch before). Only the hold lead-in reads it (<see cref="leadIntoHolds"/>); the ramp is the same
-        /// either way.</para>
         /// </summary>
-        private static double[] tokenCellTargets(string token, double unitStart, double unitEnd, TimedUnit? unit, int k, Func<char, bool>? isCell = null, bool alignSubdivisions = false,
-                                                 int[]? segments = null)
+        private static double[] tokenCellTargets(string token, double unitStart, double unitEnd, TimedUnit? unit, int k, Func<char, bool>? isCell = null, bool alignSubdivisions = false)
         {
             var ramp = new double[k];
 
@@ -2118,7 +2112,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             if (unit != null && PausedWord.Of(token, unitStart, unitEnd, unit, isCell) is PausedWord.Cut cut)
             {
-                fillPausedStretches(cut, ramp, token, isCell, alignSubdivisions, segments);
+                fillPausedStretches(cut, ramp, token, isCell, alignSubdivisions);
                 return ramp;
             }
 
@@ -2140,13 +2134,65 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             for (int j = 0; j < k; j++)
                 ramp[j] = syllableCharTarget(unitStart, unitEnd, boundaries, k, j, cellCuts);
 
-            if (segments != null)
+            return ramp;
+        }
+
+        /// <summary>
+        /// Per typeable cell of one token, the segment <see cref="tokenCellTargets"/> spread it over, as an id
+        /// unique within the token: the subdivision segment, or on a paused word the stretch's own segment, a
+        /// stretch numbering its segments on from the stretch before. Every branch is <see cref="tokenCellTargets"/>'
+        /// and <see cref="fillPausedStretches"/>' own, taken in the same order on the same inputs; only the hold
+        /// lead-in reads it (<see cref="leadIntoHolds"/>), and only on a line with holds.
+        /// </summary>
+        private static int[] tokenCellSegments(string token, double unitStart, double unitEnd, TimedUnit? unit, int k, Func<char, bool>? isCell, bool alignSubdivisions)
+        {
+            var segments = new int[k];
+
+            if (k <= 0)
+                return segments;
+
+            var boundaries = unit?.SyllableBoundaries ?? Array.Empty<double>();
+
+            if (unit != null && PausedWord.Of(token, unitStart, unitEnd, unit, isCell) is PausedWord.Cut cut)
             {
-                for (int j = 0; j < k; j++)
-                    segments[j] = syllableCharSegment(boundaries, k, j, cellCuts);
+                int segmentBase = 0;
+
+                foreach (var piece in cut.Pieces)
+                {
+                    var pieceBoundaries = piece.Boundaries;
+                    var pieceCuts = piece.CellCuts;
+                    if (alignSubdivisions && pieceCuts == null && pieceBoundaries.Count > 0)
+                    {
+                        var splits = piece.Cuts.Select(c => c - piece.FirstChar).ToArray();
+                        pieceCuts = SyllableSegments.CellCuts(token.Substring(piece.FirstChar, piece.CharCount), splits, isCell);
+                        pieceBoundaries = pieceBoundaries.Take(splits.Length).ToArray();
+                    }
+
+                    for (int j = 0; j < piece.CellCount; j++)
+                        segments[piece.FirstCell + j] = segmentBase + syllableCharSegment(pieceBoundaries, piece.CellCount, j, pieceCuts);
+
+                    segmentBase += pieceBoundaries.Count + 1;
+                }
+
+                return segments;
             }
 
-            return ramp;
+            int[]? cellCuts;
+            if (alignSubdivisions && boundaries.Count > 0)
+            {
+                var splits = SyllableSegments.SplitsFor(token, boundaries.Count + 1, unit?.SyllableSplits);
+                cellCuts = SyllableSegments.CellCuts(token, splits, isCell);
+                boundaries = boundaries.Take(splits.Count).ToArray();
+            }
+            else
+                cellCuts = unit != null && SyllableSegments.IsAuthoredValid(token, boundaries.Count + 1, unit.SyllableSplits)
+                    ? SyllableSegments.CellCuts(token, unit.SyllableSplits, isCell)
+                    : null;
+
+            for (int j = 0; j < k; j++)
+                segments[j] = syllableCharSegment(boundaries, k, j, cellCuts);
+
+            return segments;
         }
 
         /// <summary>
@@ -2183,11 +2229,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// judgement GROUPS are built from too (<see cref="buildSyllables"/> reads the same stretches),
         /// so the judges' windows part at a rest exactly as they part at a subdivider.</para>
         /// </summary>
-        private static void fillPausedStretches(PausedWord.Cut cut, double[] ramp, string token, Func<char, bool>? isCell, bool alignSubdivisions, int[]? segments = null)
+        private static void fillPausedStretches(PausedWord.Cut cut, double[] ramp, string token, Func<char, bool>? isCell, bool alignSubdivisions)
         {
-            // The first segment id of the stretch being filled (see tokenCellTargets' segments).
-            int segmentBase = 0;
-
             foreach (var piece in cut.Pieces)
             {
                 var boundaries = piece.Boundaries;
@@ -2200,14 +2243,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 }
                 for (int j = 0; j < piece.CellCount; j++)
                     ramp[piece.FirstCell + j] = syllableCharTarget(piece.StartTime, piece.EndTime, boundaries, piece.CellCount, j, cellCuts);
-
-                if (segments != null)
-                {
-                    for (int j = 0; j < piece.CellCount; j++)
-                        segments[piece.FirstCell + j] = segmentBase + syllableCharSegment(boundaries, piece.CellCount, j, cellCuts);
-
-                    segmentBase += boundaries.Count + 1;
-                }
             }
         }
 
