@@ -360,6 +360,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // The target era switches the same way (a replay recorded before AlignSubdivisionTargets
             // flips the cells back to the legacy targets), and the bands are laid from those targets.
             engine.AlignSubdivisionTargetsChanged += regroup;
+            // And the hold lead-in era (backlog 494), which moves the targets of a held word's letters.
+            engine.HoldLeadInChanged += regroup;
             engine.JapaneseWordTimingChanged += regroup;
 
             // Carets are positioned via absolute points in this stage's top-left-origin
@@ -1631,6 +1633,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 engine.AuthoredSyllablesOnlyChanged -= regroup;
                 engine.AlignSubdivisionTargetsChanged -= regroup;
+                engine.HoldLeadInChanged -= regroup;
                 engine.JapaneseWordTimingChanged -= regroup;
             }
 

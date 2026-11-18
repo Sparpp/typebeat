@@ -380,6 +380,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // of the second CONFIG word, because every replay recorded before it holds folds.
                 StacksDisplacedClaims = true,
 
+                // A HELD LETTER IS DUE AT ITS HOLD'S START (backlog 494), unconditional for every mod
+                // stack: the even spread could put it well after the hold opened, so an on-time press
+                // opened the hold late. The letters leading into it are re-spread to meet it. An ERA
+                // flag on bit 15 of the second CONFIG word, because Hard Rock, FirstCharTiming and
+                // CharTimedStretch judge those targets and replays of hold maps already exist.
+                HoldLeadIn = true,
+
                 // THE LIVE CARET SINCE BACKLOG 208, for every stack except the pinning mod's. The
                 // three freedoms that shipped as the "FT" mod (open the next line the moment you
                 // finish one, keep a line the song has left, character distance instead of a timing

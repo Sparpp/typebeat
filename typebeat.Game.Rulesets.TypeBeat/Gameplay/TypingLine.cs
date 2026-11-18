@@ -67,8 +67,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public bool IsOnset { get; internal set; }
 
         /// <summary>
-        /// A held cell's span, which its release is graded on. The hold does not move the cell's own
-        /// <see cref="TargetTime"/>. Null on other cells and under Polyglot.
+        /// A held cell's span, which its release is graded on. Under <see cref="TypingEngine.HoldLeadIn"/>
+        /// (backlog 494, every live run) the cell's own <see cref="TargetTime"/> is this start, and the letters
+        /// leading into it are re-spread to meet it; without that era the hold does not move it. Null on other
+        /// cells and under Polyglot.
         /// </summary>
         public double? HoldStart { get; internal set; }
 
@@ -496,6 +498,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private double[]? legacyTargets;
         private double legacySealGrace;
         private bool alignedSubdivisionTargets;
+
+        /// <summary>
+        /// The targets under <see cref="TypingEngine.HoldLeadIn"/> (backlog 494), one array per subdivision era,
+        /// hand-offs included; null on a line with no usable hold, where the era moves nothing. The legacy
+        /// array comes from this line's own build, the aligned one from the aligned build
+        /// (<see cref="alignedTimingFactory"/>) when that is first needed.
+        /// </summary>
+        private double[]? legacyLeadInTargets;
+
+        /// <inheritdoc cref="legacyLeadInTargets"/>
+        private double[]? alignedLeadInTargets;
+
+        private bool holdLeadIn;
         private bool japaneseWordTiming = true;
         private bool japaneseCharacterTiming;
         private int[]? rawCellIndices;
@@ -634,18 +649,66 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             if (alignedTargets == null)
             {
+                captureLegacyTargets();
+
                 var alignedTiming = alignedTimingFactory!();
                 alignedTargets = alignedTiming.Cells.Select(c => c.TargetTime).ToArray();
                 alignedSealGrace = alignedTiming.SealGraceMs;
+                // The aligned build keeps ITS lead-in targets in the field this build keeps the legacy ones in.
+                alignedLeadInTargets = alignedTiming.legacyLeadInTargets;
                 alignedTimingFactory = null;
-                legacyTargets = Cells.Select(c => c.TargetTime).ToArray();
-                legacySealGrace = SealGraceMs;
             }
 
             alignedSubdivisionTargets = aligned;
+            applyTargetEra();
+        }
+
+        /// <summary>
+        /// Switch the hold lead-in era (<see cref="TypingEngine.HoldLeadIn"/>, backlog 494) without replacing
+        /// cells referenced by the renderer or engine. A line with no usable hold has nothing to switch.
+        /// </summary>
+        internal void SetHoldLeadIn(bool leadIn)
+        {
+            if (holdLeadIn == leadIn)
+                return;
+
+            holdLeadIn = leadIn;
+
+            if (legacyLeadInTargets == null)
+                return;
+
+            // Before the cells change, and so before any aligned swap could need them (see SetAlignedSubdivisionTargets).
+            captureLegacyTargets();
+            applyTargetEra();
+        }
+
+        /// <summary>
+        /// Keep this build's own hold-free targets before the first era switch overwrites them. Only ever
+        /// called while the cells still hold them: neither era has been switched on yet.
+        /// </summary>
+        private void captureLegacyTargets()
+        {
+            if (legacyTargets != null)
+                return;
+
+            legacyTargets = Cells.Select(c => c.TargetTime).ToArray();
+            legacySealGrace = SealGraceMs;
+        }
+
+        /// <summary>
+        /// Put the targets of the selected subdivision era and hold lead-in era on the cells. The lead-in
+        /// moves targets only: the seal grace stays the subdivision era's own, measured before any hold moved
+        /// a letter (as the hand-off's later targets are not measured either).
+        /// </summary>
+        private void applyTargetEra()
+        {
+            double[] targets = alignedSubdivisionTargets
+                ? (holdLeadIn ? alignedLeadInTargets : null) ?? alignedTargets!
+                : (holdLeadIn ? legacyLeadInTargets : null) ?? legacyTargets!;
+
             for (int i = 0; i < Cells.Count; i++)
-                Cells[i].TargetTime = aligned ? alignedTargets[i] : legacyTargets![i];
-            SealGraceMs = aligned ? alignedSealGrace : legacySealGrace;
+                Cells[i].TargetTime = targets[i];
+            SealGraceMs = alignedSubdivisionTargets ? alignedSealGrace : legacySealGrace;
             configureJapaneseEndpoints();
             rebuildSungPoints();
         }
@@ -795,18 +858,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// lazy aligned build the engine's setter uses, so the result is cell for cell what a live
         /// engine holds.</para>
         ///
-        /// <para>Word objects (holds) apply here; a line without them flattens as before.</para>
+        /// <para>Word objects (holds) apply here; a line without them flattens as before.
+        /// <paramref name="holdLeadIn"/> selects the HOLD LEAD-IN era the same way
+        /// <paramref name="alignSubdivisionTargets"/> selects the target era (see
+        /// <see cref="TypingEngine.HoldLeadIn"/>): off (the default, and every stored replay without the
+        /// extended bit), a held letter keeps its even-spread target; on, it is due at its hold's start.</para>
         ///
         /// <para><paramref name="spaceless"/> (the Spaceless mod) completes every space cell for the
         /// player (see <see cref="completeSpaces"/>); nothing else moves.</para>
         /// </summary>
-        public static TypingLine FromLyricLine(LyricLine line, bool literate = false, bool alignSubdivisionTargets = false, bool shorthand = false, bool spaceless = false)
-            => withTargetEra(build(line, literate, CellRules.Default, null, null, shorthand: shorthand, spaceless: spaceless, wordObjects: true), alignSubdivisionTargets);
+        public static TypingLine FromLyricLine(LyricLine line, bool literate = false, bool alignSubdivisionTargets = false, bool shorthand = false, bool spaceless = false,
+                                               bool holdLeadIn = false)
+            => withTargetEra(build(line, literate, CellRules.Default, null, null, shorthand: shorthand, spaceless: spaceless, wordObjects: true), alignSubdivisionTargets, holdLeadIn);
 
-        private static TypingLine withTargetEra(TypingLine line, bool alignSubdivisionTargets)
+        private static TypingLine withTargetEra(TypingLine line, bool alignSubdivisionTargets, bool holdLeadIn = false)
         {
             if (alignSubdivisionTargets)
                 line.SetAlignedSubdivisionTargets(true);
+
+            if (holdLeadIn)
+                line.SetHoldLeadIn(true);
 
             return line;
         }
@@ -838,11 +909,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <param name="spaceless">The Spaceless mod; incompatible with Polyglot, and ignored under it
         /// exactly as <paramref name="shorthand"/> is (the engine does the same, see
         /// <see cref="TypingEngine.Spaceless"/>), so a stack claiming both still cuts one cell list.</param>
+        /// <param name="holdLeadIn">The hold lead-in era (see <see cref="FromLyricLine"/>). Inert under
+        /// Polyglot, which plays no hold.</param>
         public static TypingLine ForMods(LyricLine line, bool literate, bool polyglot, string? language, bool alignSubdivisionTargets = false, bool japaneseWordTiming = true, bool japaneseCharacterTiming = false,
-                                         bool legacyJapaneseSpaces = false, bool shorthand = false, bool spaceless = false)
+                                         bool legacyJapaneseSpaces = false, bool shorthand = false, bool spaceless = false, bool holdLeadIn = false)
         {
             if (!polyglot)
-                return FromLyricLine(line, literate, alignSubdivisionTargets, shorthand, spaceless);
+                return FromLyricLine(line, literate, alignSubdivisionTargets, shorthand, spaceless, holdLeadIn);
 
             var derived = PolyglotLine.Derive(line, language, japaneseWordTiming, japaneseCharacterTiming, legacyJapaneseSpaces);
             var result = withTargetEra(build(derived.Line, literate, CellRules.Polyglot, derived.NaturalSplits, derived.RawCluster), alignSubdivisionTargets);
@@ -905,6 +978,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             bool[] isTypeable = new bool[n];
             double?[] targets = new double?[n];
 
+            // The same targets under the HOLD LEAD-IN era (backlog 494, see leadIntoHolds), walked beside the
+            // ones above through the same passes; only on a line whose words carry a hold, and only for word
+            // objects (Polyglot plays none).
+            double?[]? leadInTargets = wordObjects && units.Any(u => u.Objects.Holds.Count > 0) ? new double?[n] : null;
+
             // First pass: walk the raw text token by token (spaces delimit tokens; token m maps to Units[m]).
             string[] tokens = text.Split(' ');
             int pos = 0;
@@ -941,6 +1019,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // an authored pause warp the char-to-time mapping (see tokenCellTargets).
                 double[] ramp = tokenCellTargets(token, unitStart, unitEnd, unit, k, rules.IsCell, alignSubdivisions);
 
+                // The lead-in era's ramp: the same one with each usable hold's letter due at the hold's start.
+                // Read off the unit the hold half (heldCellsOf) reads, which a malformed count does not reach.
+                double[] leadInRamp = leadInTargets != null && m < units.Count && units[m].Objects.Holds.Count > 0
+                    ? leadIntoHolds(ramp, tokenCellSegments(token, unitStart, unitEnd, unit, k, rules.IsCell, alignSubdivisions), token,
+                        HeldWord.UsableHolds(units[m], rules.IsCell), rules.IsCell)
+                    : ramp;
+
                 int j = 0;
 
                 foreach (char ch in token)
@@ -951,6 +1036,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     {
                         isTypeable[pos] = true;
                         targets[pos] = ramp[j];
+
+                        if (leadInTargets != null)
+                            leadInTargets[pos] = leadInRamp[j];
+
                         j++;
                     }
                     // else: punctuation, resolved in the second pass.
@@ -965,7 +1054,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 {
                     int tokenStart = pos - token.Length;
                     foreach (var piece in paused.Pieces)
+                    {
                         interpolateUntimedTargets(targets, tokenStart + piece.FirstChar, piece.CharCount, piece.StartTime, piece.StartTime, piece.EndTime);
+
+                        if (leadInTargets != null)
+                            interpolateUntimedTargets(leadInTargets, tokenStart + piece.FirstChar, piece.CharCount, piece.StartTime, piece.StartTime, piece.EndTime);
+                    }
                 }
 
                 if (m < tokens.Length - 1)
@@ -974,6 +1068,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     expected[pos] = ' ';
                     isTypeable[pos] = true;
                     targets[pos] = unitEnd;
+
+                    if (leadInTargets != null)
+                        leadInTargets[pos] = unitEnd;
+
                     pos++;
                 }
             }
@@ -998,6 +1096,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             {
                 if (targets[i]!.Value < targets[i - 1]!.Value)
                     targets[i] = targets[i - 1];
+            }
+
+            // The lead-in era's targets through the same two steps, so its marks fall between its own letters
+            // and a hold starting before the letter ahead of it (data the editor refuses) cannot invert them.
+            if (leadInTargets != null)
+            {
+                interpolateUntimedTargets(leadInTargets, 0, n, line.StartTime);
+
+                for (int i = 1; i < n; i++)
+                {
+                    if (leadInTargets[i]!.Value < leadInTargets[i - 1]!.Value)
+                        leadInTargets[i] = leadInTargets[i - 1];
+                }
             }
 
             TypingCell[] cells;
@@ -1072,6 +1183,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (spaceless)
                 cells = completeSpaces(cells);
 
+            // The lead-in era's cell targets (backlog 494), projected exactly as the cells' own were. Like the
+            // hand-off below it moves no group and no seal grace: both were cut from the hold-free targets above.
+            double[]? leadInCellTargets = null;
+
             if (heldCells != null)
             {
                 foreach (var (i, hold) in heldCells)
@@ -1081,11 +1196,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     cells[i].HoldTickTimes = HoldTicks.UsableTicks(hold);
                 }
 
-                assignHandoffs(cells, cellWord, restsAfter);
+                double[] cellTargets = cells.Select(c => c.TargetTime).ToArray();
+                assignHandoffs(cells, cellWord, restsAfter, cellTargets);
+
+                for (int i = 0; i < cells.Length; i++)
+                    cells[i].TargetTime = cellTargets[i];
+
+                if (leadInTargets != null)
+                {
+                    leadInCellTargets = new double[cells.Length];
+
+                    for (int i = 0; i < cells.Length; i++)
+                        leadInCellTargets[i] = leadInTargets[defaultSources?[i] ?? i]!.Value;
+
+                    assignHandoffs(cells, cellWord, restsAfter, leadInCellTargets);
+                }
             }
 
             var result = new TypingLine(line, cells, Math.Min(sealGrace, max_seal_grace_ms), authored, natural, words, cellWord, lastUnitEnd,
                 buildJamoHeads(cells, defaultSources, rawCluster));
+            // This build's own lead-in targets, whichever subdivision era it was built in (see legacyLeadInTargets).
+            result.legacyLeadInTargets = leadInCellTargets;
             result.rawCellIndices = defaultSources?.ToArray();
             result.Shorthand = shorthand;
             result.Spaceless = spaceless;
@@ -1173,8 +1304,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <para>A held letter that ends its stretch (<paramref name="restsAfter"/>: a rest of the word cuts
         /// straight after it) hands off to nothing: the next letter opens the stretch after the rest, timed from
         /// the rest's end, which a usable hold is let go before (<see cref="HeldWord.ClearOfRest"/>).</para>
+        ///
+        /// <para>The targets moved are <paramref name="targets"/> (one per cell), so the one rule serves both
+        /// hold lead-in eras (see <see cref="leadIntoHolds"/>); the hand-off itself is the same in both.</para>
         /// </summary>
-        private static void assignHandoffs(TypingCell[] cells, int[] cellWord, IReadOnlySet<int>? restsAfter)
+        private static void assignHandoffs(TypingCell[] cells, int[] cellWord, IReadOnlySet<int>? restsAfter, double[] targets)
         {
             for (int i = 0; i < cells.Length; i++)
             {
@@ -1191,12 +1325,77 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     if (floor == null)
                     {
                         cells[j].HandsOffFrom = i;
-                        floor = Math.Max(cells[j].TargetTime, end);
+                        floor = Math.Max(targets[j], end);
                     }
 
-                    cells[j].TargetTime = Math.Max(cells[j].TargetTime, floor.Value);
+                    targets[j] = Math.Max(targets[j], floor.Value);
                 }
             }
+        }
+
+        /// <summary>
+        /// THE HOLD LEAD-IN (backlog 494, <see cref="TypingEngine.HoldLeadIn"/>): one token's ramp with each
+        /// usable hold's letter due at the hold's start. The even spread put a held letter wherever its index
+        /// fell, so a hold starting before that (Blockbuster's 'r', held from 51 ms after the 't' of "ter")
+        /// opened late on every press made on time, and the letters before it were cued to instants the singer
+        /// had already passed. Returns a new ramp; <paramref name="ramp"/> is left as it was.
+        ///
+        /// <para>For each hold, in character order: its LEAD-IN is the run of the ramp's cells from the first
+        /// cell of the held cell's syllable segment (<paramref name="segments"/>, the span its ramp was spread
+        /// over: a subdivision, or a paused stretch's) up to the held cell, cut short after an earlier held cell
+        /// of the same segment. The held cell is due at the hold's start; the cells before it are re-spread
+        /// evenly, by ramp index, between the lead-in's first target and that start. A held cell that opens its
+        /// lead-in is simply due at the hold's start.</para>
+        ///
+        /// <para>The lead-in's first target is never before the end of an earlier hold of the token, which is
+        /// where that hold's hand-off puts it anyway (<see cref="assignHandoffs"/>, run after this on the cells),
+        /// so the spread is not undone by it. A hold starting at or before that first target, which the editor's
+        /// cut rules refuse on a lead-in longer than one letter (<see cref="HeldWord.UsableHolds"/>), collapses its
+        /// lead-in onto that target rather than running it backwards; a first-letter hold starting before the
+        /// letter ahead of it is left to the build's non-decreasing guard. The letters after a hold are the
+        /// hand-off's, as they always were; no group, cut or seal grace moves.</para>
+        /// </summary>
+        private static double[] leadIntoHolds(double[] ramp, int[] segments, string token, IReadOnlyList<WordHold> holds, Func<char, bool> isCell)
+        {
+            var result = (double[])ramp.Clone();
+            int previousHeld = -1;
+            double previousEnd = double.NegativeInfinity;
+
+            foreach (var hold in holds)
+            {
+                // The held character's index among the token's ramp cells.
+                int held = 0;
+
+                for (int c = 0; c < hold.Char && c < token.Length; c++)
+                {
+                    if (isCell(token[c]))
+                        held++;
+                }
+
+                if (held >= result.Length)
+                    continue;
+
+                int first = held;
+
+                while (first > 0 && first - 1 > previousHeld && segments[first - 1] == segments[held])
+                    first--;
+
+                if (first == held)
+                    result[held] = hold.StartTime;
+                else
+                {
+                    double from = Math.Max(result[first], previousEnd);
+                    double to = Math.Max(hold.StartTime, from);
+
+                    for (int j = first; j <= held; j++)
+                        result[j] = from + (to - from) * (j - first) / (held - first);
+                }
+
+                previousHeld = held;
+                previousEnd = hold.EndTime;
+            }
+
+            return result;
         }
 
         /// <summary>
@@ -1936,6 +2135,83 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 ramp[j] = syllableCharTarget(unitStart, unitEnd, boundaries, k, j, cellCuts);
 
             return ramp;
+        }
+
+        /// <summary>
+        /// Per typeable cell of one token, the segment <see cref="tokenCellTargets"/> spread it over, as an id
+        /// unique within the token: the subdivision segment, or on a paused word the stretch's own segment, a
+        /// stretch numbering its segments on from the stretch before. Every branch is <see cref="tokenCellTargets"/>'
+        /// and <see cref="fillPausedStretches"/>' own, taken in the same order on the same inputs; only the hold
+        /// lead-in reads it (<see cref="leadIntoHolds"/>), and only on a line with holds.
+        /// </summary>
+        private static int[] tokenCellSegments(string token, double unitStart, double unitEnd, TimedUnit? unit, int k, Func<char, bool>? isCell, bool alignSubdivisions)
+        {
+            var segments = new int[k];
+
+            if (k <= 0)
+                return segments;
+
+            var boundaries = unit?.SyllableBoundaries ?? Array.Empty<double>();
+
+            if (unit != null && PausedWord.Of(token, unitStart, unitEnd, unit, isCell) is PausedWord.Cut cut)
+            {
+                int segmentBase = 0;
+
+                foreach (var piece in cut.Pieces)
+                {
+                    var pieceBoundaries = piece.Boundaries;
+                    var pieceCuts = piece.CellCuts;
+                    if (alignSubdivisions && pieceCuts == null && pieceBoundaries.Count > 0)
+                    {
+                        var splits = piece.Cuts.Select(c => c - piece.FirstChar).ToArray();
+                        pieceCuts = SyllableSegments.CellCuts(token.Substring(piece.FirstChar, piece.CharCount), splits, isCell);
+                        pieceBoundaries = pieceBoundaries.Take(splits.Length).ToArray();
+                    }
+
+                    for (int j = 0; j < piece.CellCount; j++)
+                        segments[piece.FirstCell + j] = segmentBase + syllableCharSegment(pieceBoundaries, piece.CellCount, j, pieceCuts);
+
+                    segmentBase += pieceBoundaries.Count + 1;
+                }
+
+                return segments;
+            }
+
+            int[]? cellCuts;
+            if (alignSubdivisions && boundaries.Count > 0)
+            {
+                var splits = SyllableSegments.SplitsFor(token, boundaries.Count + 1, unit?.SyllableSplits);
+                cellCuts = SyllableSegments.CellCuts(token, splits, isCell);
+                boundaries = boundaries.Take(splits.Count).ToArray();
+            }
+            else
+                cellCuts = unit != null && SyllableSegments.IsAuthoredValid(token, boundaries.Count + 1, unit.SyllableSplits)
+                    ? SyllableSegments.CellCuts(token, unit.SyllableSplits, isCell)
+                    : null;
+
+            for (int j = 0; j < k; j++)
+                segments[j] = syllableCharSegment(boundaries, k, j, cellCuts);
+
+            return segments;
+        }
+
+        /// <summary>
+        /// The segment <see cref="syllableCharTarget"/> spreads char <paramref name="j"/> over, chosen exactly
+        /// as it chooses it: 0 with no boundaries, the cut's segment with a cell cut, otherwise the char's
+        /// index scaled into segment space.
+        /// </summary>
+        private static int syllableCharSegment(IReadOnlyList<double> boundaries, int k, int j, IReadOnlyList<int>? cellCuts)
+        {
+            if (k <= 0 || boundaries.Count == 0)
+                return 0;
+
+            int segments = boundaries.Count + 1;
+
+            if (cellCuts != null && cellCuts.Count == segments + 1)
+                return SyllableSegments.SegmentOf(cellCuts, j);
+
+            int s = (int)Math.Floor((double)j * segments / k);
+            return s >= segments ? segments - 1 : s;
         }
 
         /// <summary>

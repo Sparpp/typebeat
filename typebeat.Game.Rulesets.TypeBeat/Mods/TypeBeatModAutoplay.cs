@@ -51,6 +51,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
             //
             // EarlyFinish rides in that same header for the same reason: without it the attach clears
             // the era and autoplay's run waits for the final line's end instead of its last press.
+            //
+            // So does the hold lead-in (backlog 494): the live engine has a held letter due at its
+            // hold's start, so autoplay presses there, and the header keeps the attach from putting
+            // the engine back on the even-spread targets.
             => new ModReplayData(new TypeBeatAutoGenerator(beatmap,
                     literate: mods.Any(m => m is TypeBeatModLiterate),
                     syllableTiming: !mods.Any(m => m is TypeBeatModHardRock),
@@ -59,7 +63,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
                     wordShelter: mods.Any(m => m is TypeBeatModEasy),
                     authoredSyllablesOnly: true,
                     alignSubdivisionTargets: true,
-                    earlyFinish: true).Generate(),
+                    earlyFinish: true,
+                    holdLeadIn: true).Generate(),
                 new ModCreatedUser { Username = "typebot" });
     }
 }
