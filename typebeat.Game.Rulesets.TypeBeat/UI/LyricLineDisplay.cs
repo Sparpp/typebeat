@@ -266,7 +266,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         internal float HoldTrackWidthAt(int cellIndex) => cellIndex >= 0 && cellIndex < holdGaps.Length ? holdGaps[cellIndex] : 0f;
 
         // --- The held letter ---
-        // A held letter stays where it was typed; its track fills white beside it (HoldBar).
+        // A held letter stays where it was typed, growing slightly while it is held; its track fills
+        // white beside it (HoldBar).
+
+        /// <summary>How much a held letter grows while its hold is down.</summary>
+        public const float HOLD_LIFT_SCALE = 1.1f;
+
+        /// <summary>How long a held letter takes to grow when its hold opens, and to settle when it ends.</summary>
+        public const double HOLD_PICK_UP_MS = 80, HOLD_SET_DOWN_MS = 100;
+
+        /// <summary>The held letters currently grown; null until the first.</summary>
+        private HashSet<int>? liftedHolds;
 
         /// <summary>
         /// The playhead's offset from the held cell's left edge at <paramref name="fraction"/> of the hold: it
@@ -870,25 +880,57 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             }
         }
 
-        /// <summary>The held fraction of a hold, fed every frame it is down: the track beside the letter fills white.</summary>
+        /// <summary>
+        /// The held fraction of a hold, fed every frame it is down: the track beside the letter fills white.
+        /// The first fill above 0 grows the letter (a 0 fill, as for a never-opened hold, must not).
+        /// </summary>
         public void SetHoldFill(int cellIndex, float fill)
         {
-            if (holdBars != null && holdBars.TryGetValue(cellIndex, out var bar))
-                bar.Fill = fill;
+            if (holdBars == null || !holdBars.TryGetValue(cellIndex, out var bar))
+                return;
+
+            bar.Fill = fill;
+
+            if (fill > 0 && (liftedHolds ??= new HashSet<int>()).Add(cellIndex))
+                scaleHeldLetter(cellIndex, HOLD_LIFT_SCALE, HOLD_PICK_UP_MS, Easing.OutQuad);
         }
 
-        /// <summary>A hold's tail was judged: its track flashes the result.</summary>
+        /// <summary>A hold's tail was judged: its track shows the result and the letter settles back.</summary>
         public void ShowHoldResult(int cellIndex, JudgementType type)
-            => HoldBarAt(cellIndex)?.ShowResult(HoldResultColour(type));
+        {
+            HoldBarAt(cellIndex)?.ShowResult(HoldResultColour(type));
+            setDownHeldLetter(cellIndex);
+        }
 
         /// <summary>A hold never opened: its track ends empty on a dimmed miss colour.</summary>
-        public void ShowHoldMissed(int cellIndex) => HoldBarAt(cellIndex)?.ShowMissed();
+        public void ShowHoldMissed(int cellIndex)
+        {
+            HoldBarAt(cellIndex)?.ShowMissed();
+            setDownHeldLetter(cellIndex);
+        }
+
+        private void setDownHeldLetter(int cellIndex)
+        {
+            if (liftedHolds?.Remove(cellIndex) == true)
+                scaleHeldLetter(cellIndex, 1, HOLD_SET_DOWN_MS, Easing.InOutQuad);
+        }
+
+        /// <summary>
+        /// Takes over the letter's scale from whatever was running on it (the Great pop, see
+        /// <see cref="PlayJudgementFeedback"/>), so the two never fight: the grow starts from where the pop is.
+        /// </summary>
+        private void scaleHeldLetter(int cellIndex, float scale, double duration, Easing easing)
+        {
+            var cell = cells[cellIndex];
+            cell.ClearTransforms(false, nameof(cell.Scale));
+            cell.ScaleTo(scale, duration, easing);
+        }
 
         public void ShowHoldTickHit(int cellIndex, int tickIndex) => HoldBarAt(cellIndex)?.LightTick(tickIndex);
 
         public void ShowHoldTickMissed(int cellIndex, int tickIndex) => HoldBarAt(cellIndex)?.MissTick(tickIndex);
 
-        /// <summary>Every bar back to unjudged, after a rewind.</summary>
+        /// <summary>Every bar back to unjudged and every held letter back to size, after a rewind.</summary>
         public void ResetHoldBars()
         {
             if (holdBars == null)
@@ -896,6 +938,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             foreach (var bar in holdBars.Values)
                 bar.Reset();
+
+            if (liftedHolds == null)
+                return;
+
+            foreach (int i in liftedHolds)
+            {
+                cells[i].ClearTransforms(false, nameof(Drawable.Scale));
+                cells[i].Scale = Vector2.One;
+            }
+
+            liftedHolds.Clear();
         }
 
         /// <summary>The bar beside cell <paramref name="cellIndex"/>, or null.</summary>
