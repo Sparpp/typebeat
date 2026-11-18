@@ -8,9 +8,9 @@ using osu.Framework.Audio;
 using osu.Framework.Audio.Sample;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
+using typebeat.Game.Audio;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
-using typebeat.Game.Rulesets.UI;
 
 namespace typebeat.Game.Rulesets.TypeBeat.UI
 {
@@ -30,9 +30,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     ///
     /// <para>A replay seek is silent. Jumping ahead walks the frame-stable clock forward one sub-step at
     /// a time, often many per frame, and every key it crosses is replayed live, so they would all
-    /// sound at once. While a REPLAY's walk is still short of the time asked for
-    /// (<see cref="IFrameStableClock.CatchUpPending"/>) nothing plays. Live play is never muted this
-    /// way: a hitch's catch-up there is the player's own keys landing late, not a jump.</para>
+    /// sound at once. Nothing plays while sample playback is disabled
+    /// (<see cref="ISamplePlaybackDisabler"/>): the player sets it while the clock is catching up by
+    /// more than a moment, while paused and during a skip, exactly when every other gameplay sample
+    /// is held. NOT <see cref="IFrameStableClock.CatchUpPending"/>: ordinary replay playback steps the
+    /// clock onto each recorded key's own time, so that flag is set for nearly every replayed key.</para>
     /// </summary>
     public partial class KeyboardHitsounds : Component
     {
@@ -54,16 +56,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <summary>How many samples this has started (test support).</summary>
         internal int PlayCount { get; private set; }
 
-        /// <summary>Whether a replay is being played back, so a catch-up walk is a seek.</summary>
-        private readonly Func<bool> replaying;
-
         [Resolved]
-        private IFrameStableClock? frameStableClock { get; set; }
+        private ISamplePlaybackDisabler? samplePlaybackDisabler { get; set; }
 
-        public KeyboardHitsounds(TypingEngine engine, Func<bool>? replaying = null)
+        public KeyboardHitsounds(TypingEngine engine)
         {
             cues = new KeyboardHitsoundCues(engine);
-            this.replaying = replaying ?? (() => false);
         }
 
         /// <summary>The sample a gameplay key plays, by where the key sits on a keyboard. Pure.</summary>
@@ -124,7 +122,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         private void onCued(string name)
         {
-            if (!enabled.Value || (frameStableClock?.CatchUpPending == true && replaying()))
+            if (!enabled.Value || samplePlaybackDisabler?.SamplePlaybackDisabled.Value == true)
                 return;
 
             double now = Time.Current;
