@@ -380,7 +380,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void LiveAutoplayPressesTheHeldLetterAtItsHoldsStart()
         {
-            var frames = new TypeBeatModAutoplay().CreateReplayData(beatmapOf(line(blockbuster(the_r))), new Mod[0]).Replay.Frames
+            var frames = new TypeBeatModAutoplay().CreateReplayData(beatmapOf(line(blockbuster(the_r))), System.Array.Empty<Mod>()).Replay.Frames
                                                   .Cast<TypeBeatReplayFrame>().Where(f => f.Character >= ' ').ToList();
 
             Assert.That(frames.Select(f => f.Character), Is.EqualTo("blockbuster"));
@@ -415,7 +415,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void LiveAutoplayOpensTheHoldOnTimeAndIsPerfect()
         {
             var lyric = line(blockbuster(the_r));
-            var frames = new TypeBeatModAutoplay().CreateReplayData(beatmapOf(lyric), new Mod[0]).Replay.Frames.Cast<TypeBeatReplayFrame>().ToList();
+            var frames = new TypeBeatModAutoplay().CreateReplayData(beatmapOf(lyric), System.Array.Empty<Mod>()).Replay.Frames.Cast<TypeBeatReplayFrame>().ToList();
 
             Assert.That(frames.Where(f => f.IsConfigExtended).Select(f => f.HoldLeadIn), Is.All.True, "the header carries the era");
 
