@@ -61,8 +61,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <summary>The heading of the group the keyboard hitsounds sit in, after the aligner's.</summary>
         public const string SOUND_HEADING = "Sound";
 
-        /// <summary>The keyboard hitsounds toggle (<see cref="KeyboardHitsounds"/>), on trial here.</summary>
+        /// <summary>The keyboard hitsounds switch (<see cref="KeyboardHitsounds"/>): off, per syllable or per character, on trial here.</summary>
         public const string KEYBOARD_HITSOUNDS_CAPTION = "Keyboard hitsounds";
+
+        /// <summary>The keyboard hitsounds' hint, naming what each of the three positions does.</summary>
+        public const string KEYBOARD_HITSOUNDS_HINT = "Play a keyboard click while playing and in replays. Per syllable clicks on the first character of each syllable; per character clicks on every character you type, spaces included. Both also click on each tick of a held character. The click depends on the key: the letter rows, numbers and punctuation all sound different.";
 
         public const string HIGH_QUALITY_HINT = "The aligner listens to the song eight times instead of twice. That times about one more word in a hundred "
                                                 + "correctly on stamped lyrics, and about two more when the lyrics have no timestamps at all. On a 6-core CPU "
@@ -123,11 +126,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     },
                 },
                 CreateSubsectionHeader(SOUND_HEADING),
-                new SettingsItemV2(new FormCheckBox
+                new SettingsItemV2(new FormTriStateSwitch<KeyboardHitsoundMode>
                 {
                     Caption = KEYBOARD_HITSOUNDS_CAPTION,
-                    HintText = "Play a keyboard click on the first character of each syllable, and on each tick of a held character, while playing and in replays. The click depends on the key: the letter rows, numbers and punctuation all sound different.",
-                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.KeyboardHitsounds),
+                    HintText = KEYBOARD_HITSOUNDS_HINT,
+                    Current = config.GetBindable<KeyboardHitsoundMode>(TypeBeatRulesetSetting.KeyboardHitsoundMode),
                 }),
             };
 
