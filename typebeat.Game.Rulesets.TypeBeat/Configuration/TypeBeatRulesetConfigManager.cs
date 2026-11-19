@@ -382,12 +382,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// </summary>
         ApproachBarAlignment,
 
-        /// <summary>
-        /// "Keyboard hitsounds": a keyboard click once per syllable and on each held hold tick, the sample
-        /// chosen by where the key sits on a keyboard (see <see cref="UI.KeyboardHitsounds"/>). Off by default; feedback only,
-        /// live while playing.
-        /// </summary>
+        /// <summary>Retired checkbox, retained only to migrate its saved choice to <see cref="KeyboardHitsoundMode"/>.</summary>
         KeyboardHitsounds,
+
+        /// <summary>
+        /// "Keyboard hitsounds" (<see cref="Configuration.KeyboardHitsoundMode"/>): off, a keyboard click once per
+        /// syllable, or one on every character typed, each also clicking on every held hold tick, the sample chosen
+        /// by where the key sits on a keyboard (see <see cref="UI.KeyboardHitsounds"/>). Off by default; feedback
+        /// only, live while playing.
+        /// </summary>
+        KeyboardHitsoundMode,
+    }
+
+    /// <summary>When the keyboard hitsounds click (see <see cref="UI.KeyboardHitsoundCues"/>).</summary>
+    public enum KeyboardHitsoundMode
+    {
+        [Description("Off")]
+        Off,
+
+        /// <summary>On the key that types a syllable's first character, and on held hold ticks.</summary>
+        [Description("Per syllable")]
+        PerSyllable,
+
+        /// <summary>On every key that types a lyric character (the space between words included), and on held hold ticks.</summary>
+        [Description("Per character")]
+        PerCharacter,
     }
 
     /// <summary>
@@ -560,7 +579,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         public const CaretStyle DEFAULT_SUNG_CARET_STYLE = CaretStyle.None;
 
         public TypeBeatRulesetConfigManager(SettingsStore? settings, RulesetInfo ruleset, int? variant = null)
-            : base(migratePaceBarReveal(migrateIndicatorDefaults(migratePaceColourMode(settings, ruleset, variant ?? 0), ruleset, variant ?? 0), ruleset, variant ?? 0), ruleset, variant)
+            : base(migrateKeyboardHitsoundMode(migratePaceBarReveal(migrateIndicatorDefaults(migratePaceColourMode(settings, ruleset, variant ?? 0), ruleset, variant ?? 0), ruleset, variant ?? 0), ruleset, variant ?? 0), ruleset, variant)
         {
             approachBarsBindable = GetBindable<bool>(TypeBeatRulesetSetting.ApproachBars);
             paceColourGradientBindable = GetBindable<float>(TypeBeatRulesetSetting.PaceColourGradient);
@@ -709,6 +728,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             return settings;
         }
 
+        // The "Keyboard hitsounds" checkbox became a three-way choice (backlog 499): a ticked box meant
+        // the per-syllable click it played then. As with the pace bar reveal, the new row is the
+        // migration marker, so later choices survive even if an older build flips the old checkbox.
+        private static SettingsStore? migrateKeyboardHitsoundMode(SettingsStore? settings, RulesetInfo ruleset, int variant)
+        {
+            if (settings == null)
+                return null;
+
+            string rulesetName = ruleset.ShortName;
+            string modeKey = nameof(TypeBeatRulesetSetting.KeyboardHitsoundMode);
+            string legacyKey = nameof(TypeBeatRulesetSetting.KeyboardHitsounds);
+            settings.Realm.Write(realm =>
+            {
+                var rows = realm.All<RealmRulesetSetting>().Where(s => s.RulesetName == rulesetName && s.Variant == variant);
+                var mode = rows.FirstOrDefault(s => s.Key == modeKey);
+                if (mode != null && Enum.TryParse<KeyboardHitsoundMode>(mode.Value, out var value) && Enum.IsDefined(value))
+                    return;
+
+                var legacy = rows.FirstOrDefault(s => s.Key == legacyKey);
+                var migrated = bool.TryParse(legacy?.Value, out bool enabled) && enabled ? KeyboardHitsoundMode.PerSyllable : KeyboardHitsoundMode.Off;
+                if (mode == null)
+                    realm.Add(new RealmRulesetSetting { RulesetName = rulesetName, Variant = variant, Key = modeKey, Value = migrated.ToString() });
+                else
+                    mode.Value = migrated.ToString();
+            });
+            return settings;
+        }
+
         protected override void InitialiseDefaults()
         {
             base.InitialiseDefaults();
@@ -761,6 +808,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.IndicatorAlignment, DEFAULT_ALIGNMENT_PERCENT, 0f, 100f, 1f);
             SetDefault(TypeBeatRulesetSetting.ApproachBarAlignment, DEFAULT_ALIGNMENT_PERCENT, 0f, 100f, 1f);
             SetDefault(TypeBeatRulesetSetting.KeyboardHitsounds, false);
+            SetDefault(TypeBeatRulesetSetting.KeyboardHitsoundMode, KeyboardHitsoundMode.Off);
         }
     }
 }

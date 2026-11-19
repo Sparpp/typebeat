@@ -103,8 +103,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>().Select(c => c.Caption.ToString()), Is.EqualTo(new[]
                 {
                     "High-accuracy alignment (about 4x slower per import)",
-                    TypeBeatExperimentalSettingsSubsection.KEYBOARD_HITSOUNDS_CAPTION,
                 }), "backlog 413 deleted the 'Use local auto-aligner' switch: the install is the opt-in");
+
+                // Backlog 499: the keyboard hitsounds are a three-way switch, off by default, bound to the
+                // setting KeyboardHitsounds reads.
+                var hitsounds = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormTriStateSwitch<KeyboardHitsoundMode>>().Single();
+
+                Assert.That(hitsounds.Caption.ToString(), Is.EqualTo(TypeBeatExperimentalSettingsSubsection.KEYBOARD_HITSOUNDS_CAPTION));
+                Assert.That(hitsounds.HintText.ToString(), Is.EqualTo(TypeBeatExperimentalSettingsSubsection.KEYBOARD_HITSOUNDS_HINT));
+                Assert.That(hitsounds.Current.Value, Is.EqualTo(KeyboardHitsoundMode.Off));
+                Assert.That(TriStateSwitch<KeyboardHitsoundMode>.VALUES, Is.EqualTo(new[] { KeyboardHitsoundMode.Off, KeyboardHitsoundMode.PerSyllable, KeyboardHitsoundMode.PerCharacter }),
+                    "left to right: off, per syllable, per character");
+                hitsounds.Current.Value = KeyboardHitsoundMode.PerCharacter;
+                Assert.That(config.Get<KeyboardHitsoundMode>(TypeBeatRulesetSetting.KeyboardHitsoundMode), Is.EqualTo(KeyboardHitsoundMode.PerCharacter));
 
                 Assert.That(controls.OfType<SettingsCheckbox>(), Is.Empty, "all experimental toggles use the shared form UI");
 

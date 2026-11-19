@@ -15,9 +15,9 @@ using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 namespace typebeat.Game.Rulesets.TypeBeat.UI
 {
     /// <summary>
-    /// KEYBOARD HITSOUNDS: a keyboard click once per syllable (on the key that types its first
-    /// character) and on every hold tick held through (<see cref="KeyboardHitsoundCues"/>), live and in
-    /// replays, while the "Keyboard hitsounds" setting is on (off by default).
+    /// KEYBOARD HITSOUNDS: a keyboard click once per syllable (on the key that types its first character)
+    /// or on every character typed, as the "Keyboard hitsounds" setting chooses (off by default), and on
+    /// every hold tick held through under either (<see cref="KeyboardHitsoundCues"/>), live and in replays.
     ///
     /// <para>Each key has its one sample (<see cref="SampleFor"/>), chosen by where the key sits on a
     /// keyboard: the letter rows a different click each, the number row the thinnest, punctuation the
@@ -46,7 +46,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private const string bottom_row = "zxcvbnm";
 
         private readonly KeyboardHitsoundCues cues;
-        private readonly Bindable<bool> enabled = new Bindable<bool>();
+        private readonly Bindable<KeyboardHitsoundMode> mode = new Bindable<KeyboardHitsoundMode>();
         private readonly Dictionary<string, Sample?> samples = new Dictionary<string, Sample?>();
         private readonly Dictionary<string, double> lastStarted = new Dictionary<string, double>();
 
@@ -61,7 +61,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         public KeyboardHitsounds(TypingEngine engine)
         {
-            cues = new KeyboardHitsoundCues(engine);
+            cues = new KeyboardHitsoundCues(engine, KeyboardHitsoundMode.Off);
         }
 
         /// <summary>The sample a gameplay key plays, by where the key sits on a keyboard. Pure.</summary>
@@ -101,7 +101,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         [BackgroundDependencyLoader(true)]
         private void load(AudioManager? audio, TypeBeatRulesetConfigManager? config)
         {
-            config?.BindWith(TypeBeatRulesetSetting.KeyboardHitsounds, enabled);
+            config?.BindWith(TypeBeatRulesetSetting.KeyboardHitsoundMode, mode);
 
             if (audio == null)
                 return;
@@ -117,12 +117,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         protected override void LoadComplete()
         {
             base.LoadComplete();
+            mode.BindValueChanged(m => cues.Mode = m.NewValue, true);
             cues.Cued += onCued;
         }
 
         private void onCued(string name)
         {
-            if (!enabled.Value || samplePlaybackDisabler?.SamplePlaybackDisabled.Value == true)
+            if (samplePlaybackDisabler?.SamplePlaybackDisabled.Value == true)
                 return;
 
             double now = Time.Current;
