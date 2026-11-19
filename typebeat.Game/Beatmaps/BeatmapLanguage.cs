@@ -115,6 +115,8 @@ namespace typebeat.Game.Beatmaps
 
         Romanian = 33,
 
+        Latin = 34,
+
         /// <summary>The song has no sung words (the map types something else, e.g. onomatopoeia).</summary>
         [LocalisableDescription(typeof(BeatmapsStrings), nameof(BeatmapsStrings.LanguageInstrumental))]
         Instrumental = 12,
