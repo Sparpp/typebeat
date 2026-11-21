@@ -358,6 +358,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// (the pass covers the contiguous span from its first line to its last), because taps are
         /// inherently continuous in time. With NOTHING selected the scope is the WHOLE SHEET, which
         /// is the fresh-paste case: paste lyrics, press Time, tap the song through.</para>
+        ///
+        /// <para>With the BACKING track selected (backlog 501) the pass times the backing words instead,
+        /// over the same line scope: the selected backing words of the active line when there are any,
+        /// else every backing word of the scoped lines (<see cref="BackingTapTiming"/>).</para>
         /// </summary>
         private void toggleTapTiming()
         {
@@ -399,6 +403,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 }
             }
 
+            if (state.BackingTrackSelected)
+            {
+                beginBackingTapTiming(ordered, lines, section, firstLine, lastLine);
+                return;
+            }
+
             var queue = TapTimingBuilder.BuildQueue(lines, firstLine, firstUnit, lastLine, lastUnit);
 
             if (queue.Count == 0)
@@ -414,6 +424,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             // surface hides the lines outside it, so the mapper reads only the section they are
             // timing. A whole-sheet pass (the fresh-paste default) hides nothing.
             tapOverlay.Begin(lines, queue, startFrom, new TapScope(ordered, firstLine, firstUnit, lastLine, lastUnit));
+        }
+
+        /// <summary>The BACKING pass of <see cref="toggleTapTiming"/> (backlog 501), over lines <paramref name="firstLine"/> to <paramref name="lastLine"/>.</summary>
+        private void beginBackingTapTiming(IReadOnlyList<TypeBeatHitObject> ordered, IReadOnlyList<LyricLine> lines, IReadOnlyList<TypeBeatHitObject> section,
+                                           int firstLine, int lastLine)
+        {
+            int firstIndex = 0;
+            int lastIndex = int.MaxValue;
+
+            // Selected backing words narrow the pass to that run of the active line.
+            if (firstLine == lastLine && section.Count > 0 && state.ActiveLine.Value == section[0]
+                && state.SelectedBackingInOrder(lines[firstLine].BackingVocals.Count) is { Length: > 0 } selected)
+            {
+                firstIndex = selected[0];
+                lastIndex = selected[^1];
+            }
+
+            var queue = BackingTapTiming.BuildQueue(lines, firstLine, lastLine, firstIndex, lastIndex);
+
+            if (queue.Count == 0)
+            {
+                refuse("No backing vocals to time here");
+                return;
+            }
+
+            double startFrom = lines[queue[0].LineIndex].BackingVocals[queue[0].UnitIndex].StartTime;
+
+            // The scope hides whole lines only: the typed words of a scoped line stay in view as the reference.
+            tapOverlay.Begin(lines, queue, startFrom, new TapScope(ordered, firstLine, 0, lastLine, lines[lastLine].Units.Count - 1));
         }
 
         public override void Copy()

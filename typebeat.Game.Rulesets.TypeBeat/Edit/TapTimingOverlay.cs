@@ -248,9 +248,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             int total = session.Queue.Count;
             var target = session.NextTarget;
 
+            string kind = session.Backing ? "backing vocal tap timing" : "tap timing";
+
             status.Text = session.QueueComplete
-                ? $"tap timing: {done}/{total} taps, queue complete, press Finish to commit"
-                : $"tap timing: {done}/{total} taps, line {(target?.LineIndex ?? 0) + 1}"
+                ? $"{kind}: {done}/{total} taps, queue complete, press Finish to commit"
+                : $"{kind}: {done}/{total} taps, line {(target?.LineIndex ?? 0) + 1}"
                   + (editorClock.IsRunning ? string.Empty : ", PAUSED");
 
             for (int i = 0; i < chips.Count; i++)

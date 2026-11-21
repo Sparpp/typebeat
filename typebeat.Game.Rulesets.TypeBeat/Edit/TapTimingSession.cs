@@ -51,6 +51,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             Queue = queue;
         }
 
+        /// <summary>Whether this pass times the BACKING track (backlog 501) rather than the typed words.</summary>
+        public bool Backing => Queue.Count > 0 && Queue[0].Backing;
+
         /// <summary>How many slots have been timed so far.</summary>
         public int TappedCount => taps.Count;
 
@@ -74,8 +77,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (target.LineIndex < 0 || target.LineIndex >= Lines.Count)
                 return string.Empty;
 
+            if (target.Backing)
+                return backingAt(target) is BackingVocal word ? word.Text : string.Empty;
+
             var units = Lines[target.LineIndex].Units;
             return target.UnitIndex >= 0 && target.UnitIndex < units.Count ? units[target.UnitIndex].Text : string.Empty;
+        }
+
+        /// <summary>The backing entry a backing slot points at, or null outside the sheet.</summary>
+        private BackingVocal? backingAt(TapTarget target)
+        {
+            if (target.LineIndex < 0 || target.LineIndex >= Lines.Count)
+                return null;
+
+            var words = Lines[target.LineIndex].BackingVocals;
+            return target.UnitIndex >= 0 && target.UnitIndex < words.Count ? words[target.UnitIndex] : null;
         }
 
         /// <summary>
@@ -93,6 +109,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (target.LineIndex < 0 || target.LineIndex >= Lines.Count)
                 return string.Empty;
 
+            // A backing entry is already the piece one tap times.
+            if (target.Backing)
+                return backingAt(target) is BackingVocal word ? word.Text : string.Empty;
+
             var units = Lines[target.LineIndex].Units;
 
             if (target.UnitIndex < 0 || target.UnitIndex >= units.Count)
@@ -103,7 +123,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         }
 
         /// <summary>Whether the slot at <paramref name="index"/> is a word's first syllable (its start).</summary>
-        public bool StartsWord(int index) => index >= 0 && index < Queue.Count && Queue[index].SyllableIndex == 0;
+        public bool StartsWord(int index)
+        {
+            if (index < 0 || index >= Queue.Count)
+                return false;
+
+            var target = Queue[index];
+            return target.Backing ? backingAt(target) is not BackingVocal { Joined: true } : target.SyllableIndex == 0;
+        }
 
         /// <summary>Whether the queued slot at <paramref name="index"/> opens a new lyric line.</summary>
         public bool StartsLine(int index)
@@ -173,6 +200,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         }
 
         /// <summary>The sheet this session commits to, built in one shot from the recorded taps.</summary>
-        public IReadOnlyList<LyricLine> BuildCommit() => TapTimingBuilder.Build(Lines, Queue, taps, releases);
+        public IReadOnlyList<LyricLine> BuildCommit() => Backing
+            ? BackingTapTiming.Build(Lines, Queue, taps, releases)
+            : TapTimingBuilder.Build(Lines, Queue, taps, releases);
     }
 }

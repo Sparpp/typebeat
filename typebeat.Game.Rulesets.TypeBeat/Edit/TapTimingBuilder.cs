@@ -15,8 +15,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// (<see cref="SyllableIndex"/> 0); a word carrying N <see cref="TimedUnit.SyllableBoundaries"/>
     /// contributes N+1 slots, so "remember me" with remember split three ways is four taps.
     /// Syllable 0 is the word's START; syllable s > 0 is the word's s'th subdivision boundary.
+    ///
+    /// <para>A <see cref="Backing"/> slot (backlog 501) is a BACKING entry instead: <see cref="UnitIndex"/>
+    /// indexes the line's <see cref="LyricLine.BackingVocals"/> and <see cref="SyllableIndex"/> is always 0
+    /// (each piece of a subdivided backing word is an entry, and a slot, of its own). A pass is all one
+    /// kind or the other (<see cref="BackingTapTiming"/>).</para>
     /// </summary>
-    public readonly record struct TapTarget(int LineIndex, int UnitIndex, int SyllableIndex = 0);
+    public readonly record struct TapTarget(int LineIndex, int UnitIndex, int SyllableIndex = 0, bool Backing = false);
 
     /// <summary>
     /// The pure heart of tap timing (the editor's "Time" button): turns a recorded list of song
