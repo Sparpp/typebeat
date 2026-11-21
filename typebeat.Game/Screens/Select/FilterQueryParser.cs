@@ -205,6 +205,8 @@ namespace typebeat.Game.Screens.Select
             ["none"] = BeatmapLanguage.Instrumental, ["nolyrics"] = BeatmapLanguage.Instrumental,
             ["misc"] = BeatmapLanguage.Other, ["various"] = BeatmapLanguage.Other,
             ["la"] = BeatmapLanguage.Latin, ["lat"] = BeatmapLanguage.Latin, ["latina"] = BeatmapLanguage.Latin,
+            ["ar"] = BeatmapLanguage.Arabic, ["ara"] = BeatmapLanguage.Arabic, ["arabi"] = BeatmapLanguage.Arabic,
+            ["عربي"] = BeatmapLanguage.Arabic, ["العربية"] = BeatmapLanguage.Arabic,
         };
 
         private static Operator parseOperator(string value)
