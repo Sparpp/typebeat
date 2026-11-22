@@ -182,6 +182,14 @@ namespace typebeat.Game.Configuration
             SetDefault(OsuSetting.EditorShowStoryboard, true);
 
             SetDefault(OsuSetting.EditorSubmissionLoadInBrowserAfterSubmission, true);
+
+            // The editor's Timing menu toggles (backlog 507): the mapper's own habits, so they carry
+            // over to every map and every session. The grid SUBDIVISION, whole and half notes included,
+            // is the map's own (BeatmapInfo.BeatDivisor) and is not here.
+            SetDefault(OsuSetting.EditorShowGrid, false);
+            SetDefault(OsuSetting.EditorSnapToGrid, false);
+            SetDefault(OsuSetting.EditorSnapToCaret, true);
+            SetDefault(OsuSetting.EditorMetronome, false);
         }
 
         /// <summary>
@@ -435,6 +443,18 @@ namespace typebeat.Game.Configuration
         /// A random id this install creates once and sends with API requests (<see cref="Online.API.APIAccess.ClientInstance"/>).
         /// </summary>
         ClientInstance,
+
+        /// <summary>The editor's Overlay grid toggle (backlog 507).</summary>
+        EditorShowGrid,
+
+        /// <summary>The editor's Snap to grid toggle (backlog 507).</summary>
+        EditorSnapToGrid,
+
+        /// <summary>The editor's Snap to caret toggle (backlog 507).</summary>
+        EditorSnapToCaret,
+
+        /// <summary>The editor's Metronome toggle (backlog 507).</summary>
+        EditorMetronome,
 
         // NOTE (backlog 483): the legacy osu! settings below were retired after an audit found they did
         // nothing in type!beat or misled the player. Their readers now use what the setting defaulted

@@ -12,6 +12,7 @@ using osu.Framework.Platform;
 using osu.Framework.Screens;
 using osu.Framework.Testing;
 using typebeat.Game.Beatmaps;
+using typebeat.Game.Configuration;
 using typebeat.Game.Database;
 using typebeat.Game.Online.API;
 using typebeat.Game.Overlays;
@@ -48,6 +49,9 @@ namespace typebeat.Game.Tests.Visual
 
         private TestBeatmapManager testBeatmapManager;
 
+        [Resolved]
+        private OsuConfigManager config { get; set; }
+
         [BackgroundDependencyLoader]
         private void load(GameHost host, AudioManager audio, RulesetStore rulesets)
         {
@@ -60,6 +64,14 @@ namespace typebeat.Game.Tests.Visual
         public override void SetUpSteps()
         {
             base.SetUpSteps();
+
+            // The Timing menu toggles are remembered across editor sessions (backlog 507), so a
+            // test that turns one on would otherwise hand it to every test after it.
+            AddStep("reset the timing toggles", () =>
+            {
+                foreach (var setting in new[] { OsuSetting.EditorShowGrid, OsuSetting.EditorSnapToGrid, OsuSetting.EditorSnapToCaret, OsuSetting.EditorMetronome })
+                    config.GetBindable<bool>(setting).SetDefault();
+            });
 
             AddStep("load editor", LoadEditor);
             AddUntilStep("wait for editor to load", () => Editor?.ReadyForUse == true);

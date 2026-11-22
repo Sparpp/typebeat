@@ -329,6 +329,13 @@ namespace typebeat.Game.Screens.Edit
             beatDivisor.SetArbitraryDivisor(editorBeatmap.BeatmapInfo.BeatDivisor);
             beatDivisor.BindValueChanged(divisor => editorBeatmap.BeatmapInfo.BeatDivisor = divisor.NewValue);
 
+            // The Timing menu's toggles are the mapper's habits rather than the map's, so they are
+            // remembered for every map (backlog 507). The subdivision is the map's, see OnExiting.
+            config.BindWith(OsuSetting.EditorShowGrid, timingSettings.ShowGrid);
+            config.BindWith(OsuSetting.EditorSnapToGrid, timingSettings.SnapToGrid);
+            config.BindWith(OsuSetting.EditorSnapToCaret, timingSettings.SnapToCaret);
+            config.BindWith(OsuSetting.EditorMetronome, timingSettings.Metronome);
+
             updateLastSavedHash();
 
             Schedule(() =>
@@ -888,6 +895,12 @@ namespace typebeat.Game.Screens.Edit
             {
                 var beatmap = r.Find<BeatmapInfo>(editorBeatmap.BeatmapInfo.ID);
                 beatmap?.EditorTimestamp = clock.CurrentTime;
+
+                // The grid subdivision is remembered for this map even when nothing was saved
+                // (backlog 507): changing it alone is not an unsaved change, so leaving would
+                // otherwise drop it. Only the local database row changes; the map file keeps the
+                // value it was last saved with until the next save writes this one.
+                beatmap?.BeatDivisor = beatDivisor.Value;
             });
 
             // `resetTrack()` MUST happen before `refetchBeatmap()`, because along other things, `refetchBeatmap()` causes a global working beatmap change,
