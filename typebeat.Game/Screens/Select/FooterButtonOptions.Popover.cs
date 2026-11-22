@@ -145,7 +145,7 @@ namespace typebeat.Game.Screens.Select
 
             protected override bool OnKeyDown(KeyDownEvent e)
             {
-                // don't absorb control as ToolbarRulesetSelector uses control + number to navigate
+                // don't absorb control + number, which other hotkeys use
                 if (e.ControlPressed) return false;
 
                 if (!e.Repeat && e.Key >= Key.Number1 && e.Key <= Key.Number9)
