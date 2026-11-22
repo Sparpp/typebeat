@@ -136,6 +136,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <param name="editorTimingPoints">Authored editor timing sections; null uses the import default.</param>
         /// <param name="editorEffectPoints">Existing kiai effect points to preserve on save.</param>
         /// <param name="beatDivisor">The editor subdivision preference.</param>
+        /// <param name="source">The song's source (the game, show or film it comes from), written to [Metadata].</param>
         /// <exception cref="ArgumentException">When the timing.json is not a supported v2 document.</exception>
         public static string GenerateOsu(string artist, string title, string audioFilename, string creator, string timingJsonText,
                                          double previewTime = -1, double audioLeadIn = 0, double? beatdropMs = null,

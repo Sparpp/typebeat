@@ -70,8 +70,7 @@ You can always install the aligner later from Settings.");
         public static LocalisableString InstallLocalAligner => new TranslatableString(getKey(@"install_local_aligner"), @"Install the local auto-aligner");
 
         /// <summary>
-        /// The Demucs paragraph shown under the aligner's install during first-run setup (aligner
-        /// version 12, where Demucs became an install of its own).
+        /// "In the editor, you can go to View -> Vocals waveform to toggle the waveform view between the full audio vs the audio with just the singing. To extract the track, the Demucs model is required to be installed locally."
         /// </summary>
         public static LocalisableString DemucsDescription => new TranslatableString(getKey(@"demucs_description"),
             @"In the editor, you can go to View -> Vocals waveform to toggle the waveform view between the full audio vs the audio with just the singing. To extract the track, the Demucs model is required to be installed locally.");

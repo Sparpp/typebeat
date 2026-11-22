@@ -33,7 +33,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// sound at once. Nothing plays while sample playback is disabled
     /// (<see cref="ISamplePlaybackDisabler"/>): the player sets it while the clock is catching up by
     /// more than a moment, while paused and during a skip, exactly when every other gameplay sample
-    /// is held. NOT <see cref="IFrameStableClock.CatchUpPending"/>: ordinary replay playback steps the
+    /// is held. NOT <see cref="typebeat.Game.Rulesets.UI.IFrameStableClock.CatchUpPending"/>: ordinary replay playback steps the
     /// clock onto each recorded key's own time, so that flag is set for nearly every replayed key.</para>
     /// </summary>
     public partial class KeyboardHitsounds : Component
