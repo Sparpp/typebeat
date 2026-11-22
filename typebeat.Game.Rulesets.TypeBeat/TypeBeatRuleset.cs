@@ -221,6 +221,8 @@ namespace typebeat.Game.Rulesets.TypeBeat
             new MetadataSection(),
             new ResourcesSection(),
             new TypeBeatSetupSection(),
+            // Beside the type!beat section, so the second row has two columns like the first (backlog 506).
+            new TypeBeatPaceSection(),
         };
 
         /// <summary>
