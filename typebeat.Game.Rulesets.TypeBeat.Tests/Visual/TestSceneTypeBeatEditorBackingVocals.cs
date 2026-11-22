@@ -118,10 +118,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                        && Math.Abs(strip().TimeAt(strip().ToLocalSpace(block.ScreenSpaceDrawQuad.TopRight).X) - 3600) < 5;
             });
 
-            AddAssert("the anchors spread evenly across the line by default", () =>
+            // Unplaced anchors spread across the line's own lyric width, between its hollow edge rings
+            // (backlog 509): a quarter and three quarters of the way from one ring to the other.
+            AddUntilStep("the anchors spread evenly across the line's width by default", () =>
             {
+                if (strip().BackingLineEdges(lineAt(0)) is not { } edges)
+                    return false;
+
+                double band(double fraction) => 1000 + fraction * 4000; // the line's band is [1000, 5000]
                 double at(int i) => strip().TimeAt(strip().ToLocalSpace(strip().BackingAnchorOf(lineAt(0), i).ScreenSpaceDrawQuad.Centre).X);
-                return Math.Abs(at(0) - 2000) < 5 && Math.Abs(at(1) - 4000) < 5; // a quarter and three quarters of [1000, 5000]
+                double span = edges.End - edges.Start;
+
+                return Math.Abs(at(0) - band(edges.Start + span / 4)) < 5 && Math.Abs(at(1) - band(edges.Start + span * 3 / 4)) < 5;
             });
 
             AddAssert("a dotted line joins each block's bottom-centre to its anchor", () => Enumerable.Range(0, 2).All(i =>

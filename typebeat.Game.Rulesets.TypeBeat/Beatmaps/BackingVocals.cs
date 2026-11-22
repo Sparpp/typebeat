@@ -79,6 +79,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         public static double AnchorOf(IReadOnlyList<BackingVocal> words, int index)
             => words[index].Anchor is double anchor ? Math.Clamp(anchor, 0, 1) : DefaultAnchor(index, words.Count);
 
+        /// <summary>
+        /// Where word <paramref name="index"/> pops up as a fraction of the STAGE, for a line that renders
+        /// <paramref name="lineShare"/> of the stage's width, centred. A mapper's own anchor is already a
+        /// stage fraction (PR 49) and is returned as stored; an unplaced word is spread across the LINE'S
+        /// width instead (backlog 509), so default backing vocals sit over the lyric rather than out at
+        /// the stage's edges beside a short line.
+        /// </summary>
+        public static double StageAnchorOf(IReadOnlyList<BackingVocal> words, int index, double lineShare)
+        {
+            if (words[index].Anchor is double anchor)
+                return Math.Clamp(anchor, 0, 1);
+
+            double share = double.IsFinite(lineShare) ? Math.Clamp(lineShare, 0, 1) : 1;
+            return 0.5 - share / 2 + DefaultAnchor(index, words.Count) * share;
+        }
+
         /// <summary>The first piece of the word entry <paramref name="index"/> belongs to.</summary>
         public static int RunStart(IReadOnlyList<BackingVocal> words, int index)
         {

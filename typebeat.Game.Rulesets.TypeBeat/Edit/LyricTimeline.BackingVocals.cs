@@ -396,8 +396,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             return (x, Math.Max(4, PositionOf(end) - x));
         }
 
-        /// <summary>Where backing word <paramref name="index"/>'s anchor sits on screen: its fraction of the way across the line's band.</summary>
-        private float backingAnchorX(LyricLine line, int index) => backingFractionX(line, BackingVocals.AnchorOf(line.BackingVocals, index));
+        /// <summary>
+        /// Where backing word <paramref name="index"/>'s anchor sits on screen: its fraction of the way
+        /// across the line's band. An unplaced word spreads across the line's measured lyric width (the
+        /// hollow rings, backlog 509), the whole band until the line has been measured.
+        /// </summary>
+        private float backingAnchorX(TypeBeatHitObject hitObject, int index)
+        {
+            double share = BackingLineEdges(hitObject) is { } edges ? edges.End - edges.Start : 1;
+            return backingFractionX(hitObject.Line, BackingVocals.StageAnchorOf(hitObject.Line.BackingVocals, index, share));
+        }
 
         /// <summary>
         /// The fraction of the way across <paramref name="line"/>'s band that a local X sits at, clamped
@@ -943,7 +951,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 }
 
                 Alpha = state.ActiveLine.Value == HitObject ? 1 : 0.55f;
-                X = parent.backingAnchorX(HitObject.Line, Index);
+                X = parent.backingAnchorX(HitObject, Index);
                 Y = y;
 
                 // Hovered or dragged, the ring turns the caret's yellow and grows a little, keeping its
@@ -986,7 +994,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 strip.selectBackingWord(HitObject, Index);
 
                 // Grabbed off-centre, the dot keeps that offset rather than jumping to the cursor.
-                grabOffset = strip.ToLocalSpace(e.ScreenSpaceMouseDownPosition).X - strip.backingAnchorX(HitObject.Line, Index);
+                grabOffset = strip.ToLocalSpace(e.ScreenSpaceMouseDownPosition).X - strip.backingAnchorX(HitObject, Index);
 
                 dragging = true;
                 // The resize cursor stays up for the whole drag, as it does for every other edge.
@@ -1113,7 +1121,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 var (x, width) = parent.backingBlockSpan(words[Index]);
                 var from = new Vector2(x + width / 2, blockBottom * laneHeight);
-                var to = new Vector2(parent.backingAnchorX(HitObject.Line, Index), anchorY * laneHeight - backing_anchor_radius);
+                var to = new Vector2(parent.backingAnchorX(HitObject, Index), anchorY * laneHeight - backing_anchor_radius);
                 var delta = to - from;
                 float length = delta.Length;
 

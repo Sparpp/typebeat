@@ -125,10 +125,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             backingLaidOutStage = stage;
             backingLaidOutScale = contentScale;
 
+            // How much of the stage the line itself covers: unplaced words spread across that (backlog 509).
+            double lineShare = stage > 0 ? cellX[^1] * contentScale / stage : 1;
+
             for (int i = 0; i < backingTexts.Length; i++)
             {
                 backingLaidOutWidths[i] = backingTexts[i].DrawWidth;
-                float x = BackingRestX(BackingVocals.AnchorOf(backingWords, i), stage, cellX[^1], contentScale, backingTexts[i].DrawWidth);
+                float x = BackingRestX(BackingVocals.StageAnchorOf(backingWords, i, lineShare), stage, cellX[^1], contentScale, backingTexts[i].DrawWidth);
                 backingRest[i] = new Vector2(x, -lift);
             }
 
